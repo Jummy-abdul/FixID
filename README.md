@@ -54,7 +54,7 @@ Previous paths (`/people`, `/transactions`, `/card-designs`, `/credential-types`
 
 The top bar contains only the App Launcher and the profile menu (`/profile`). Applications are listed in `src/config/applications.ts`; external destinations are read from `VITE_FIXIAM_URL` and `VITE_ADMIN_URL` and shown as "Not configured" until set.
 
-When deploying, configure the host to serve `index.html` for unknown paths so deep links and refresh work.
+Deployed on Vercel from this repository. `vercel.json` rewrites all paths to `index.html` so deep links and refresh work; other hosts need the same fallback.
 
 ## Data model
 
