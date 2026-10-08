@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-slate-50 font-sans text-slate-900; }
+  input[type='search']::-webkit-search-cancel-button { cursor: pointer; }
+}

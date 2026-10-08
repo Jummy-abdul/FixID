@@ -1,0 +1,220 @@
+/**
+ * FixID domain model.
+ *
+ * Ownership boundaries (per updated product decisions):
+ * - ID Switch owns canonical identities (`CanonicalIdentity`). FixID only stores a reference.
+ * - FixID owns the organization-specific context (`Member`), credential configuration
+ *   (`CredentialType`, `CardDesign`), issuance (`Credential`), verification activities
+ *   (`VerificationPoint`) and `Transaction`s.
+ * - Seamfix Wallet owns the holder experience; FixID only tracks delivery status.
+ */
+
+export type ISODate = string;
+
+export type Industry = 'education' | 'corporate' | 'healthcare' | 'events' | 'membership';
+
+export interface Organization {
+  id: string;
+  name: string;
+  shortName: string;
+  industry: Industry;
+  country: string;
+  timezone: string;
+  contactEmail: string;
+  /** Default label for people in this org, e.g. "Student", "Employee". */
+  memberLabel: string;
+  defaultCardDesignId: string;
+  integrations: OrganizationIntegrations;
+  createdAt: ISODate;
+}
+
+export interface OrganizationIntegrations {
+  idSwitch: { connected: boolean; tenantRef: string };
+  seamfixWallet: { connected: boolean; issuerDid: string };
+  /** Fixiam is an independent workforce IAM product and is optional for FixID. */
+  fixiam: { connected: boolean };
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'Owner' | 'Administrator' | 'Operator' | 'Auditor';
+  /** Organizations this admin can act within. */
+  organizationIds: string[];
+}
+
+/** Canonical identity record held by ID Switch. Never persisted inside FixID state. */
+export interface CanonicalIdentity {
+  idSwitchId: string;
+  givenName: string;
+  familyName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: ISODate;
+  nationality: string;
+  verificationLevel: 'basic' | 'verified' | 'high-assurance';
+  /** Other Seamfix products that reference this canonical identity, e.g. Fixiam. */
+  linkedProducts: ('Fixiam' | 'FixID')[];
+}
+
+export type MemberStatus = 'active' | 'inactive' | 'pending';
+
+/** Organization-specific identity context. Minimal by design. */
+export interface Member {
+  id: string;
+  organizationId: string;
+  idSwitchId: string;
+  /** Snapshot of display name for fast listing; source of truth remains ID Switch. */
+  displayName: string;
+  relationship: string;
+  unit: string;
+  /** Organization identifier for this person, e.g. matric or staff number, with its source system. */
+  externalRef?: { label: string; value: string; source: string };
+  status: MemberStatus;
+  /** How the ID Switch identity was obtained when the person was onboarded (PRD §15.4). */
+  resolution: 'linked-existing' | 'created-new';
+  /** Biometric factor status only; raw biometric data is never exposed (PRD §18.6). */
+  factors: { face: boolean; fingerprint: boolean };
+  joinedAt: ISODate;
+}
+
+export type ValidityRule =
+  | { kind: 'duration'; months: number }
+  | { kind: 'fixed-date'; date: ISODate }
+  | { kind: 'no-expiry' };
+
+export type EffectiveDateRule = 'on-issue' | 'custom-date' | 'start-of-term';
+
+export interface CredentialType {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string;
+  /** Identifier format, e.g. prefix "NBU-STU-" with a 6 digit sequence. */
+  identifier: { prefix: string; digits: number; nextSequence: number };
+  effectiveDate: EffectiveDateRule;
+  validity: ValidityRule;
+  renewal: { allowed: boolean; windowDays: number };
+  lifecycle: { requiresApproval: boolean; allowSuspension: boolean; autoExpire: boolean };
+  cardDesignId: string;
+  status: 'active' | 'draft' | 'retired';
+  createdAt: ISODate;
+}
+
+export interface CardDesign {
+  id: string;
+  organizationId: string;
+  name: string;
+  isDefault: boolean;
+  primaryColor: string;
+  accentColor: string;
+  textColor: string;
+  layout: 'horizontal' | 'vertical';
+  showPhoto: boolean;
+  showQr: boolean;
+  fields: CardField[];
+}
+
+export type CardField = 'name' | 'identifier' | 'relationship' | 'unit' | 'expiry' | 'issued';
+
+export type CredentialStatus = 'active' | 'pending' | 'suspended' | 'revoked' | 'expired';
+
+export type WalletDeliveryStatus = 'delivered' | 'pending' | 'failed' | 'not-sent';
+
+export interface Credential {
+  id: string;
+  organizationId: string;
+  memberId: string;
+  credentialTypeId: string;
+  identifier: string;
+  status: CredentialStatus;
+  issuedAt: ISODate;
+  effectiveFrom: ISODate;
+  expiresAt: ISODate | null;
+  wallet: { status: WalletDeliveryStatus; updatedAt: ISODate };
+}
+
+export type VerificationMethod = 'qr' | 'nfc' | 'face' | 'fingerprint' | 'manual';
+
+export type AssuranceLevel = 'low' | 'substantial' | 'high';
+
+export type ActivityPurpose = 'entry' | 'examination' | 'attendance' | 'service' | 'membership';
+
+/**
+ * A configurable verification activity (PRD §10, FR-026..FR-028): purpose, eligibility,
+ * methods, assurance, fallback, context and outcome on one reusable engine.
+ */
+export interface VerificationActivity {
+  id: string;
+  organizationId: string;
+  name: string;
+  purpose: ActivityPurpose;
+  description: string;
+  location: string;
+  eligibility: {
+    credentialTypeIds: string[];
+    relationships: string[];
+    /** Optional explicit roster, e.g. students registered for CSC 401. */
+    rosterMemberIds?: string[];
+    requireActiveMember: boolean;
+  };
+  primaryMethod: VerificationMethod;
+  /** Fallback is only used when explicitly permitted and must respect the assurance level. */
+  fallback: { permitted: boolean; methods: VerificationMethod[] };
+  assuranceLevel: AssuranceLevel;
+  /** What happens on an allow decision, e.g. "Grant entry", "Record attendance". */
+  outcome: string;
+  schedule: { kind: 'always' } | { kind: 'window'; startsAt: ISODate; endsAt: ISODate };
+  status: 'active' | 'paused' | 'draft' | 'completed';
+  createdAt: ISODate;
+}
+
+export type VerificationResult = 'success' | 'failed' | 'rejected';
+export type Decision = 'allow' | 'deny' | 'indeterminate';
+
+/** A single verification attempt and its outcome (PRD §19.3). */
+export interface Transaction {
+  id: string;
+  organizationId: string;
+  activityId: string;
+  credentialId: string | null;
+  memberId: string | null;
+  method: VerificationMethod;
+  fallbackUsed: boolean;
+  result: VerificationResult;
+  decision: Decision;
+  assuranceAchieved: AssuranceLevel | null;
+  reason: string;
+  verifier: string;
+  occurredAt: ISODate;
+}
+
+export type AuditAction =
+  | 'identity.resolved'
+  | 'identity.linked'
+  | 'credential.issued'
+  | 'credential.activated'
+  | 'credential.suspended'
+  | 'credential.revoked'
+  | 'credential.renewed'
+  | 'activity.updated'
+  | 'organization.updated'
+  | 'wallet.delivered'
+  | 'wallet.failed';
+
+/** Administrative and security-sensitive audit record (PRD §19.4). */
+export interface AuditEvent {
+  id: string;
+  organizationId: string;
+  action: AuditAction;
+  actor: string;
+  actorType: 'admin' | 'system' | 'integration';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'activity' | 'organization';
+  resourceId: string;
+  result: 'success' | 'failure';
+  summary: string;
+  occurredAt: ISODate;
+  /** Optional link target inside the app. */
+  href?: string;
+}
