@@ -41,7 +41,7 @@ export function CredentialTypeDetailPage() {
             <CardHeader title="Rules" />
             <CardBody>
               <DescriptionList items={[
-                { label: 'Identifier format', value: <span className="font-mono">{type.identifier.prefix}{'#'.repeat(type.identifier.digits)}</span>, hint: `Next: ${nextId}` },
+                { label: 'Identifier', value: type.identifier.label, hint: nextId ? `Generated as ${type.identifier.prefix}${'#'.repeat(type.identifier.digits)} · next ${nextId}` : 'Entered for each person at issuance; must be unique' },
                 { label: 'Effective date', value: EFFECTIVE_DATE_LABEL[type.effectiveDate] },
                 { label: 'Validity', value: validityLabel(type.validity) },
                 { label: 'Renewal', value: type.renewal.allowed ? `Allowed, window opens ${type.renewal.windowDays} days before expiry` : 'Not renewable' },
@@ -55,7 +55,7 @@ export function CredentialTypeDetailPage() {
             <CardHeader title="If issued today" description="Calculated from the rules above by the issuance service" />
             <CardBody>
               <DescriptionList items={[
-                { label: 'Identifier', value: <span className="font-mono">{nextId}</span> },
+                { label: 'Identifier', value: nextId ? <span className="font-mono">{nextId}</span> : 'Entered at issuance' },
                 { label: 'Effective from', value: type.effectiveDate === 'custom-date' ? 'Chosen by the issuer (defaults to today)' : formatDate(preview.effectiveFrom.toISOString()) },
                 { label: 'Expires', value: preview.expiresAt ? formatDate(preview.expiresAt.toISOString()) : 'Does not expire' },
               ]} />
@@ -87,7 +87,7 @@ export function CredentialTypeDetailPage() {
           <CardHeader title="Card design" description={design.name} action={<Link to="/templates" className="text-sm font-medium text-brand-600 hover:text-brand-700">Designs</Link>} />
           <CardBody className="flex justify-center bg-slate-50/60 py-8">
             <DigitalIdCard design={design} organization={organization} content={{
-              name: 'Sample Holder', identifier: nextId, credentialTypeName: type.name, relationship: organization.memberLabel,
+              name: 'Sample Holder', identifier: nextId ?? `${type.identifier.label}`, credentialTypeName: type.name, relationship: organization.memberLabel,
               unit: 'Sample unit', expiresAt: preview.expiresAt?.toISOString() ?? null, issuedAt: new Date().toISOString(),
             }} />
           </CardBody>

@@ -1,8 +1,9 @@
 import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
-import type { AuditEvent, Organization } from '@/domain/types';
+import type { AuditEvent, Credential, Organization } from '@/domain/types';
+import { applyCredentialSetup, applyIssuance, applyWalletUpdate, type CredentialSetupInput, type IssuanceInput } from './operations';
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 export const STORAGE_KEY = 'fixid.prototype.state';
 
 export interface Session {
@@ -25,6 +26,9 @@ export type OrganizationProfileUpdate = Pick<
 export type Action =
   | { type: 'session/switchOrganization'; organizationId: string }
   | { type: 'organization/updateProfile'; organizationId: string; changes: OrganizationProfileUpdate; at: string }
+  | { type: 'setup/credential'; input: CredentialSetupInput }
+  | { type: 'issuance/issue'; input: IssuanceInput }
+  | { type: 'wallet/update'; credentialId: string; status: Credential['wallet']['status']; at: string }
   | { type: 'demo/reset'; state: AppState };
 
 export function createInitialState(now: Date = new Date()): AppState {
@@ -78,6 +82,16 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
+    case 'setup/credential': {
+      const r = applyCredentialSetup(state, action.input);
+      return r.ok ? r.state : state;
+    }
+    case 'issuance/issue': {
+      const r = applyIssuance(state, action.input);
+      return r.ok ? r.state : state;
+    }
+    case 'wallet/update':
+      return applyWalletUpdate(state, action.credentialId, action.status, action.at);
     case 'demo/reset':
       return action.state;
     default:

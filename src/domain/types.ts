@@ -69,7 +69,10 @@ export interface Member {
   idSwitchId: string;
   /** Snapshot of display name for fast listing; source of truth remains ID Switch. */
   displayName: string;
+  /** Display name of the user type, e.g. "Student". Kept for listing; `userTypeId` is the reference. */
   relationship: string;
+  /** Organization-specific user type. */
+  userTypeId?: string;
   unit: string;
   /** Organization identifier for this person, e.g. matric or staff number, with its source system. */
   externalRef?: { label: string; value: string; source: string };
@@ -78,7 +81,22 @@ export interface Member {
   resolution: 'linked-existing' | 'created-new';
   /** Biometric factor status only; raw biometric data is never exposed (PRD §18.6). */
   factors: { face: boolean; fingerprint: boolean };
+  /** Optional profile photo for the digital ID (downscaled data URL). Part of the FixID profile. */
+  photoDataUrl?: string;
   joinedAt: ISODate;
+}
+
+/**
+ * Organization-specific category of person, e.g. Student, Staff, Member.
+ * Points at the credential type normally issued to this category; the two stay separate concepts.
+ */
+export interface UserType {
+  id: string;
+  organizationId: string;
+  name: string;
+  /** Default credential type issued to this user type, once configured. */
+  credentialTypeId: string | null;
+  createdAt: ISODate;
 }
 
 export type ValidityRule =
@@ -93,8 +111,11 @@ export interface CredentialType {
   organizationId: string;
   name: string;
   description: string;
-  /** Identifier format, e.g. prefix "NBU-STU-" with a 6 digit sequence. */
-  identifier: { prefix: string; digits: number; nextSequence: number };
+  /**
+   * Identifier rules. `generated`: prefix + zero-padded sequence (e.g. NBU-STU-000123).
+   * `manual`: supplied per person (e.g. an existing matric number). Unique per credential type either way.
+   */
+  identifier: { label: string; mode: 'generated' | 'manual'; prefix: string; digits: number; nextSequence: number };
   effectiveDate: EffectiveDateRule;
   validity: ValidityRule;
   renewal: { allowed: boolean; windowDays: number };
@@ -135,6 +156,8 @@ export interface Credential {
   effectiveFrom: ISODate;
   expiresAt: ISODate | null;
   wallet: { status: WalletDeliveryStatus; updatedAt: ISODate };
+  /** Idempotency key of the issuance request that created this credential. */
+  issuanceRequestId?: string;
 }
 
 export type VerificationMethod = 'qr' | 'nfc' | 'face' | 'fingerprint' | 'manual';
@@ -195,6 +218,9 @@ export interface Transaction {
 export type AuditAction =
   | 'identity.resolved'
   | 'identity.linked'
+  | 'identity.created'
+  | 'user-type.created'
+  | 'credential-type.created'
   | 'credential.issued'
   | 'credential.activated'
   | 'credential.suspended'
@@ -212,7 +238,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'activity' | 'organization';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'user-type' | 'activity' | 'organization';
   resourceId: string;
   result: 'success' | 'failure';
   summary: string;

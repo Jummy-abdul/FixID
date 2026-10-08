@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { Link2, UserPlus, Users } from 'lucide-react';
-import { Avatar, Badge, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice } from '@/components/ui';
+import { Avatar, Badge, ButtonLink, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice } from '@/components/ui';
 import { MemberStatusBadge } from '@/components/domain/StatusBadges';
-import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDate } from '@/lib/dates';
 import { useOrgData } from '@/store/AppStore';
@@ -41,7 +40,7 @@ export function PeoplePage() {
       <PageHeader
         title="Users"
         description="People linked to your organization. Canonical identity details come from ID Switch; FixID keeps only your organization's context."
-        actions={<PlannedButton variant="primary" icon={<UserPlus className="h-4 w-4" />} info={PLANNED.onboardAndIssue}>Add person & issue</PlannedButton>}
+        actions={<ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>}
       />
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
@@ -70,7 +69,7 @@ export function PeoplePage() {
             {
               key: 'name', header: 'Name', cell: (m) => (
                 <span className="flex items-center gap-3">
-                  <Avatar name={m.displayName} size="sm" />
+                  <Avatar name={m.displayName} photoUrl={m.photoDataUrl} size="sm" />
                   <span>
                     <span className="block font-medium text-slate-900">{m.displayName}</span>
                     <span className="block font-mono text-[11px] text-slate-500">{m.idSwitchId}</span>
@@ -79,7 +78,7 @@ export function PeoplePage() {
               ),
             },
             { key: 'rel', header: 'Relationship', cell: (m) => m.relationship },
-            { key: 'unit', header: 'Unit', cell: (m) => <span className="text-slate-600">{m.unit}</span> },
+            { key: 'unit', header: 'Unit', cell: (m) => <span className="text-slate-600">{m.unit || '—'}</span> },
             { key: 'ref', header: 'Reference', cell: (m) => m.externalRef ? <span className="font-mono text-xs text-slate-600">{m.externalRef.value}</span> : <span className="text-slate-400">—</span> },
             { key: 'creds', header: 'Active credentials', cell: (m) => <span className="tabular-nums">{credCount.get(m.id) ?? 0}</span> },
             {

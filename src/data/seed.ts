@@ -10,6 +10,7 @@ import type {
   Member,
   Organization,
   Transaction,
+  UserType,
   VerificationActivity,
   VerificationResult,
   WalletDeliveryStatus,
@@ -24,12 +25,18 @@ export interface SeedData {
   admin: AdminUser;
   cardDesigns: CardDesign[];
   credentialTypes: CredentialType[];
+  userTypes: UserType[];
   members: Member[];
   credentials: Credential[];
   activities: VerificationActivity[];
   transactions: Transaction[];
   audit: AuditEvent[];
 }
+
+/** A newly created organization with no users, credentials or activities: the first-time journey starts here. */
+export const NEW_ORGANIZATION_ID = 'org_crestfield';
+/** Established sample organization used by the "Active dashboard" preview. */
+export const SAMPLE_ORGANIZATION_ID = 'org_northbridge';
 
 type TypeBlueprint = Omit<CredentialType, 'id' | 'organizationId' | 'cardDesignId' | 'createdAt' | 'identifier'> & {
   key: string;
@@ -313,6 +320,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
   const organizations: Organization[] = [];
   const cardDesigns: CardDesign[] = [];
   const credentialTypes: CredentialType[] = [];
+  const userTypes: UserType[] = [];
   const members: Member[] = [];
   const credentials: Credential[] = [];
   const activities: VerificationActivity[] = [];
@@ -340,13 +348,24 @@ export function buildSeed(now: Date = new Date()): SeedData {
         ...rest,
         id: `${orgId}_ct_${key}`,
         organizationId: orgId,
-        identifier: { prefix, digits, nextSequence: 1 },
+        identifier: { label: 'ID number', mode: 'generated', prefix, digits, nextSequence: 1 },
         cardDesignId: bp.extraDesign?.forTypeKey === key && extraDesignId ? extraDesignId : defaultDesignId,
         createdAt: iso(addMonths(today, -12)),
       };
       typeIdByKey.set(key, type.id);
       credentialTypes.push(type);
       typesForOrg.push({ type, holders });
+    }
+
+    // User types: one per relationship, pointing at the credential normally issued to it.
+    const userTypeIdByName = new Map<string, string>();
+    for (const { value } of bp.relationships) {
+      const id = `${orgId}_ut_${value.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      userTypeIdByName.set(value, id);
+      userTypes.push({
+        id, organizationId: orgId, name: value, createdAt: iso(addMonths(today, -12)),
+        credentialTypeId: typesForOrg.find((t) => t.type.status === 'active' && t.holders.includes(value))?.type.id ?? null,
+      });
     }
 
     // Members: FixID context referencing ID Switch identities.
@@ -363,6 +382,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
         idSwitchId: identity.idSwitchId,
         displayName: `${identity.givenName} ${identity.familyName}`,
         relationship,
+        userTypeId: userTypeIdByName.get(relationship),
         unit: rng.pick(bp.units),
         externalRef: bp.externalRef?.(relationship, rng),
         status,
@@ -505,6 +525,30 @@ export function buildSeed(now: Date = new Date()): SeedData {
     }
   }
 
+  // A brand-new organization: only the default digital ID design every organization receives.
+  organizations.unshift({
+    id: NEW_ORGANIZATION_ID,
+    name: 'Crestfield Academy',
+    shortName: 'CFA',
+    industry: 'education',
+    country: 'Nigeria',
+    timezone: 'Africa/Lagos',
+    contactEmail: 'admin@crestfield.edu.ng',
+    memberLabel: 'Member',
+    defaultCardDesignId: `${NEW_ORGANIZATION_ID}_design_default`,
+    integrations: {
+      idSwitch: { connected: true, tenantRef: 'ids-tenant-cfa-01' },
+      seamfixWallet: { connected: true, issuerDid: 'did:sfx:issuer:crestfield' },
+      fixiam: { connected: false },
+    },
+    createdAt: iso(today),
+  });
+  cardDesigns.unshift({
+    id: `${NEW_ORGANIZATION_ID}_design_default`, organizationId: NEW_ORGANIZATION_ID, name: 'Default digital ID', isDefault: true,
+    primaryColor: '#1d2d8b', accentColor: '#f5b301', textColor: '#ffffff', layout: 'horizontal',
+    showPhoto: true, showQr: true, fields: ['name', 'identifier', 'relationship', 'expiry'],
+  });
+
   transactions.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
   transactions.forEach((t, i) => { t.id = `TXN-${String(transactions.length - i).padStart(6, '0')}`; });
   audit.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
@@ -518,6 +562,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     },
     cardDesigns,
     credentialTypes,
+    userTypes,
     members,
     credentials,
     activities,

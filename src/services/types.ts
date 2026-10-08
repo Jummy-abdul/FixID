@@ -1,4 +1,4 @@
-import type { CanonicalIdentity, Credential, CredentialType, Organization } from '@/domain/types';
+import type { CanonicalIdentity, Credential, CredentialType, Organization, WalletDeliveryStatus } from '@/domain/types';
 
 export interface ServiceHealth {
   ok: boolean;
@@ -7,16 +7,50 @@ export interface ServiceHealth {
   checkedAt: string;
 }
 
-/** ID Switch: owner of canonical identities. FixID only reads and references them. */
+export interface IdentityQuery {
+  givenName: string;
+  familyName: string;
+  email?: string;
+  phone?: string;
+}
+
+/**
+ * Outcome of resolving a person against ID Switch.
+ * - match: email or phone on record AND the name agree: safe to reuse.
+ * - conflict: email or phone belongs to an identity with a different name (or to two identities): never merged.
+ * - possible: name-only similarity; too weak to link automatically.
+ * - none: no existing identity found.
+ */
+export type ResolutionResult =
+  | { kind: 'match'; identity: CanonicalIdentity; matchedOn: ('email' | 'phone')[] }
+  | { kind: 'conflict'; field: 'email' | 'phone' | 'email-and-phone' }
+  | { kind: 'possible'; candidates: CanonicalIdentity[] }
+  | { kind: 'none' };
+
+export class IdSwitchUnavailableError extends Error {
+  constructor() {
+    super('ID Switch is temporarily unavailable.');
+    this.name = 'IdSwitchUnavailableError';
+  }
+}
+
+/** ID Switch: owner of canonical identities. FixID resolves, references and requests creation; it never stores them. */
 export interface IdSwitchService {
   getIdentity(idSwitchId: string): Promise<CanonicalIdentity | null>;
   searchIdentities(query: string, limit?: number): Promise<CanonicalIdentity[]>;
+  /** Throws IdSwitchUnavailableError when the service cannot be reached. */
+  resolveIdentity(query: IdentityQuery): Promise<ResolutionResult>;
+  /** Requests a new canonical identity. Throws when unavailable or when the email/phone is already on record. */
+  createIdentity(query: IdentityQuery): Promise<CanonicalIdentity>;
   checkHealth(org: Organization): Promise<ServiceHealth>;
+  /** Prototype controls for the simulation. */
+  simulation: { isOutage(): boolean; setOutage(on: boolean): void; reset(): void };
 }
 
 /** Credential issuance rules: identifier generation and validity calculation. Pure and synchronous. */
 export interface CredentialIssuanceService {
-  previewIdentifier(type: CredentialType): string;
+  /** Next generated identifier, or null when identifiers are entered manually. */
+  previewIdentifier(type: CredentialType): string | null;
   computeValidity(type: CredentialType, issueDate: Date, effectiveDate?: Date): { effectiveFrom: Date; expiresAt: Date | null };
   renewalOpensAt(type: CredentialType, credential: Credential): Date | null;
 }
@@ -24,6 +58,8 @@ export interface CredentialIssuanceService {
 /** Seamfix Wallet: credential holder experience. FixID only pushes credentials and tracks delivery. */
 export interface WalletService {
   checkHealth(org: Organization): Promise<ServiceHealth>;
+  /** Makes an issued credential available to the holder's Seamfix Wallet (simulated). */
+  deliver(org: Organization, credential: Credential): Promise<WalletDeliveryStatus>;
   getHolderLink(credential: Credential): string;
 }
 

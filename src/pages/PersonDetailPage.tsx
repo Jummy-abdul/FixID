@@ -5,6 +5,8 @@ import { Avatar, Badge, Button, Card, CardBody, CardHeader, DescriptionList, Emp
 import { CredentialStatusBadge, MemberStatusBadge, SimulatedBadge, WalletBadge } from '@/components/domain/StatusBadges';
 import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { TransactionsTable } from '@/components/domain/TransactionsTable';
+import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
+import { cn } from '@/lib/cn';
 import type { CanonicalIdentity } from '@/domain/types';
 import { formatDate } from '@/lib/dates';
 import { useServices } from '@/services/ServicesProvider';
@@ -15,11 +17,12 @@ type LoadState = { status: 'loading' } | { status: 'ready'; identity: CanonicalI
 
 export function PersonDetailPage() {
   const { personId } = useParams();
-  const { memberById, credentials, credentialTypeById, transactions } = useOrgData();
+  const { organization, memberById, credentials, credentialTypeById, cardDesignById, transactions } = useOrgData();
   const { idSwitch } = useServices();
   const member = personId ? memberById.get(personId) : undefined;
   const [identity, setIdentity] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [selectedCredentialId, setSelectedCredentialId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!member) return;
@@ -35,13 +38,16 @@ export function PersonDetailPage() {
 
   const memberCreds = credentials.filter((c) => c.memberId === member.id);
   const memberTx = transactions.filter((t) => t.memberId === member.id);
+  const selected = memberCreds.find((c) => c.id === selectedCredentialId) ?? memberCreds.find((c) => c.status === 'active') ?? memberCreds[0];
+  const selectedType = selected ? credentialTypeById.get(selected.credentialTypeId) : undefined;
+  const selectedDesign = selectedType ? cardDesignById.get(selectedType.cardDesignId) ?? cardDesignById.get(organization.defaultCardDesignId) : undefined;
 
   return (
     <>
       <PageHeader
         breadcrumbs={[{ label: 'Users', to: '/users' }, { label: member.displayName }]}
-        title={<span className="flex items-center gap-3"><Avatar name={member.displayName} size="lg" />{member.displayName}</span>}
-        meta={<><MemberStatusBadge status={member.status} /><Badge>{member.relationship}</Badge><Badge tone="neutral">{member.unit}</Badge></>}
+        title={<span className="flex items-center gap-3"><Avatar name={member.displayName} photoUrl={member.photoDataUrl} size="lg" />{member.displayName}</span>}
+        meta={<><MemberStatusBadge status={member.status} /><Badge>{member.relationship}</Badge>{member.unit && <Badge tone="neutral">{member.unit}</Badge>}</>}
         actions={<PlannedButton icon={<BadgePlus className="h-4 w-4" />} info={PLANNED.issueAdditional}>Issue another credential</PlannedButton>}
       />
 
@@ -68,8 +74,8 @@ export function PersonDetailPage() {
               <DescriptionList items={[
                 { label: 'ID Switch ID', value: <span className="font-mono">{identity.identity.idSwitchId}</span> },
                 { label: 'Legal name', value: `${identity.identity.givenName} ${identity.identity.familyName}` },
-                { label: 'Email', value: identity.identity.email },
-                { label: 'Phone', value: identity.identity.phone },
+                { label: 'Email', value: identity.identity.email || '—' },
+                { label: 'Phone', value: identity.identity.phone || '—' },
                 { label: 'Date of birth', value: formatDate(identity.identity.dateOfBirth) },
                 { label: 'Assurance', value: <Badge tone={identity.identity.verificationLevel === 'basic' ? 'neutral' : 'success'}>{identity.identity.verificationLevel.replace('-', ' ')}</Badge> },
                 {
@@ -87,8 +93,8 @@ export function PersonDetailPage() {
           <CardHeader title="Organization context" description="Owned by FixID for this organization only." action={<Badge tone="brand">FixID</Badge>} />
           <CardBody>
             <DescriptionList items={[
-              { label: 'Relationship', value: member.relationship },
-              { label: 'Unit', value: member.unit },
+              { label: 'User type', value: member.relationship },
+              ...(member.unit ? [{ label: 'Unit', value: member.unit }] : []),
               ...(member.externalRef ? [{ label: member.externalRef.label, value: <span className="font-mono">{member.externalRef.value}</span>, hint: `Source: ${member.externalRef.source}` }] : []),
               {
                 label: 'Identity resolution', value: member.resolution === 'linked-existing'
@@ -116,21 +122,33 @@ export function PersonDetailPage() {
           <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No credentials issued"
             description={member.status === 'pending' ? 'Onboarding is pending. A credential can be issued once onboarding completes.' : 'This person has not been issued a credential yet.'} />
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {memberCreds.map((c) => (
-              <li key={c.id}>
-                <Link to={`/credentials/${c.id}`} className="flex flex-wrap items-center gap-4 px-5 py-3 hover:bg-slate-50">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-900">{credentialTypeById.get(c.credentialTypeId)?.name}</p>
-                    <p className="font-mono text-xs text-slate-500">{c.identifier}</p>
-                  </div>
+          <div className="grid lg:grid-cols-5">
+            <ul className="divide-y divide-slate-100 lg:col-span-3 lg:border-r lg:border-slate-100">
+              {memberCreds.map((c) => (
+                <li key={c.id} className={cn('flex flex-wrap items-center gap-4 px-5 py-3', selected?.id === c.id && 'bg-brand-50/50')}>
+                  <button type="button" onClick={() => setSelectedCredentialId(c.id)} aria-pressed={selected?.id === c.id}
+                    className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                    <span className="block text-sm font-medium text-slate-900">{credentialTypeById.get(c.credentialTypeId)?.name}</span>
+                    <span className="block font-mono text-xs text-slate-500">{c.identifier}</span>
+                  </button>
                   <span className="text-xs text-slate-500">Expires {c.expiresAt ? formatDate(c.expiresAt) : 'never'}</span>
                   <WalletBadge status={c.wallet.status} />
                   <CredentialStatusBadge status={c.status} />
-                </Link>
-              </li>
-            ))}
-          </ul>
+                  <Link to={`/credentials/${c.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">Open<span className="sr-only"> {c.identifier}</span></Link>
+                </li>
+              ))}
+            </ul>
+            {selected && selectedType && selectedDesign && (
+              <div role="region" className="flex flex-col items-center gap-3 bg-slate-50/60 p-6 lg:col-span-2" aria-label="Digital ID preview">
+                <div className="origin-top scale-[0.85] 2xl:scale-100">
+                  <DigitalIdCard design={selectedDesign} organization={organization} content={{
+                    name: member.displayName, identifier: selected.identifier, identifierLabel: selectedType.identifier.label, credentialTypeName: selectedType.name,
+                    relationship: member.relationship, unit: member.unit, expiresAt: selected.expiresAt, issuedAt: selected.issuedAt, photoUrl: member.photoDataUrl,
+                  }} />
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </Card>
 

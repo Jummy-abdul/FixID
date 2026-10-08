@@ -27,7 +27,7 @@ export function CredentialTypesPage() {
           empty={<EmptyState icon={<CreditCard className="h-5 w-5" />} title="No credential types yet" description="Credential types can be created here or during the guided issuance journey." />}
           columns={[
             { key: 'name', header: 'Name', cell: (t) => <span><span className="block font-medium text-slate-900">{t.name}</span><span className="block max-w-xs truncate text-xs text-slate-500">{t.description}</span></span> },
-            { key: 'next', header: 'Next identifier', cell: (t) => <span className="font-mono text-xs">{issuance.previewIdentifier(t)}</span> },
+            { key: 'next', header: 'Next identifier', cell: (t) => { const next = issuance.previewIdentifier(t); return next ? <span className="font-mono text-xs">{next}</span> : <span className="text-xs text-slate-500">Entered per person</span>; } },
             { key: 'effective', header: 'Effective', cell: (t) => <span className="text-slate-600">{EFFECTIVE_DATE_LABEL[t.effectiveDate]}</span> },
             { key: 'validity', header: 'Validity', cell: (t) => <span className="text-slate-600">{validityLabel(t.validity)}</span> },
             { key: 'design', header: 'Card design', cell: (t) => <Link to="/templates" onClick={(e) => e.stopPropagation()} className="text-brand-700 hover:underline">{cardDesignById.get(t.cardDesignId)?.name}</Link> },

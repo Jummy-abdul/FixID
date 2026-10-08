@@ -56,10 +56,27 @@ The top bar contains only the App Launcher and the profile menu (`/profile`). Ap
 
 Deployed on Vercel from this repository. `vercel.json` rewrites all paths to `index.html` so deep links and refresh work; other hosts need the same fallback.
 
+## Demo workspaces
+
+The app opens in **Crestfield Academy**, a brand-new organization with no users, credentials or activities, so the first-time journey runs on real data. Northbridge University, Meridian Health Group and Lagos Tech Summit are established sample organizations. Switch under **Settings → Demo data**.
+
+## Add user journey (Milestone 2)
+
+`/users/new` → choose **Add manually** (bulk upload is marked Coming soon) → `/users/new/manual`:
+
+1. **User type**: existing types, examples (Student, Staff, Member) or a custom one.
+2. **Credential**: one-time setup (name, identifier label, entered or generated identifiers, validity, renewal, template). Skipped when the user type already has a saved credential.
+3. **Details**: name, email/phone, identifier when entered manually, optional photo.
+4. **Identity**: simulated ID Switch resolution. Email/phone plus name = reuse; email/phone with a different name = blocked; name only = explicit confirmation required.
+5. **Review** → **Issue digital ID** (atomic, idempotent per request), then a success screen. Seamfix Wallet delivery is tracked separately.
+
+The draft is kept in `sessionStorage` so it survives refreshes and visits to Templates. Business rules live in `src/store/operations.ts`.
+
 ## Data model
 
 - `Organization` → `CredentialType` (identifier format, effective date, validity, renewal, lifecycle) → `CardDesign` (one default per org)
-- `Member` (FixID context, references `idSwitchId`) → `Credential` (Member × CredentialType, with wallet delivery status)
+- `UserType` (organization-specific, points at its default `CredentialType`)
+- `Member` (FixID context, references `idSwitchId` and `userTypeId`) → `Credential` (Member × CredentialType, with wallet delivery status)
 - `VerificationActivity` (purpose, eligibility, primary + fallback methods, assurance, outcome, schedule) → `Transaction` (result, decision, assurance achieved, fallback used, reason)
 - `AuditEvent` (actor, action, resource, result)
 

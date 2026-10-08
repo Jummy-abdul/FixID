@@ -11,6 +11,9 @@ export interface CardContent {
   unit?: string;
   expiresAt?: string | null;
   issuedAt?: string;
+  photoUrl?: string;
+  /** Label for the identifier row, e.g. "Matric number". */
+  identifierLabel?: string;
 }
 
 /** Deterministic QR-like pattern. Visual only; not a scannable code. */
@@ -47,7 +50,7 @@ export function DigitalIdCard({ design, organization, content, className }: { de
   const show = (f: CardDesign['fields'][number]) => design.fields.includes(f);
   const vertical = design.layout === 'vertical';
   const rows: { label: string; value: string }[] = [];
-  if (show('identifier')) rows.push({ label: 'ID number', value: content.identifier });
+  if (show('identifier')) rows.push({ label: content.identifierLabel ?? 'ID number', value: content.identifier });
   if (show('relationship') && content.relationship) rows.push({ label: 'Role', value: content.relationship });
   if (show('unit') && content.unit) rows.push({ label: 'Unit', value: content.unit });
   if (show('issued') && content.issuedAt) rows.push({ label: 'Issued', value: formatDate(content.issuedAt) });
@@ -72,24 +75,24 @@ export function DigitalIdCard({ design, organization, content, className }: { de
           </div>
         </div>
 
-        <div className={cn('mt-4 flex flex-1 gap-4', vertical ? 'flex-col items-center text-center' : 'items-start')}>
+        <div className={cn('mt-4 flex flex-1', vertical ? 'flex-col items-center gap-4 text-center' : 'items-start gap-3')}>
           {design.showPhoto && (
-            <div className={cn('flex shrink-0 items-center justify-center rounded-xl bg-white/15 font-semibold ring-2', vertical ? 'h-20 w-20 text-2xl' : 'h-16 w-16 text-lg')} style={{ ['--tw-ring-color' as string]: design.accentColor }}>
-              {initials(content.name)}
+            <div className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/15 font-semibold ring-2', vertical ? 'h-20 w-20 text-2xl' : 'h-16 w-16 text-lg')} style={{ ['--tw-ring-color' as string]: design.accentColor }}>
+              {content.photoUrl ? <img src={content.photoUrl} alt="" className="h-full w-full object-cover" /> : initials(content.name || '?')}
             </div>
           )}
           <div className="min-w-0 flex-1">
             {show('name') && <p className={cn('truncate font-semibold', vertical ? 'text-base' : 'text-[15px]')}>{content.name}</p>}
-            <dl className={cn('mt-1.5 space-y-0.5 text-[10.5px]', vertical && 'inline-block text-left')}>
+            <dl className={cn('mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 text-[10.5px]', vertical && 'text-left')}>
               {rows.map((r) => (
-                <div key={r.label} className="flex gap-2">
-                  <dt className="w-14 shrink-0 opacity-70">{r.label}</dt>
+                <div key={r.label} className="contents">
+                  <dt className="whitespace-nowrap opacity-70">{r.label}</dt>
                   <dd className="truncate font-medium">{r.value}</dd>
                 </div>
               ))}
             </dl>
           </div>
-          {design.showQr && <PseudoQr value={content.identifier} className={cn('shrink-0 p-1', vertical ? 'h-20 w-20' : 'h-16 w-16 self-end')} />}
+          {design.showQr && <PseudoQr value={content.identifier} className={cn('shrink-0 p-1', vertical ? 'h-20 w-20' : 'h-14 w-14 self-end')} />}
         </div>
         <div className="mt-2 h-1 w-full rounded-full" style={{ background: design.accentColor }} />
       </div>

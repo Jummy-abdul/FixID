@@ -11,7 +11,7 @@ describe('credential issuance service', () => {
   const issuance = createIssuanceService();
 
   it('previews the next identifier from the type format', () => {
-    const t = { ...type('org_northbridge_ct_student'), identifier: { prefix: 'NBU-STU-', digits: 6, nextSequence: 42 } };
+    const t = { ...type('org_northbridge_ct_student'), identifier: { label: 'ID number', mode: 'generated' as const, prefix: 'NBU-STU-', digits: 6, nextSequence: 42 } };
     expect(issuance.previewIdentifier(t)).toBe('NBU-STU-000042');
   });
 

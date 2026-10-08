@@ -9,7 +9,7 @@ import { ActivityStatusBadge } from '@/components/domain/StatusBadges';
 import { allowRate, dailyDecisions, formatPercent, isExpiringWithin, transactionsSince } from '@/domain/metrics';
 import { PURPOSE_LABEL } from '@/domain/labels';
 import { addDays, formatRelative, startOfDay } from '@/lib/dates';
-import { useOrgData, useSession } from '@/store/AppStore';
+import { useOrgData, useSession, type OrgData } from '@/store/AppStore';
 
 function greeting(now: Date) {
   const h = now.getHours();
@@ -17,9 +17,10 @@ function greeting(now: Date) {
 }
 
 /** The operational dashboard for an organization that is using FixID. */
-export function ActiveDashboard({ headerActions }: { headerActions?: ReactNode }) {
+export function ActiveDashboard({ headerActions, data }: { headerActions?: ReactNode; data?: OrgData }) {
   const { admin } = useSession();
-  const { organization, members, credentials, credentialTypes, activities, transactions, audit } = useOrgData();
+  const live = useOrgData();
+  const { organization, members, credentials, credentialTypes, activities, transactions, audit } = data ?? live;
   const now = useMemo(() => new Date(), []);
 
   const m = useMemo(() => {

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, BarChart3, Check, ScrollText } from 'lucide-react';
-import { ButtonLink, Card, CardHeader, PageHeader } from '@/components/ui';
+import { Button, ButtonLink, Card, CardHeader, PageHeader } from '@/components/ui';
 import { getSetupProgress, isConfiguredActivity, type SetupMilestoneId } from '@/domain/setupProgress';
 import { formatRelative } from '@/lib/dates';
 import { cn } from '@/lib/cn';
@@ -19,18 +19,14 @@ const MILESTONES: Record<SetupMilestoneId, { title: string; description: string 
   },
 };
 
-const WELCOME: Record<SetupMilestoneId, { heading: (name: string) => string; message: string; cta: string; to: string }> = {
+const WELCOME: Record<SetupMilestoneId, { heading: (name: string) => string; message: string }> = {
   'first-id': {
     heading: (name) => `Welcome to FixID, ${name}.`,
     message: "Let's get your organization ready to issue its first digital ID.",
-    cta: 'Get started',
-    to: '/users/new',
   },
   'first-verification': {
     heading: () => 'Your first digital ID is live.',
     message: 'Next, decide where and how your credentials can be verified.',
-    cta: 'Set up verification',
-    to: '/activities',
   },
 };
 
@@ -57,10 +53,6 @@ export function FirstTimeDashboard({ data, adminName, headerActions }: { data: D
               {welcome.heading(firstName)}
             </h2>
             <p className="mt-4 max-w-xl text-lg text-slate-600">{welcome.message}</p>
-            <ButtonLink to={welcome.to} variant="primary" className="mt-8 h-12 px-6 text-base" icon={null}>
-              {welcome.cta}
-              <ArrowRight className="h-4 w-4" />
-            </ButtonLink>
           </div>
           <div className="mx-auto w-full max-w-md lg:col-span-5 lg:max-w-none">
             <IdentityIllustration />
@@ -97,6 +89,7 @@ export function FirstTimeDashboard({ data, adminName, headerActions }: { data: D
                       {m.done && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Done</span>}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">{info.description}</p>
+                    {!m.done && <MilestoneAction id={m.id} available={m.id === 'first-id' || progress.milestones[0].done} />}
                   </div>
                 </li>
               );
@@ -144,6 +137,25 @@ export function FirstTimeDashboard({ data, adminName, headerActions }: { data: D
         </Card>
       </div>
     </>
+  );
+}
+
+function MilestoneAction({ id, available }: { id: SetupMilestoneId; available: boolean }) {
+  if (id === 'first-id') {
+    return (
+      <ButtonLink to="/users/new" variant="primary" size="sm" className="mt-4" icon={null}>
+        Get started <ArrowRight className="h-4 w-4" aria-hidden="true" />
+      </ButtonLink>
+    );
+  }
+  if (available) {
+    return <ButtonLink to="/activities" variant="secondary" size="sm" className="mt-4">Set up verification</ButtonLink>;
+  }
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <Button variant="secondary" size="sm" disabled aria-describedby="verification-locked">Set up verification</Button>
+      <span id="verification-locked" className="text-xs text-slate-400">Available after your first digital ID is issued</span>
+    </div>
   );
 }
 

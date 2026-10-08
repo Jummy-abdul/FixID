@@ -3,12 +3,15 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
+import { NEW_ORGANIZATION_ID, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
 import { NAVIGATION } from '@/layout/navigation';
 import { loadState } from '@/store/persistence';
 import { createInitialState } from '@/store/state';
 
-function renderApp(path = '/') {
+/** Most module tests use the established sample organization; first-time tests pass the new one. */
+function renderApp(path = '/', organizationId = SAMPLE_ORGANIZATION_ID) {
   const state = createInitialState(new Date());
+  state.session.currentOrganizationId = organizationId;
   render(
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppProviders initialState={state}><AppRoutes /></AppProviders>
@@ -17,12 +20,15 @@ function renderApp(path = '/') {
   return { state, user: userEvent.setup() };
 }
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+});
 
 describe('navigation', () => {
   const items = NAVIGATION.flatMap((g) => g.items);
   const headings: Record<string, RegExp> = {
-    '/': /^dashboard$/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
+    '/': /^dashboard$|good (morning|afternoon|evening)/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
     '/templates': /^templates$/i, '/activities': /^activities$/i, '/verification-history': /^verification history$/i,
     '/audit': /^audit log$/i, '/settings': /^settings$/i,
   };
@@ -64,6 +70,7 @@ describe('navigation', () => {
 
   it('redirects previous detail links, keeping the id', async () => {
     const state = createInitialState(new Date());
+    state.session.currentOrganizationId = SAMPLE_ORGANIZATION_ID;
     const member = state.data.members.find((m) => m.organizationId === state.session.currentOrganizationId)!;
     render(
       <MemoryRouter initialEntries={[`/people/${member.id}`]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -125,7 +132,7 @@ describe('top bar', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     await user.click(trigger);
     await user.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /fixid/i }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /good (morning|afternoon|evening)/i })).toBeInTheDocument();
   });
 
   it('profile menu shows the signed-in user and opens My Profile', async () => {
@@ -152,10 +159,11 @@ describe('groups', () => {
 describe('dashboard', () => {
   const previewSelect = () => screen.getByLabelText('Dashboard preview (prototype only)');
 
-  it('shows the first-time experience by default with accurate zero metrics and empty states', async () => {
-    const { user } = renderApp('/');
+  it('shows the first-time experience for a new organization with zero metrics and empty states', async () => {
+    const { user } = renderApp('/', NEW_ORGANIZATION_ID);
     expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Welcome to FixID, Tobyson.' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /get started/i })).toHaveLength(1);
     const overview = screen.getByRole('region', { name: 'Overview' });
     for (const label of ['Users', 'Active credentials', 'Verification activities', 'Verifications']) {
       expect(within(overview).getByText(label).nextSibling).toHaveTextContent('0');
@@ -166,19 +174,21 @@ describe('dashboard', () => {
     const steps = screen.getAllByRole('listitem').filter((li) => li.hasAttribute('aria-current'));
     expect(steps).toHaveLength(1);
     expect(steps[0]).toHaveTextContent('Add your first user and issue an ID');
-    await user.click(screen.getByRole('link', { name: /get started/i }));
+    expect(screen.getByRole('button', { name: 'Set up verification' })).toBeDisabled();
+    await user.click(within(steps[0]).getByRole('link', { name: /get started/i }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Add your first user' })).toBeInTheDocument();
-    expect(screen.getByText(/Nothing has been created/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /add manually/i })).toHaveAttribute('href', '/users/new/manual');
+    expect(screen.getByText('Coming soon')).toBeInTheDocument();
   });
 
-  it('advances the next milestone once the first ID has been issued', async () => {
+  it('first-ID-issued preview advances the next milestone and enables verification', async () => {
     const { user } = renderApp('/');
     await user.selectOptions(previewSelect(), 'first-time-issued');
     expect(screen.getByRole('heading', { level: 2, name: 'Your first digital ID is live.' })).toBeInTheDocument();
     expect(screen.getByText('1 of 2 complete')).toBeInTheDocument();
     const next = screen.getAllByRole('listitem').find((li) => li.hasAttribute('aria-current'))!;
     expect(next).toHaveTextContent('Set up your first verification activity');
-    expect(screen.getByRole('link', { name: /set up verification/i })).toHaveAttribute('href', '/activities');
+    expect(within(next).getByRole('link', { name: /set up verification/i })).toHaveAttribute('href', '/activities');
   });
 
   it('switches previews without changing organization data', async () => {
@@ -187,17 +197,21 @@ describe('dashboard', () => {
     const before = localStorage.getItem('fixid.prototype.state');
     for (const v of ['active', 'first-time-issued', 'automatic', 'first-time-new']) await user.selectOptions(previewSelect(), v);
     expect(localStorage.getItem('fixid.prototype.state')).toBe(before);
-    expect(localStorage.getItem('fixid.prototype.dashboardPreview')).toBe('first-time-new');
+    expect(localStorage.getItem('fixid.prototype.dashboardPreview.v2')).toBe('first-time-new');
   });
 
-  it('automatic mode follows real setup progress (seeded organization is set up)', async () => {
-    const { user } = renderApp('/');
-    await user.selectOptions(previewSelect(), 'automatic');
+  it('defaults to live setup progress (an established organization sees the active dashboard)', () => {
+    renderApp('/');
     expect(screen.getByRole('heading', { level: 1, name: /good (morning|afternoon|evening)/i })).toBeInTheDocument();
   });
 
+  it('active preview shows the sample organization for a new organization', async () => {
+    const { user } = renderApp('/', NEW_ORGANIZATION_ID);
+    await user.selectOptions(previewSelect(), 'active');
+    expect(screen.getByText(/across Northbridge University today/)).toBeInTheDocument();
+  });
+
   it('links metrics to pre-filtered lists', async () => {
-    localStorage.setItem('fixid.prototype.dashboardPreview', 'active');
     const { user, state } = renderApp('/');
     await user.click(screen.getByRole('link', { name: /active credentials/i }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Credentials' })).toBeInTheDocument();
@@ -228,11 +242,12 @@ describe('users', () => {
 
 describe('planned features', () => {
   it('are clearly labelled and do not change data', async () => {
-    const { user } = renderApp('/users');
+    const { user } = renderApp('/templates');
+    await waitFor(() => expect(localStorage.getItem('fixid.prototype.state')).not.toBeNull());
     const before = localStorage.getItem('fixid.prototype.state');
-    await user.click(screen.getAllByRole('button', { name: /add person & issue/i })[0]);
+    await user.click(screen.getByRole('button', { name: /customize design/i }));
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/Planned · Milestone 2/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Planned · Milestone 3/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Nothing has been changed/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Got it' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -263,7 +278,7 @@ describe('settings', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByText('Organization profile saved')).toBeInTheDocument();
     expect(screen.getByText(/Configuration for Northbridge University of Technology/)).toBeInTheDocument();
-    await waitFor(() => expect(loadState()?.data.organizations[0].name).toBe('Northbridge University of Technology'));
+    await waitFor(() => expect(loadState()?.data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)?.name).toBe('Northbridge University of Technology'));
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Audit Log' }));
     expect(await screen.findByText(/Updated organization profile \(name\)/)).toBeInTheDocument();
   });

@@ -20,6 +20,7 @@ export function IntegrationsPanel({ organization }: { organization: Organization
   const { idSwitch, wallet } = useServices();
   const [checking, setChecking] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, ServiceHealth>>({});
+  const [outage, setOutage] = useState(() => idSwitch.simulation.isOutage());
 
   const check = async (key: 'idSwitch' | 'wallet') => {
     setChecking(key);
@@ -59,6 +60,13 @@ export function IntegrationsPanel({ organization }: { organization: Organization
               </Button>
             </div>
             {results[it.key] && <HealthResult health={results[it.key]} />}
+            {it.key === 'idSwitch' && (
+              <label className="mt-4 flex items-start gap-3 rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" checked={outage}
+                  onChange={(e) => { idSwitch.simulation.setOutage(e.target.checked); setOutage(e.target.checked); setResults(({ idSwitch: _cleared, ...rest }) => rest); }} />
+                <span><span className="font-medium text-slate-800">Simulate an ID Switch outage</span> (prototype only). Identity checks and creation fail, so you can see how FixID prevents issuing.</span>
+              </label>
+            )}
           </CardBody>
         </Card>
       ))}

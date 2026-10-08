@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { BadgeCheck, UserPlus } from 'lucide-react';
-import { Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, Tabs, usePageSlice } from '@/components/ui';
+import { ButtonLink, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, Tabs, usePageSlice } from '@/components/ui';
 import { CredentialStatusBadge, WalletBadge } from '@/components/domain/StatusBadges';
-import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { isExpiringWithin } from '@/domain/metrics';
 import type { CredentialStatus } from '@/domain/types';
@@ -47,7 +46,7 @@ export function CredentialsPage() {
       <PageHeader
         title="Credentials"
         description="Credentials issued by your organization and their delivery to Seamfix Wallet."
-        actions={<PlannedButton variant="primary" icon={<UserPlus className="h-4 w-4" />} info={PLANNED.onboardAndIssue}>Add person & issue</PlannedButton>}
+        actions={<ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>}
       />
       <Card>
         <div className="px-4 pt-2">

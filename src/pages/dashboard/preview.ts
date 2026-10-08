@@ -9,14 +9,15 @@ import type { OrgData } from '@/store/AppStore';
 export type DashboardPreview = 'first-time-new' | 'first-time-issued' | 'active' | 'automatic';
 
 export const PREVIEW_OPTIONS: { value: DashboardPreview; label: string }[] = [
+  { value: 'automatic', label: 'Live · Your organization' },
   { value: 'first-time-new', label: 'First-time · New organization' },
   { value: 'first-time-issued', label: 'First-time · First ID issued' },
-  { value: 'active', label: 'Active dashboard' },
-  { value: 'automatic', label: 'Automatic (from setup data)' },
+  { value: 'active', label: 'Active · Sample organization' },
 ];
 
-export const PREVIEW_STORAGE_KEY = 'fixid.prototype.dashboardPreview';
-const DEFAULT_PREVIEW: DashboardPreview = 'first-time-new';
+/** v2: "automatic" (real setup progress) became the default once the add-user journey could change it. */
+export const PREVIEW_STORAGE_KEY = 'fixid.prototype.dashboardPreview.v2';
+const DEFAULT_PREVIEW: DashboardPreview = 'automatic';
 
 function read(): DashboardPreview {
   try {

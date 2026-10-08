@@ -16,6 +16,11 @@ export function createMockWallet(): WalletService {
         checkedAt: new Date().toISOString(),
       };
     },
+    async deliver(org, credential) {
+      await simulateLatency();
+      if (!org.integrations.seamfixWallet.connected || credential.status !== 'active') return 'not-sent';
+      return 'delivered';
+    },
     getHolderLink(credential) {
       return `https://wallet.seamfix.example/credentials/${encodeURIComponent(credential.identifier)}`;
     },

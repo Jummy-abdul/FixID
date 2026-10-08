@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { Eye } from 'lucide-react';
 import { getSetupProgress } from '@/domain/setupProgress';
-import { useOrgData, useSession } from '@/store/AppStore';
+import { SAMPLE_ORGANIZATION_ID } from '@/data/seed';
+import { selectOrgData, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { ActiveDashboard } from './ActiveDashboard';
 import { FirstTimeDashboard } from './FirstTimeDashboard';
 import { PREVIEW_OPTIONS, previewData, useDashboardPreview, type DashboardPreview } from './preview';
@@ -26,6 +27,7 @@ function PreviewControl({ value, onChange }: { value: DashboardPreview; onChange
 export function DashboardPage() {
   const { admin } = useSession();
   const org = useOrgData();
+  const { state } = useStore();
   const [preview, setPreview] = useDashboardPreview();
   const control = <PreviewControl value={preview} onChange={setPreview} />;
 
@@ -35,6 +37,8 @@ export function DashboardPage() {
     return null;
   }, [preview, org]);
 
+  // The "active" preview shows an established sample organization, read-only.
+  if (preview === 'active') return <ActiveDashboard headerActions={control} data={selectOrgData(state, SAMPLE_ORGANIZATION_ID)} />;
   if (!firstTimeData) return <ActiveDashboard headerActions={control} />;
   return <FirstTimeDashboard data={firstTimeData} adminName={admin.name} headerActions={control} />;
 }
