@@ -22,7 +22,7 @@ beforeEach(() => localStorage.clear());
 describe('navigation', () => {
   const items = NAVIGATION.flatMap((g) => g.items);
   const headings: Record<string, RegExp> = {
-    '/': /good (morning|afternoon|evening)/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
+    '/': /^dashboard$/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
     '/templates': /^templates$/i, '/activities': /^activities$/i, '/verification-history': /^verification history$/i,
     '/audit': /^audit log$/i, '/settings': /^settings$/i,
   };
@@ -125,7 +125,7 @@ describe('top bar', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     await user.click(trigger);
     await user.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /fixid/i }));
-    expect(await screen.findByRole('heading', { level: 1, name: /good (morning|afternoon|evening)/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
   });
 
   it('profile menu shows the signed-in user and opens My Profile', async () => {
@@ -150,7 +150,54 @@ describe('groups', () => {
 });
 
 describe('dashboard', () => {
+  const previewSelect = () => screen.getByLabelText('Dashboard preview (prototype only)');
+
+  it('shows the first-time experience by default with accurate zero metrics and empty states', async () => {
+    const { user } = renderApp('/');
+    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Welcome to FixID, Tobyson.' })).toBeInTheDocument();
+    const overview = screen.getByRole('region', { name: 'Overview' });
+    for (const label of ['Users', 'Active credentials', 'Verification activities', 'Verifications']) {
+      expect(within(overview).getByText(label).nextSibling).toHaveTextContent('0');
+    }
+    expect(screen.getByText('No verifications yet')).toBeInTheDocument();
+    expect(screen.getByText('Nothing recorded yet')).toBeInTheDocument();
+    expect(screen.getByText('0 of 2 complete')).toBeInTheDocument();
+    const steps = screen.getAllByRole('listitem').filter((li) => li.hasAttribute('aria-current'));
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toHaveTextContent('Add your first user and issue an ID');
+    await user.click(screen.getByRole('link', { name: /get started/i }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Add your first user' })).toBeInTheDocument();
+    expect(screen.getByText(/Nothing has been created/)).toBeInTheDocument();
+  });
+
+  it('advances the next milestone once the first ID has been issued', async () => {
+    const { user } = renderApp('/');
+    await user.selectOptions(previewSelect(), 'first-time-issued');
+    expect(screen.getByRole('heading', { level: 2, name: 'Your first digital ID is live.' })).toBeInTheDocument();
+    expect(screen.getByText('1 of 2 complete')).toBeInTheDocument();
+    const next = screen.getAllByRole('listitem').find((li) => li.hasAttribute('aria-current'))!;
+    expect(next).toHaveTextContent('Set up your first verification activity');
+    expect(screen.getByRole('link', { name: /set up verification/i })).toHaveAttribute('href', '/activities');
+  });
+
+  it('switches previews without changing organization data', async () => {
+    const { user } = renderApp('/');
+    await waitFor(() => expect(localStorage.getItem('fixid.prototype.state')).not.toBeNull());
+    const before = localStorage.getItem('fixid.prototype.state');
+    for (const v of ['active', 'first-time-issued', 'automatic', 'first-time-new']) await user.selectOptions(previewSelect(), v);
+    expect(localStorage.getItem('fixid.prototype.state')).toBe(before);
+    expect(localStorage.getItem('fixid.prototype.dashboardPreview')).toBe('first-time-new');
+  });
+
+  it('automatic mode follows real setup progress (seeded organization is set up)', async () => {
+    const { user } = renderApp('/');
+    await user.selectOptions(previewSelect(), 'automatic');
+    expect(screen.getByRole('heading', { level: 1, name: /good (morning|afternoon|evening)/i })).toBeInTheDocument();
+  });
+
   it('links metrics to pre-filtered lists', async () => {
+    localStorage.setItem('fixid.prototype.dashboardPreview', 'active');
     const { user, state } = renderApp('/');
     await user.click(screen.getByRole('link', { name: /active credentials/i }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Credentials' })).toBeInTheDocument();

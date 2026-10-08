@@ -8,7 +8,8 @@ import { CredentialDetailPage } from './pages/CredentialDetailPage';
 import { CredentialsPage } from './pages/CredentialsPage';
 import { CredentialTypeDetailPage } from './pages/CredentialTypeDetailPage';
 import { CredentialTypesPage } from './pages/CredentialTypesPage';
-import { DashboardPage } from './pages/DashboardPage';
+import { AddUserEntryPage } from './pages/AddUserEntryPage';
+import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PeoplePage } from './pages/PeoplePage';
@@ -39,6 +40,7 @@ export function AppRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="users" element={<PeoplePage />} />
+        <Route path="users/new" element={<AddUserEntryPage />} />
         <Route path="users/:personId" element={<PersonDetailPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="credentials" element={<CredentialsPage />} />

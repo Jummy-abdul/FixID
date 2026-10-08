@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle, ArrowRight, BadgeCheck, CalendarClock, Clock3, ShieldCheck, Users, Wallet, XCircle,
@@ -16,7 +16,8 @@ function greeting(now: Date) {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
-export function DashboardPage() {
+/** The operational dashboard for an organization that is using FixID. */
+export function ActiveDashboard({ headerActions }: { headerActions?: ReactNode }) {
   const { admin } = useSession();
   const { organization, members, credentials, credentialTypes, activities, transactions, audit } = useOrgData();
   const now = useMemo(() => new Date(), []);
@@ -64,6 +65,7 @@ export function DashboardPage() {
       <PageHeader
         title={`${greeting(now)}, ${admin.name.split(' ')[0]}`}
         description={`Here's what's happening across ${organization.name} today.`}
+        actions={headerActions}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
