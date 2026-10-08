@@ -42,7 +42,7 @@ export function TransactionsPage() {
   return (
     <>
       <PageHeader
-        title="Transactions"
+        title="Verification History"
         description="Every verification attempt, its verification result and its authorization decision."
         actions={<PlannedButton icon={<Download className="h-4 w-4" />} info={PLANNED.export}>Export CSV</PlannedButton>}
       />

@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { Menu, UserPlus, X } from 'lucide-react';
-import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
+import { Menu, X } from 'lucide-react';
 import { AdminMenu } from './AdminMenu';
-import { GlobalSearch } from './GlobalSearch';
-import { OrgSwitcher } from './OrgSwitcher';
+import { AppLauncher } from './AppLauncher';
 import { Sidebar } from './Sidebar';
 
 export function AppLayout() {
@@ -31,14 +29,8 @@ export function AppLayout() {
           <button type="button" onClick={() => setMobileOpen(true)} aria-label="Open navigation" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden">
             <Menu className="h-5 w-5" />
           </button>
-          <OrgSwitcher />
-          <div className="hidden flex-1 justify-center md:flex"><GlobalSearch /></div>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="hidden sm:block">
-              <PlannedButton variant="primary" size="sm" icon={<UserPlus className="h-4 w-4" />} info={PLANNED.onboardAndIssue}>
-                Add person & issue
-              </PlannedButton>
-            </div>
+          <div className="ml-auto flex items-center gap-2">
+            <AppLauncher />
             <AdminMenu />
           </div>
         </header>

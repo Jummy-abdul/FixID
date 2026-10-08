@@ -31,7 +31,7 @@ export function PersonDetailPage() {
     return () => { cancelled = true; };
   }, [member, idSwitch, attempt]);
 
-  if (!member) return <NotFoundPage entity="person" backTo="/people" />;
+  if (!member) return <NotFoundPage entity="user" backTo="/users" />;
 
   const memberCreds = credentials.filter((c) => c.memberId === member.id);
   const memberTx = transactions.filter((t) => t.memberId === member.id);
@@ -39,7 +39,7 @@ export function PersonDetailPage() {
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'People', to: '/people' }, { label: member.displayName }]}
+        breadcrumbs={[{ label: 'Users', to: '/users' }, { label: member.displayName }]}
         title={<span className="flex items-center gap-3"><Avatar name={member.displayName} size="lg" />{member.displayName}</span>}
         meta={<><MemberStatusBadge status={member.status} /><Badge>{member.relationship}</Badge><Badge tone="neutral">{member.unit}</Badge></>}
         actions={<PlannedButton icon={<BadgePlus className="h-4 w-4" />} info={PLANNED.issueAdditional}>Issue another credential</PlannedButton>}
@@ -136,7 +136,7 @@ export function PersonDetailPage() {
 
       <Card className="mt-6">
         <CardHeader title="Recent verifications" description="Latest 10 attempts involving this person"
-          action={memberTx.length > 0 && <Link to={`/transactions?person=${member.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">View all {memberTx.length}</Link>} />
+          action={memberTx.length > 0 && <Link to={`/verification-history?person=${member.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">View all {memberTx.length}</Link>} />
         <TransactionsTable rows={memberTx.slice(0, 10)} hide={['person', 'id', 'result']} emptyTitle="No verification attempts" />
       </Card>
     </>

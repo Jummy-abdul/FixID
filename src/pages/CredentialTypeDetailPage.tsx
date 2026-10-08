@@ -18,7 +18,7 @@ export function CredentialTypeDetailPage() {
   const { issuance } = useServices();
   const type = typeId ? credentialTypeById.get(typeId) : undefined;
   const preview = useMemo(() => (type ? issuance.computeValidity(type, new Date()) : null), [type, issuance]);
-  if (!type || !preview) return <NotFoundPage entity="credential type" backTo="/credential-types" />;
+  if (!type || !preview) return <NotFoundPage entity="credential type" backTo="/templates/credential-types" />;
 
   const design = cardDesignById.get(type.cardDesignId)!;
   const issued = credentials.filter((c) => c.credentialTypeId === type.id);
@@ -29,7 +29,7 @@ export function CredentialTypeDetailPage() {
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'Credential Types', to: '/credential-types' }, { label: type.name }]}
+        breadcrumbs={[{ label: 'Templates', to: '/templates' }, { label: 'Credential Types', to: '/templates/credential-types' }, { label: type.name }]}
         title={type.name}
         description={type.description}
         meta={<TypeStatusBadge status={type.status} />}
@@ -84,7 +84,7 @@ export function CredentialTypeDetailPage() {
           </Card>
         </div>
         <Card className="h-fit lg:col-span-2">
-          <CardHeader title="Card design" description={design.name} action={<Link to="/card-designs" className="text-sm font-medium text-brand-600 hover:text-brand-700">Designs</Link>} />
+          <CardHeader title="Card design" description={design.name} action={<Link to="/templates" className="text-sm font-medium text-brand-600 hover:text-brand-700">Designs</Link>} />
           <CardBody className="flex justify-center bg-slate-50/60 py-8">
             <DigitalIdCard design={design} organization={organization} content={{
               name: 'Sample Holder', identifier: nextId, credentialTypeName: type.name, relationship: organization.memberLabel,

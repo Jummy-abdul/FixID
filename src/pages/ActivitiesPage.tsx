@@ -21,7 +21,7 @@ export function ActivitiesPage() {
   return (
     <>
       <PageHeader
-        title="Verification"
+        title="Activities"
         description="Verification activities define why, where and how people are verified, and what happens when they are. One engine, configured per purpose."
         actions={
           <>

@@ -2,7 +2,7 @@ import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
 import type { AuditEvent, Organization } from '@/domain/types';
 
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 export const STORAGE_KEY = 'fixid.prototype.state';
 
 export interface Session {

@@ -40,6 +40,22 @@ src/
 - **Filters live in the URL**, so dashboard tiles deep-link to filtered lists.
 - **Planned features** open an explicitly labelled dialog (`components/domain/PlannedFeature.tsx`) and never simulate success.
 
+## Navigation
+
+| Section | Item | Route |
+|---|---|---|
+| — | Dashboard | `/` |
+| User Management | Users · Groups | `/users` · `/groups` (planned shell) |
+| Credential Management | Credentials · Templates | `/credentials` · `/templates` (card designs), `/templates/credential-types` |
+| Verification | Activities · Verification History | `/activities` · `/verification-history` |
+| Administration | Audit Log · Settings | `/audit` · `/settings` |
+
+Previous paths (`/people`, `/transactions`, `/card-designs`, `/credential-types`, including detail pages and query strings) redirect to their new routes.
+
+The top bar contains only the App Launcher and the profile menu (`/profile`). Applications are listed in `src/config/applications.ts`; external destinations are read from `VITE_FIXIAM_URL` and `VITE_ADMIN_URL` and shown as "Not configured" until set.
+
+When deploying, configure the host to serve `index.html` for unknown paths so deep links and refresh work.
+
 ## Data model
 
 - `Organization` → `CredentialType` (identifier format, effective date, validity, renewal, lifecycle) → `CardDesign` (one default per org)

@@ -39,6 +39,8 @@ export interface AdminUser {
   id: string;
   name: string;
   email: string;
+  /** Display initials for the avatar, when they cannot be derived from the name. */
+  initials?: string;
   role: 'Owner' | 'Administrator' | 'Operator' | 'Auditor';
   /** Organizations this admin can act within. */
   organizationIds: string[];

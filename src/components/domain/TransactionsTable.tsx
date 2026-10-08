@@ -24,7 +24,7 @@ export function TransactionsTable({ rows, hide = [], emptyTitle = 'No transactio
     {
       key: 'person', header: 'Person', cell: (t) => {
         const m = t.memberId ? memberById.get(t.memberId) : null;
-        return m ? <Link to={`/people/${m.id}`} onClick={stop} className="text-slate-900 hover:text-brand-700">{m.displayName}</Link> : <span className="text-slate-400">Unknown</span>;
+        return m ? <Link to={`/users/${m.id}`} onClick={stop} className="text-slate-900 hover:text-brand-700">{m.displayName}</Link> : <span className="text-slate-400">Unknown</span>;
       },
     },
     {
@@ -50,7 +50,7 @@ export function TransactionsTable({ rows, hide = [], emptyTitle = 'No transactio
       columns={all.filter((c) => !hide.includes(c.key))}
       rows={rows}
       rowKey={(t) => t.id}
-      rowHref={(t) => `/transactions/${t.id}`}
+      rowHref={(t) => `/verification-history/${t.id}`}
       empty={<EmptyState title={emptyTitle} description={emptyDescription} />}
     />
   );

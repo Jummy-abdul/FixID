@@ -28,7 +28,7 @@ export function ActivityDetailPage() {
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'Verification', to: '/activities' }, { label: activity.name }]}
+        breadcrumbs={[{ label: 'Activities', to: '/activities' }, { label: activity.name }]}
         title={activity.name}
         description={activity.description}
         meta={<><ActivityStatusBadge status={activity.status} /><Badge>{PURPOSE_LABEL[activity.purpose]}</Badge><AssuranceBadge level={activity.assuranceLevel} /></>}
@@ -51,7 +51,7 @@ export function ActivityDetailPage() {
             <DescriptionList items={[
               { label: 'Location', value: activity.location },
               { label: 'Schedule', value: activity.schedule.kind === 'always' ? 'Always on' : `${formatDate(activity.schedule.startsAt)} – ${formatDate(activity.schedule.endsAt)}` },
-              { label: 'Accepted credentials', value: activity.eligibility.credentialTypeIds.map((id) => <Link key={id} to={`/credential-types/${id}`} className="mr-2 text-brand-700 hover:underline">{credentialTypeById.get(id)?.name}</Link>) },
+              { label: 'Accepted credentials', value: activity.eligibility.credentialTypeIds.map((id) => <Link key={id} to={`/templates/credential-types/${id}`} className="mr-2 text-brand-700 hover:underline">{credentialTypeById.get(id)?.name}</Link>) },
               { label: 'Relationships', value: activity.eligibility.relationships.join(', ') },
               { label: 'Roster', value: roster ? `${roster.length} people` : 'Not restricted', hint: roster ? roster.slice(0, 4).map((id) => memberById.get(id)?.displayName).join(', ') + (roster.length > 4 ? '…' : '') : undefined },
             ]} />
@@ -72,7 +72,7 @@ export function ActivityDetailPage() {
       </div>
       <Card className="mt-6">
         <CardHeader title="Recent transactions"
-          action={tx.length > 0 && <Link to={`/transactions?activity=${activity.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">View all {tx.length}</Link>} />
+          action={tx.length > 0 && <Link to={`/verification-history?activity=${activity.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">View all {tx.length}</Link>} />
         <TransactionsTable rows={tx.slice(0, 12)} hide={['activity', 'id']} emptyTitle="No attempts yet"
           emptyDescription={activity.status === 'draft' ? 'This activity is still a draft and is not accepting verifications.' : undefined} />
       </Card>

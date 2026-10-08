@@ -39,7 +39,7 @@ export function PeoplePage() {
   return (
     <>
       <PageHeader
-        title="People"
+        title="Users"
         description="People linked to your organization. Canonical identity details come from ID Switch; FixID keeps only your organization's context."
         actions={<PlannedButton variant="primary" icon={<UserPlus className="h-4 w-4" />} info={PLANNED.onboardAndIssue}>Add person & issue</PlannedButton>}
       />
@@ -60,7 +60,7 @@ export function PeoplePage() {
         <DataTable
           rows={pageRows}
           rowKey={(m) => m.id}
-          rowHref={(m) => `/people/${m.id}`}
+          rowHref={(m) => `/users/${m.id}`}
           empty={
             members.length === 0
               ? <EmptyState icon={<Users className="h-5 w-5" />} title="No people yet" description="Add your first person to link an ID Switch identity and issue a credential." />

@@ -17,8 +17,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
       <nav aria-label="Primary" className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {NAVIGATION.map((group) => (
-          <div key={group.label}>
-            <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>
+          <div key={group.label ?? 'top'}>
+            {group.label && <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>}
             <ul className="space-y-0.5">
               {group.items.map((item) => (
                 <li key={item.to}>

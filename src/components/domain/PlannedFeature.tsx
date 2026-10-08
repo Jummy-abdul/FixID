@@ -105,6 +105,16 @@ export const PLANNED = {
     milestone: 'Milestone 4',
     summary: 'Present a credential at an activity and watch the decision pipeline: credential validation → identity match → authorization → decision → transaction.',
   },
+  groups: {
+    title: 'Groups',
+    milestone: 'Later milestone',
+    summary: 'Organize users into meaningful collections, such as a class, department or event cohort, for issuing credentials and defining verification eligibility in bulk.',
+  },
+  profile: {
+    title: 'Edit profile',
+    milestone: 'Later milestone',
+    summary: 'Update your administrator profile details. Sign-in and account management are outside this prototype.',
+  },
   export: {
     title: 'Export',
     milestone: 'Later milestone',

@@ -43,7 +43,7 @@ export function TransactionDetailPage() {
   const { state } = useStore();
   const { organization, activityById, memberById, credentialById, credentialTypeById } = useOrgData();
   const t = state.data.transactions.find((x) => x.id === transactionId && x.organizationId === organization.id);
-  if (!t) return <NotFoundPage entity="transaction" backTo="/transactions" />;
+  if (!t) return <NotFoundPage entity="transaction" backTo="/verification-history" />;
 
   const activity = activityById.get(t.activityId)!;
   const member = t.memberId ? memberById.get(t.memberId) : undefined;
@@ -52,7 +52,7 @@ export function TransactionDetailPage() {
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'Transactions', to: '/transactions' }, { label: t.id }]}
+        breadcrumbs={[{ label: 'Verification History', to: '/verification-history' }, { label: t.id }]}
         title={<span className="font-mono">{t.id}</span>}
         description={`${activity.name} · ${formatDateTime(t.occurredAt)}`}
         meta={<><ResultBadge result={t.result} /><DecisionBadge decision={t.decision} /></>}
@@ -80,7 +80,7 @@ export function TransactionDetailPage() {
           <CardBody>
             <DescriptionList items={[
               { label: 'Activity', value: <Link to={`/activities/${activity.id}`} className="text-brand-700 hover:underline">{activity.name}</Link> },
-              { label: 'Person', value: member ? <Link to={`/people/${member.id}`} className="text-brand-700 hover:underline">{member.displayName}</Link> : 'Not identified' },
+              { label: 'Person', value: member ? <Link to={`/users/${member.id}`} className="text-brand-700 hover:underline">{member.displayName}</Link> : 'Not identified' },
               { label: 'Credential', value: credential ? <Link to={`/credentials/${credential.id}`} className="font-mono text-xs text-brand-700 hover:underline">{credential.identifier}</Link> : '—', hint: credential ? credentialTypeById.get(credential.credentialTypeId)?.name : undefined },
               { label: 'Method', value: METHOD_LABEL[t.method] },
               { label: 'Fallback used', value: t.fallbackUsed ? 'Yes' : 'No' },

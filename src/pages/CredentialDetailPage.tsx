@@ -55,8 +55,8 @@ export function CredentialDetailPage() {
             <CardHeader title="Details" />
             <CardBody>
               <DescriptionList items={[
-                { label: 'Holder', value: <Link to={`/people/${member.id}`} className="font-medium text-brand-700 hover:underline">{member.displayName}</Link>, hint: `ID Switch ${member.idSwitchId}` },
-                { label: 'Credential type', value: <Link to={`/credential-types/${type.id}`} className="text-brand-700 hover:underline">{type.name}</Link> },
+                { label: 'Holder', value: <Link to={`/users/${member.id}`} className="font-medium text-brand-700 hover:underline">{member.displayName}</Link>, hint: `ID Switch ${member.idSwitchId}` },
+                { label: 'Credential type', value: <Link to={`/templates/credential-types/${type.id}`} className="text-brand-700 hover:underline">{type.name}</Link> },
                 { label: 'Issued', value: formatDate(credential.issuedAt) },
                 { label: 'Effective from', value: formatDate(credential.effectiveFrom) },
                 { label: 'Expires', value: credential.expiresAt ? formatDate(credential.expiresAt) : 'Does not expire' },

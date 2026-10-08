@@ -283,7 +283,7 @@ const BLUEPRINTS: OrgBlueprint[] = [
   },
 ];
 
-const ADMIN_NAME = 'Tobi Adewale';
+const ADMIN_NAME = 'Tobyson TE';
 
 function range(from: number, to: number) {
   return Array.from({ length: to - from }, (_, i) => from + i);
@@ -471,7 +471,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     for (const m of recentMembers) {
       audit.push({
         id: '', organizationId: orgId, action: 'identity.linked', actor: ADMIN_NAME, actorType: 'admin',
-        resourceType: 'member', resourceId: m.id, result: 'success', occurredAt: m.joinedAt, href: `/people/${m.id}`,
+        resourceType: 'member', resourceId: m.id, result: 'success', occurredAt: m.joinedAt, href: `/users/${m.id}`,
         summary: m.resolution === 'linked-existing'
           ? `Linked existing ID Switch identity ${m.idSwitchId} (${m.displayName})`
           : `Requested new ID Switch identity ${m.idSwitchId} for ${m.displayName}`,
@@ -513,7 +513,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
   return {
     organizations,
     admin: {
-      id: 'usr_tobi', name: ADMIN_NAME, email: 'tobi.adewale@fixid.demo', role: 'Owner',
+      id: 'usr_tobyson', name: ADMIN_NAME, initials: 'TE', email: 'tobyson.te@fixid.demo', role: 'Owner',
       organizationIds: organizations.map((o) => o.id),
     },
     cardDesigns,
