@@ -37,6 +37,8 @@ export class IdSwitchUnavailableError extends Error {
 /** ID Switch: owner of canonical identities. FixID resolves, references and requests creation; it never stores them. */
 export interface IdSwitchService {
   getIdentity(idSwitchId: string): Promise<CanonicalIdentity | null>;
+  /** Contact details for listing, read from ID Switch on demand (never copied into FixID). Throws when unavailable. */
+  getContacts(idSwitchIds: string[]): Promise<Map<string, { email?: string; phone?: string }>>;
   searchIdentities(query: string, limit?: number): Promise<CanonicalIdentity[]>;
   /** Throws IdSwitchUnavailableError when the service cannot be reached. */
   resolveIdentity(query: IdentityQuery): Promise<ResolutionResult>;

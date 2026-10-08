@@ -394,7 +394,13 @@ export function buildSeed(now: Date = new Date()): SeedData {
         })(),
         status,
         resolution: existed ? 'linked-existing' : 'created-new',
-        factors: { face: status !== 'pending' && rng.chance(0.72), fingerprint: rng.chance(0.3) },
+        ...(() => {
+          const face = status !== 'pending' && rng.chance(0.72);
+          // A few deterministic non-enrolled variations for realism (no extra random draws).
+          const other = status === 'pending' ? 'pending' : i % 17 === 5 ? 'expired' : i % 23 === 7 ? 'failed' : 'not-enrolled';
+          return { faceEnrollment: { status: face ? 'enrolled' as const : other } };
+        })(),
+        factors: { fingerprint: rng.chance(0.3) },
         joinedAt: iso(addDays(today, -(bp.org.industry === 'events' ? rng.int(4, 45) : rng.int(5, 400)))),
       });
     });
@@ -616,7 +622,7 @@ function simulateTransaction(
   let method = activity.primaryMethod;
   let fallbackUsed = false;
   const biometric = method === 'face' || method === 'fingerprint';
-  const factorMissing = biometric && !member.factors[method as 'face' | 'fingerprint'];
+  const factorMissing = biometric && (method === 'face' ? member.faceEnrollment.status !== 'enrolled' : !member.factors.fingerprint);
   const primaryFailed = factorMissing || rng.chance(0.07);
   if (primaryFailed) {
     const fallback = activity.fallback.permitted

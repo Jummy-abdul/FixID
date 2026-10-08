@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CreditCard, Plus } from 'lucide-react';
 import { Button, Card, DataTable, EmptyState, PageHeader } from '@/components/ui';
-import { CredentialDrawer } from '@/components/config/CredentialDrawer';
+import { CredentialSetup } from '@/components/config/CredentialSetup';
+import { assignUrl } from '@/components/issuance/assignment';
 import { TypeStatusBadge } from '@/components/domain/StatusBadges';
 import { TemplatesTabs } from '@/components/domain/TemplatesTabs';
 import { EFFECTIVE_DATE_LABEL, validityLabel } from '@/domain/labels';
@@ -27,7 +28,7 @@ export function CredentialTypesPage() {
           rows={credentialTypes}
           rowKey={(t) => t.id}
           rowHref={(t) => `/templates/credential-types/${t.id}`}
-          empty={<EmptyState icon={<CreditCard className="h-5 w-5" />} title="No credential types yet" description="Credential types can be created here or during the guided issuance journey." />}
+          empty={<EmptyState icon={<CreditCard className="h-5 w-5" />} title="No credential types yet" description="Create a credential configuration here or from Credentials." />}
           columns={[
             { key: 'name', header: 'Name', cell: (t) => <span><span className="block font-medium text-slate-900">{t.name}</span><span className="block max-w-xs truncate text-xs text-slate-500">{t.description}</span></span> },
             { key: 'next', header: 'Identifier', cell: (t) => { if (t.identifierConfigId) return <span className="text-sm">{identifierConfigById.get(t.identifierConfigId)?.name}</span>; const next = issuance.previewIdentifier(t); return next ? <span className="font-mono text-xs">{next}</span> : <span className="text-xs text-slate-500">Entered per person</span>; } },
@@ -39,7 +40,8 @@ export function CredentialTypesPage() {
           ]}
         />
       </Card>
-      <CredentialDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSaved={(id) => { setDrawerOpen(false); navigate(`/templates/credential-types/${id}`); }} />
+      <CredentialSetup open={drawerOpen} onClose={() => setDrawerOpen(false)}
+        onAssign={(id) => navigate(assignUrl({ recipientIds: [], credentialTypeId: id, step: 'recipients' }))} onLater={() => undefined} />
     </>
   );
 }

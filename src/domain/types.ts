@@ -62,6 +62,12 @@ export interface CanonicalIdentity {
 
 export type MemberStatus = 'active' | 'inactive' | 'pending';
 
+/**
+ * Facial enrollment is a separate, user-initiated capability (live capture with liveness).
+ * It is independent of user status and credential issuance; an uploaded photo never counts.
+ */
+export type FaceEnrollmentStatus = 'not-enrolled' | 'pending' | 'enrolled' | 'expired' | 'failed';
+
 /** Organization-specific identity context. Minimal by design. */
 export interface Member {
   id: string;
@@ -77,9 +83,11 @@ export interface Member {
   status: MemberStatus;
   /** How the ID Switch identity was obtained when the person was onboarded (PRD §15.4). */
   resolution: 'linked-existing' | 'created-new';
-  /** Biometric factor status only; raw biometric data is never exposed (PRD §18.6). */
-  factors: { face: boolean; fingerprint: boolean };
-  /** Optional profile photo for the digital ID (downscaled data URL). Part of the FixID profile. */
+  /** Facial enrollment, tracked separately from user status. Raw biometric data is never exposed (PRD §18.6). */
+  faceEnrollment: { status: FaceEnrollmentStatus; updatedAt?: ISODate };
+  /** Other biometric factors (status only). */
+  factors: { fingerprint: boolean };
+  /** Legacy profile photo on sample data. Admin-uploaded photos are not collected and never count as enrollment. */
   photoDataUrl?: string;
   joinedAt: ISODate;
   /** Idempotency key of the request that created this user. */

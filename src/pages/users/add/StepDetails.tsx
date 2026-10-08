@@ -1,11 +1,10 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Fingerprint, ImagePlus, Trash2, UserPlus } from 'lucide-react';
+import { ArrowLeft, Fingerprint, UserPlus } from 'lucide-react';
 import { Badge, Button, Field, Input } from '@/components/ui';
 import { SimulatedBadge } from '@/components/domain/StatusBadges';
 import { describePattern, previewIdentifier, validateManualValue } from '@/domain/identifierPattern';
 import type { CanonicalIdentity, IdentifierConfig } from '@/domain/types';
-import { readPhoto } from '@/lib/image';
 import { maskEmail, maskPhone, newId } from '@/lib/identifiers';
 import { useServices } from '@/services/ServicesProvider';
 import { IdSwitchUnavailableError, type ResolutionResult } from '@/services/types';
@@ -68,8 +67,6 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState<'checking' | 'creating' | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const inFlight = useRef(false);
   const p = draft.person;
   const current = draft.resolvedFor === identityKey(p) ? draft.resolution : null;
@@ -99,7 +96,7 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
       await new Promise((r) => setTimeout(r, 250));
       const r = createUser({
         requestId: draft.requestId, organizationId: org.organization.id, at: new Date().toISOString(), identifierConfigId: config.id,
-        identifierValue: p.identifierValue, person: { givenName: p.givenName, familyName: p.familyName, photoDataUrl: p.photoDataUrl },
+        identifierValue: p.identifierValue, person: { givenName: p.givenName, familyName: p.familyName },
         identity, memberId: newId('mem'),
       });
       if (!r.ok) {
@@ -196,27 +193,6 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
             <p className="mt-1 text-sm text-slate-500">Next likely value: <span className="font-mono font-medium text-slate-900">{generatedExample}</span> <Badge tone="neutral">Preview</Badge></p>
           </div>
         )}
-      </FormSection>
-
-      <FormSection title="Photo" description="Optional. Shown on their digital ID.">
-        <div className="flex items-center gap-4">
-          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 text-slate-400">
-            {p.photoDataUrl ? <img src={p.photoDataUrl} alt="Selected photo" className="h-full w-full object-cover" /> : <ImagePlus className="h-6 w-6" aria-hidden="true" />}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Upload photo"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (!file) return;
-                setPhotoError(null);
-                try { set('photoDataUrl', await readPhoto(file)); } catch (err) { setPhotoError((err as Error).message); }
-              }} />
-            <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>{p.photoDataUrl ? 'Replace photo' : 'Upload photo'}</Button>
-            {p.photoDataUrl && <Button variant="ghost" size="sm" icon={<Trash2 className="h-4 w-4" />} onClick={() => set('photoDataUrl', undefined)}>Remove</Button>}
-          </div>
-        </div>
-        {photoError && <p role="alert" className="text-sm text-red-600">{photoError}</p>}
       </FormSection>
 
       {current && current.kind !== 'none' && (

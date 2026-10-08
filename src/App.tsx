@@ -10,7 +10,8 @@ import { CredentialTypeDetailPage } from './pages/CredentialTypeDetailPage';
 import { CredentialTypesPage } from './pages/CredentialTypesPage';
 import { AddUserEntryPage } from './pages/users/AddUserEntryPage';
 import { ManualAddUserPage } from './pages/users/add/ManualAddUserPage';
-import { IssueCredentialPage } from './pages/users/IssueCredentialPage';
+import { AssignCredentialPage } from './pages/credentials/AssignCredentialPage';
+import { assignUrl } from './components/issuance/assignment';
 import { IdentifiersPage } from './pages/IdentifiersPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
@@ -23,6 +24,12 @@ import { TransactionDetailPage } from './pages/TransactionDetailPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 
 /** Redirect a renamed route, keeping the `:id` param and query string (e.g. dashboard filters). */
+/** Issuing from a user's page continues in Credential Management with that user preselected. */
+function UserIssueRedirect() {
+  const { personId = '' } = useParams();
+  return <Navigate to={assignUrl({ recipientIds: [personId], from: 'user' })} replace />;
+}
+
 function RenamedRoute({ to }: { to: string }) {
   const { id } = useParams();
   const { search, hash } = useLocation();
@@ -46,9 +53,10 @@ export function AppRoutes() {
         <Route path="users/new" element={<AddUserEntryPage />} />
         <Route path="users/new/manual" element={<ManualAddUserPage />} />
         <Route path="users/:personId" element={<PersonDetailPage />} />
-        <Route path="users/:personId/issue" element={<IssueCredentialPage />} />
+        <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="credentials" element={<CredentialsPage />} />
+        <Route path="credentials/issue" element={<AssignCredentialPage />} />
         <Route path="credentials/:credentialId" element={<CredentialDetailPage />} />
         <Route path="templates" element={<CardDesignsPage />} />
         <Route path="templates/credential-types" element={<CredentialTypesPage />} />

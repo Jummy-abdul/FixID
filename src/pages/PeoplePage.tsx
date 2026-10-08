@@ -1,30 +1,20 @@
-import { useMemo } from 'react';
-import { Link2, UserPlus, Users } from 'lucide-react';
-import { Avatar, Badge, ButtonLink, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice } from '@/components/ui';
-import { MemberStatusBadge } from '@/components/domain/StatusBadges';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { UserPlus, Users } from 'lucide-react';
+import { Avatar, ButtonLink, Skeleton, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice } from '@/components/ui';
+import { FaceEnrollmentBadge, MemberStatusBadge } from '@/components/domain/StatusBadges';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
-import { formatDate } from '@/lib/dates';
+import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
 
 const PAGE_SIZE = 15;
 
 export function PeoplePage() {
-  const { members, credentials, identifierConfigById } = useOrgData();
+  const { members, identifierConfigById } = useOrgData();
   const [q, setQ] = useQueryState('q');
   const [status, setStatus] = useQueryState('status', 'all');
   const [relationship, setRelationship] = useQueryState('relationship', 'all');
   const [page, setPage] = usePageParam();
-
-  const credCount = useMemo(() => {
-    const map = new Map<string, { active: number; total: number }>();
-    for (const c of credentials) {
-      const e = map.get(c.memberId) ?? { active: 0, total: 0 };
-      e.total += 1;
-      if (c.status === 'active') e.active += 1;
-      map.set(c.memberId, e);
-    }
-    return map;
-  }, [credentials]);
 
   const relationships = useMemo(() => [...new Set(members.map((m) => m.relationship).filter(Boolean))].sort(), [members]);
 
@@ -38,6 +28,7 @@ export function PeoplePage() {
   }, [members, q, status, relationship]);
 
   const { pageRows, pageCount, current } = usePageSlice(filtered, page, PAGE_SIZE);
+  const contacts = useContacts(pageRows.map((m) => m.idSwitchId));
   const hasFilters = q || status !== 'all' || relationship !== 'all';
 
   return (
@@ -49,7 +40,7 @@ export function PeoplePage() {
       />
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
-          <SearchInput value={q} onChange={setQ} placeholder="Search name, identifier or ID Switch ID" className="sm:w-80" />
+          <SearchInput value={q} onChange={setQ} placeholder="Search name or identifier" className="sm:w-80" />
           {relationships.length > 0 && (
             <FilterSelect label="Role" value={relationship} onChange={setRelationship}
               options={[{ value: 'all', label: 'All roles' }, ...relationships.map((r) => ({ value: r, label: r }))]} />
@@ -69,18 +60,15 @@ export function PeoplePage() {
           rowHref={(m) => `/users/${m.id}`}
           empty={
             members.length === 0
-              ? <EmptyState icon={<Users className="h-5 w-5" />} title="No people yet" description="Add your first person to link an ID Switch identity and issue a credential." />
-              : <EmptyState title="No matching people" description="Try a different search or clear the filters." />
+              ? <EmptyState icon={<Users className="h-5 w-5" />} title="No users yet" description="Add your first user. You can issue their digital ID right after, or later." />
+              : <EmptyState title="No matching users" description="Try a different search or clear the filters." />
           }
           columns={[
             {
               key: 'name', header: 'Name', cell: (m) => (
                 <span className="flex items-center gap-3">
                   <Avatar name={m.displayName} photoUrl={m.photoDataUrl} size="sm" />
-                  <span>
-                    <span className="block font-medium text-slate-900">{m.displayName}</span>
-                    <span className="block font-mono text-[11px] text-slate-500">{m.idSwitchId}</span>
-                  </span>
+                  <span className="font-medium text-slate-900">{m.displayName}</span>
                 </span>
               ),
             },
@@ -92,25 +80,43 @@ export function PeoplePage() {
                 </span>
               ) : <span className="text-slate-400">—</span>,
             },
-            ...(relationships.length > 0 ? [{ key: 'rel', header: 'Role', cell: (m: (typeof members)[number]) => <span className="text-slate-600">{m.relationship || '—'}</span> }] : []),
             {
-              key: 'creds', header: 'Credentials', cell: (m) => {
-                const c = credCount.get(m.id);
-                return c ? <span className="tabular-nums">{c.active} active{c.total > c.active ? <span className="text-slate-400"> · {c.total} total</span> : ''}</span>
-                  : <span className="text-slate-400">None yet</span>;
-              },
+              key: 'email', header: 'Email', cell: (m) => contacts.status === 'ready'
+                ? <span className="text-slate-600">{contacts.byId.get(m.idSwitchId)?.email || <span className="text-slate-400">—</span>}</span>
+                : contacts.status === 'error' ? <span className="text-xs text-slate-400">Unavailable</span>
+                  : <Skeleton className="h-4 w-36" />,
             },
+            { key: 'status', header: 'User status', cell: (m) => <MemberStatusBadge status={m.status} /> },
+            { key: 'face', header: 'Face enrollment', cell: (m) => <FaceEnrollmentBadge status={m.faceEnrollment.status} /> },
             {
-              key: 'source', header: 'Identity', cell: (m) => m.resolution === 'linked-existing'
-                ? <Badge tone="info"><Link2 className="h-3 w-3" />Reused</Badge>
-                : <Badge>New in ID Switch</Badge>,
+              key: 'actions', header: <span className="sr-only">Actions</span>, cell: (m) => (
+                <Link to={`/users/${m.id}`} onClick={(e) => e.stopPropagation()} className="whitespace-nowrap text-sm font-medium text-brand-600 hover:text-brand-700">
+                  View details<span className="sr-only"> for {m.displayName}</span>
+                </Link>
+              ),
             },
-            { key: 'status', header: 'Status', cell: (m) => <MemberStatusBadge status={m.status} /> },
-            { key: 'joined', header: 'Linked', cell: (m) => <span className="text-slate-500">{formatDate(m.joinedAt)}</span> },
           ]}
         />
         <Pagination page={current} pageCount={pageCount} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </Card>
     </>
   );
+}
+
+type Contacts = { status: 'loading' } | { status: 'ready'; byId: Map<string, { email?: string }> } | { status: 'error' };
+
+/** Email addresses belong to ID Switch; they're read for the visible rows only and never stored in FixID. */
+function useContacts(idSwitchIds: string[]): Contacts {
+  const { idSwitch } = useServices();
+  const key = idSwitchIds.join(',');
+  const [state, setState] = useState<Contacts>({ status: 'loading' });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: 'loading' });
+    idSwitch.getContacts(key ? key.split(',') : [])
+      .then((byId) => { if (!cancelled) setState({ status: 'ready', byId }); })
+      .catch(() => { if (!cancelled) setState({ status: 'error' }); });
+    return () => { cancelled = true; };
+  }, [idSwitch, key]);
+  return state;
 }

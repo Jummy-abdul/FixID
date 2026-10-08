@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertCircle, BadgePlus, Fingerprint, Link2, ScanFace, ShieldCheck } from 'lucide-react';
 import { Avatar, Badge, Button, ButtonLink, Card, CardBody, CardHeader, DescriptionList, EmptyState, PageHeader, Skeleton } from '@/components/ui';
-import { CredentialStatusBadge, MemberStatusBadge, SimulatedBadge, WalletBadge } from '@/components/domain/StatusBadges';
+import { CredentialStatusBadge, FaceEnrollmentBadge, MemberStatusBadge, SimulatedBadge, WalletBadge } from '@/components/domain/StatusBadges';
 import { TransactionsTable } from '@/components/domain/TransactionsTable';
 import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
 import { cn } from '@/lib/cn';
+import { assignUrl } from '@/components/issuance/assignment';
 import type { CanonicalIdentity } from '@/domain/types';
 import { formatDate } from '@/lib/dates';
 import { useServices } from '@/services/ServicesProvider';
@@ -47,7 +48,7 @@ export function PersonDetailPage() {
         breadcrumbs={[{ label: 'Users', to: '/users' }, { label: member.displayName }]}
         title={<span className="flex items-center gap-3"><Avatar name={member.displayName} photoUrl={member.photoDataUrl} size="lg" />{member.displayName}</span>}
         meta={<><MemberStatusBadge status={member.status} />{member.relationship && <Badge>{member.relationship}</Badge>}{member.unit && <Badge tone="neutral">{member.unit}</Badge>}</>}
-        actions={member.status === 'active' && <ButtonLink to={`/users/${member.id}/issue`} variant="secondary" icon={<BadgePlus className="h-4 w-4" />}>Issue credential</ButtonLink>}
+        actions={member.status === 'active' && <ButtonLink to={assignUrl({ recipientIds: [member.id], from: 'user' })} variant="secondary" icon={<BadgePlus className="h-4 w-4" />}>Issue credential</ButtonLink>}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -106,9 +107,12 @@ export function PersonDetailPage() {
                   : 'New canonical identity requested from ID Switch',
               },
               {
-                label: 'Verification factors', value: (
+                label: 'Face enrollment', value: <span className="flex items-center gap-2"><ScanFace className="h-4 w-4 text-slate-400" aria-hidden="true" /><FaceEnrollmentBadge status={member.faceEnrollment.status} /></span>,
+                hint: 'Completed by the user through secure live capture. Separate from user and credential status.',
+              },
+              {
+                label: 'Other factors', value: (
                   <span className="flex flex-wrap gap-1.5">
-                    <Badge tone={member.factors.face ? 'success' : 'neutral'}><ScanFace className="h-3 w-3" />Face {member.factors.face ? 'enrolled' : 'not enrolled'}</Badge>
                     <Badge tone={member.factors.fingerprint ? 'success' : 'neutral'}><Fingerprint className="h-3 w-3" />Fingerprint {member.factors.fingerprint ? 'enrolled' : 'not enrolled'}</Badge>
                   </span>
                 ),
@@ -124,8 +128,8 @@ export function PersonDetailPage() {
         <CardHeader title="Credentials" description={`${memberCreds.length} issued to ${member.displayName}`} />
         {memberCreds.length === 0 ? (
           <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No credentials issued yet"
-            description={member.status === 'pending' ? 'Onboarding is pending. A credential can be issued once onboarding completes.' : "Issue a digital ID whenever you're ready."}
-            action={member.status === 'active' ? <ButtonLink to={`/users/${member.id}/issue`} variant="primary" icon={<BadgePlus className="h-4 w-4" />}>Issue credential</ButtonLink> : undefined} />
+            description={member.status === 'pending' ? 'Onboarding is pending. A credential can be issued once onboarding completes.' : "You can issue a digital ID to this user whenever you're ready."}
+            action={member.status === 'active' ? <ButtonLink to={assignUrl({ recipientIds: [member.id], from: 'user' })} variant="primary" icon={<BadgePlus className="h-4 w-4" />}>Issue credential</ButtonLink> : undefined} />
         ) : (
           <div className="grid lg:grid-cols-5">
             <ul className="divide-y divide-slate-100 lg:col-span-3 lg:border-r lg:border-slate-100">

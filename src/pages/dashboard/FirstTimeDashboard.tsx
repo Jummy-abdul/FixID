@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, BarChart3, Check, ScrollText } from 'lucide-react';
 import { Button, ButtonLink, Card, CardHeader, PageHeader } from '@/components/ui';
+import { assignUrl } from '@/components/issuance/assignment';
 import { getSetupProgress, isConfiguredActivity, type SetupMilestoneId } from '@/domain/setupProgress';
 import { formatRelative } from '@/lib/dates';
 import { cn } from '@/lib/cn';
@@ -153,7 +154,7 @@ function MilestoneAction({ id, available, resumeMemberId }: { id: SetupMilestone
   if (id === 'first-id' && resumeMemberId) {
     return (
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <ButtonLink to={`/users/${resumeMemberId}/issue`} variant="primary" size="sm" icon={null}>
+        <ButtonLink to={assignUrl({ recipientIds: [resumeMemberId], from: 'user' })} variant="primary" size="sm" icon={null}>
           Issue digital ID <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </ButtonLink>
         <ButtonLink to="/users/new" variant="ghost" size="sm">Add another user</ButtonLink>

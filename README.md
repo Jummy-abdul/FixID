@@ -67,10 +67,14 @@ The app opens in **Crestfield Academy**, a brand-new organization with no users,
 `/users/new/manual`:
 
 1. **Select identifier**: pick a saved identifier, or set one up from a suggestion (Matric Number, Staff ID, Employee Number, Membership Number, Other) in the **identifier drawer**.
-2. **User information**: name, email/phone, the identifier value (manual) or a generated preview, optional photo. **Create user** runs a simulated ID Switch check: new or confidently matched people are created immediately; existing members, conflicts and name-only matches need attention first.
-3. **User added successfully** → optionally **Issue digital ID** (choose or configure a credential in the **credential drawer**, review, issue) or **I'll do this later**.
+2. **User information**: name, email/phone, and the identifier value (manual) or a generated preview. No photo upload: facial enrollment is a separate, user-initiated live capture (planned), tracked as its own status (not enrolled, pending, enrolled, expired, failed). **Create user** runs a simulated ID Switch check: new or confidently matched people are created immediately; existing members, conflicts and name-only matches need attention first.
+3. **Create user** saves the user, then a **User created successfully** modal shows the assigned identifier and asks whether to issue a digital ID: **Yes, issue ID** continues in Credential Management; **Not now** returns to Users.
 
-Users without a credential can be issued one later from their profile (`/users/:id/issue`), which uses the same issuance flow.
+## Credential Management
+
+`/credentials/issue` is the one assignment flow: select a credential configuration (or **Create credential** in the credential drawer) → select recipients when none were carried in → review → issue. The recipient, credential and origin are carried in the URL (`?recipients=…&credential=…&from=new-user|user`), so the context survives navigation and refresh. Recipients are a list so one configuration can later be assigned to many users; selection is single for now.
+
+Saving a credential configuration never issues it: a **Credential created successfully** modal offers **Assign now** or **I'll do this later**. The same applies from **Credentials → Create credential** and **Templates → Credential types**. A user's **Issue credential** action (and `/users/:id/issue`) opens this flow with that user preselected.
 
 Identifiers and credentials are reusable, organization-level configurations, managed under **Templates → Identifiers** and **Templates → Credential types** with the same drawers. Generated identifiers come from a segment pattern (static text, separator, sequential number, random digits, random letters and numbers, date in the organization's time zone). Previews never consume a sequence number; the identifier is assigned once, when the user is created, and credentials display it without regenerating it.
 

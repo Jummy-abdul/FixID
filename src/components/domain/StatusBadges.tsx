@@ -1,7 +1,7 @@
 import { Badge, type Tone } from '@/components/ui';
 import { ASSURANCE_LABEL } from '@/domain/labels';
 import type {
-  AssuranceLevel, CredentialStatus, CredentialType, Decision, MemberStatus, VerificationActivity, VerificationResult, WalletDeliveryStatus,
+  AssuranceLevel, CredentialStatus, CredentialType, Decision, FaceEnrollmentStatus, MemberStatus, VerificationActivity, VerificationResult, WalletDeliveryStatus,
 } from '@/domain/types';
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ');
@@ -14,6 +14,15 @@ export function CredentialStatusBadge({ status }: { status: CredentialStatus }) 
 export function MemberStatusBadge({ status }: { status: MemberStatus }) {
   const tone: Record<MemberStatus, Tone> = { active: 'success', pending: 'warning', inactive: 'neutral' };
   return <Badge tone={tone[status]} dot>{cap(status)}</Badge>;
+}
+
+export const FACE_ENROLLMENT_LABEL: Record<FaceEnrollmentStatus, string> = {
+  'not-enrolled': 'Not enrolled', pending: 'Pending', enrolled: 'Enrolled', expired: 'Expired', failed: 'Failed',
+};
+
+export function FaceEnrollmentBadge({ status }: { status: FaceEnrollmentStatus }) {
+  const tone: Record<FaceEnrollmentStatus, Tone> = { 'not-enrolled': 'neutral', pending: 'info', enrolled: 'success', expired: 'warning', failed: 'danger' };
+  return <Badge tone={tone[status]}>{FACE_ENROLLMENT_LABEL[status]}</Badge>;
 }
 
 export function DecisionBadge({ decision }: { decision: Decision }) {

@@ -6,7 +6,7 @@ import {
   type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput, type PreparedUser,
 } from './operations';
 
-export const STATE_VERSION = 5;
+export const STATE_VERSION = 6;
 export const STORAGE_KEY = 'fixid.prototype.state';
 
 export interface Session {

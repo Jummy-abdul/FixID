@@ -96,7 +96,7 @@ export interface CreateUserInput {
   identifierConfigId: string;
   /** Required for manual identifiers. Ignored for generated ones. */
   identifierValue?: string;
-  person: { givenName: string; familyName: string; photoDataUrl?: string };
+  person: { givenName: string; familyName: string };
   identity: { idSwitchId: string; resolution: Member['resolution'] };
   memberId: string;
 }
@@ -158,8 +158,9 @@ export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memb
     identifier: { configId: config.id, value: p.assigned.value },
     status: 'active',
     resolution: p.identity.resolution,
-    factors: { face: false, fingerprint: false },
-    photoDataUrl: p.person.photoDataUrl,
+    // Never enrolled on creation: face enrollment is a separate, user-initiated step.
+    faceEnrollment: { status: 'not-enrolled' },
+    factors: { fingerprint: false },
     joinedAt: p.at,
     creationRequestId: p.requestId,
   };

@@ -2,8 +2,8 @@ import type { CanonicalIdentity } from '@/domain/types';
 import { newId } from '@/lib/identifiers';
 import type { ResolutionResult } from '@/services/types';
 
-/** identifier → details → created → (issue | skipped) */
-export type Phase = 'identifier' | 'details' | 'created' | 'issue' | 'skipped';
+/** identifier → details → created (success modal). Issuance continues in Credential Management. */
+export type Phase = 'identifier' | 'details' | 'created';
 
 export interface PersonForm {
   givenName: string;
@@ -12,11 +12,10 @@ export interface PersonForm {
   phone: string;
   /** Only for identifiers entered manually. */
   identifierValue: string;
-  photoDataUrl?: string;
 }
 
 export interface Draft {
-  version: 2;
+  version: 3;
   organizationId: string;
   /** Idempotency key for creating this user. */
   requestId: string;
@@ -34,7 +33,7 @@ export interface Draft {
 
 export function emptyDraft(organizationId: string, identifierConfigId: string | null = null): Draft {
   return {
-    version: 2,
+    version: 3,
     organizationId,
     requestId: newId('req'),
     phase: 'identifier',
@@ -57,7 +56,7 @@ export function loadDraft(organizationId: string): Draft | null {
     const raw = window.sessionStorage.getItem(key(organizationId));
     if (!raw) return null;
     const d = JSON.parse(raw) as Draft;
-    return d.version === 2 && d.organizationId === organizationId ? d : null;
+    return d.version === 3 && d.organizationId === organizationId ? d : null;
   } catch {
     return null;
   }

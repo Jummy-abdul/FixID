@@ -235,7 +235,7 @@ describe('users', () => {
   it('shows an empty state when nothing matches', async () => {
     const { user } = renderApp('/users');
     await user.type(screen.getByRole('searchbox', { name: /search name/i }), 'zzzz-no-one');
-    expect(await screen.findByText('No matching people')).toBeInTheDocument();
+    expect(await screen.findByText('No matching users')).toBeInTheDocument();
   });
 });
 

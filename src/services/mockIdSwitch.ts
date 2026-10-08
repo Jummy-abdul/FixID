@@ -74,6 +74,12 @@ export function createMockIdSwitch(): IdSwitchService {
       await simulateLatency();
       return all().find((r) => r.idSwitchId === idSwitchId) ?? null;
     },
+    async getContacts(idSwitchIds) {
+      await simulateLatency();
+      ensureAvailable();
+      const wanted = new Set(idSwitchIds);
+      return new Map(all().filter((r) => wanted.has(r.idSwitchId)).map((r) => [r.idSwitchId, { email: r.email, phone: r.phone }]));
+    },
     async searchIdentities(query, limit = 10) {
       await simulateLatency();
       const q = query.trim().toLowerCase();

@@ -2,7 +2,7 @@ import { cn } from '@/lib/cn';
 
 export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { value: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div role="tablist" className="flex gap-1 border-b border-slate-200">
+    <div role="tablist" className="flex flex-wrap gap-x-1 border-b border-slate-200">
       {tabs.map((t) => (
         <button key={t.value} role="tab" type="button" aria-selected={value === t.value} onClick={() => onChange(t.value)}
           className={cn('-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',

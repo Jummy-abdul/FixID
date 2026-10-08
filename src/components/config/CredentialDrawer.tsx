@@ -44,7 +44,7 @@ function suggestName(identifierName: string) {
 }
 
 /**
- * Reusable "Configure credential" drawer. Used during issuance and from Templates → Credential types.
+ * Reusable "Configure credential" drawer. Opened through CredentialSetup from Credential Management and Templates.
  * A new identifier can be created in a nested view on the same drawer surface.
  */
 export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConfigId }: {
@@ -100,7 +100,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
     });
     setSaving(false);
     if (!r.ok) return setErrors(r.errors);
-    toast({ tone: 'success', title: `${form.name.trim()} saved`, description: 'It can be issued to any user with this identifier.' });
+    // Confirmation is shown by the caller (see CredentialSetup), after this drawer closes.
     onSaved(r.credentialTypeId);
   };
 
