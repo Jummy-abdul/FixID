@@ -10,7 +10,7 @@ import type {
   Member,
   Organization,
   Transaction,
-  UserType,
+  IdentifierConfig,
   VerificationActivity,
   VerificationResult,
   WalletDeliveryStatus,
@@ -25,7 +25,7 @@ export interface SeedData {
   admin: AdminUser;
   cardDesigns: CardDesign[];
   credentialTypes: CredentialType[];
-  userTypes: UserType[];
+  identifierConfigs: IdentifierConfig[];
   members: Member[];
   credentials: Credential[];
   activities: VerificationActivity[];
@@ -65,7 +65,8 @@ interface OrgBlueprint {
   types: TypeBlueprint[];
   relationships: { value: string; weight: number }[];
   units: string[];
-  externalRef?: (relationship: string, rng: Rng) => Member['externalRef'];
+  /** Organizational reference for each person, from a source system (e.g. matric number). */
+  externalRef?: (relationship: string, rng: Rng) => { label: string; value: string; source: string };
   activities: ActivityBlueprint[];
   registrySlice: number[];
   dailyTransactions: [number, number];
@@ -320,7 +321,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
   const organizations: Organization[] = [];
   const cardDesigns: CardDesign[] = [];
   const credentialTypes: CredentialType[] = [];
-  const userTypes: UserType[] = [];
+  const identifierConfigs: IdentifierConfig[] = [];
   const members: Member[] = [];
   const credentials: Credential[] = [];
   const activities: VerificationActivity[] = [];
@@ -357,16 +358,20 @@ export function buildSeed(now: Date = new Date()): SeedData {
       typesForOrg.push({ type, holders });
     }
 
-    // User types: one per relationship, pointing at the credential normally issued to it.
-    const userTypeIdByName = new Map<string, string>();
-    for (const { value } of bp.relationships) {
-      const id = `${orgId}_ut_${value.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-      userTypeIdByName.set(value, id);
-      userTypes.push({
-        id, organizationId: orgId, name: value, createdAt: iso(addMonths(today, -12)),
-        credentialTypeId: typesForOrg.find((t) => t.type.status === 'active' && t.holders.includes(value))?.type.id ?? null,
-      });
-    }
+    // Identifier configurations: one per reference kind the organization already uses (entered manually).
+    const identifierConfigIdByLabel = new Map<string, string>();
+    const identifierFor = (label: string) => {
+      let id = identifierConfigIdByLabel.get(label);
+      if (!id) {
+        id = `${orgId}_idc_${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+        identifierConfigIdByLabel.set(label, id);
+        identifierConfigs.push({
+          id, organizationId: orgId, name: label, mode: 'manual', segments: [], nextSequence: 1,
+          createdAt: iso(addMonths(today, -12)), updatedAt: iso(addMonths(today, -12)),
+        });
+      }
+      return id;
+    };
 
     // Members: FixID context referencing ID Switch identities.
     const orgMembers: Member[] = [];
@@ -382,9 +387,11 @@ export function buildSeed(now: Date = new Date()): SeedData {
         idSwitchId: identity.idSwitchId,
         displayName: `${identity.givenName} ${identity.familyName}`,
         relationship,
-        userTypeId: userTypeIdByName.get(relationship),
         unit: rng.pick(bp.units),
-        externalRef: bp.externalRef?.(relationship, rng),
+        identifier: (() => {
+          const ref = bp.externalRef?.(relationship, rng);
+          return ref ? { configId: identifierFor(ref.label), value: ref.value, source: ref.source } : undefined;
+        })(),
         status,
         resolution: existed ? 'linked-existing' : 'created-new',
         factors: { face: status !== 'pending' && rng.chance(0.72), fingerprint: rng.chance(0.3) },
@@ -562,7 +569,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     },
     cardDesigns,
     credentialTypes,
-    userTypes,
+    identifierConfigs,
     members,
     credentials,
     activities,

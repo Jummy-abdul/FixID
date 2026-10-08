@@ -1,8 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
-  AuditEvent, CardDesign, Credential, CredentialType, Member, Organization, Transaction, UserType, VerificationActivity,
+  AuditEvent, CardDesign, Credential, CredentialType, IdentifierConfig, Member, Organization, Transaction, VerificationActivity,
 } from '@/domain/types';
-import { applyCredentialSetup, applyIssuance, type CredentialSetupInput, type IssuanceInput } from './operations';
+import {
+  applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
+  type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
+} from './operations';
 import { loadState, saveState } from './persistence';
 import { createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
 
@@ -54,7 +57,7 @@ export interface OrgData {
   credentials: Credential[];
   credentialTypes: CredentialType[];
   cardDesigns: CardDesign[];
-  userTypes: UserType[];
+  identifierConfigs: IdentifierConfig[];
   activities: VerificationActivity[];
   transactions: Transaction[];
   audit: AuditEvent[];
@@ -63,6 +66,7 @@ export interface OrgData {
   credentialTypeById: Map<string, CredentialType>;
   cardDesignById: Map<string, CardDesign>;
   activityById: Map<string, VerificationActivity>;
+  identifierConfigById: Map<string, IdentifierConfig>;
 }
 
 export function selectOrgData(state: AppState, organizationId?: string): OrgData {
@@ -75,13 +79,14 @@ export function selectOrgData(state: AppState, organizationId?: string): OrgData
   const credentialTypes = scope(d.credentialTypes);
   const cardDesigns = scope(d.cardDesigns);
   const activities = scope(d.activities);
+  const identifierConfigs = scope(d.identifierConfigs);
   return {
     organization,
     members,
     credentials,
     credentialTypes,
     cardDesigns,
-    userTypes: scope(d.userTypes),
+    identifierConfigs,
     activities,
     transactions: scope(d.transactions),
     audit: scope(d.audit),
@@ -90,6 +95,7 @@ export function selectOrgData(state: AppState, organizationId?: string): OrgData
     credentialTypeById: new Map(credentialTypes.map((x) => [x.id, x])),
     cardDesignById: new Map(cardDesigns.map((x) => [x.id, x])),
     activityById: new Map(activities.map((x) => [x.id, x])),
+    identifierConfigById: new Map(identifierConfigs.map((x) => [x.id, x])),
   };
 }
 
@@ -103,11 +109,28 @@ export function useActions() {
   const { dispatch, getState } = useStore();
   return useMemo(
     () => ({
-      /** Saves a reusable credential configuration (and user type). Returns validation errors without changing state. */
-      saveCredentialSetup: (input: CredentialSetupInput) => {
-        const result = applyCredentialSetup(getState(), input);
-        if (result.ok) dispatch({ type: 'setup/credential', input });
+      /** Creates or updates a reusable identifier configuration. Returns validation errors without changing state. */
+      saveIdentifierConfig: (input: IdentifierConfigInput) => {
+        const result = applyIdentifierConfig(getState(), input);
+        if (result.ok) dispatch({ type: 'config/identifier', input });
         return result;
+      },
+      /** Saves a reusable credential configuration. */
+      saveCredentialConfig: (input: CredentialConfigInput) => {
+        const result = applyCredentialConfig(getState(), input);
+        if (result.ok) dispatch({ type: 'config/credential', input });
+        return result;
+      },
+      /** Creates a user and assigns their identifier, atomically. Idempotent per requestId. */
+      createUser: (input: CreateUserInput) => {
+        const state = getState();
+        const prepared = prepareCreateUser(state, input);
+        if (!prepared.ok) return prepared;
+        if (prepared.duplicateRequest) return { ok: true as const, memberId: prepared.duplicateRequest.memberId, identifier: prepared.prepared.assigned.value };
+        const result = applyCreateUser(state, prepared.prepared);
+        if (!result.ok) return result;
+        dispatch({ type: 'users/create', prepared: prepared.prepared });
+        return { ok: true as const, memberId: result.memberId, identifier: prepared.prepared.assigned.value };
       },
       /** Issues a digital ID atomically. Idempotent per requestId; failures change nothing. */
       issueDigitalId: (input: IssuanceInput) => {

@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn';
 const TABS = [
   { to: '/templates', label: 'Card designs', end: true },
   { to: '/templates/credential-types', label: 'Credential types', end: false },
+  { to: '/templates/identifiers', label: 'Identifiers', end: false },
 ];
 
 /** Route-backed tabs grouping the two template capabilities under the Templates navigation item. */

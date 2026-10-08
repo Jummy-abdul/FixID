@@ -10,6 +10,8 @@ import { CredentialTypeDetailPage } from './pages/CredentialTypeDetailPage';
 import { CredentialTypesPage } from './pages/CredentialTypesPage';
 import { AddUserEntryPage } from './pages/users/AddUserEntryPage';
 import { ManualAddUserPage } from './pages/users/add/ManualAddUserPage';
+import { IssueCredentialPage } from './pages/users/IssueCredentialPage';
+import { IdentifiersPage } from './pages/IdentifiersPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -44,11 +46,13 @@ export function AppRoutes() {
         <Route path="users/new" element={<AddUserEntryPage />} />
         <Route path="users/new/manual" element={<ManualAddUserPage />} />
         <Route path="users/:personId" element={<PersonDetailPage />} />
+        <Route path="users/:personId/issue" element={<IssueCredentialPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="credentials" element={<CredentialsPage />} />
         <Route path="credentials/:credentialId" element={<CredentialDetailPage />} />
         <Route path="templates" element={<CardDesignsPage />} />
         <Route path="templates/credential-types" element={<CredentialTypesPage />} />
+        <Route path="templates/identifiers" element={<IdentifiersPage />} />
         <Route path="templates/credential-types/:typeId" element={<CredentialTypeDetailPage />} />
         <Route path="activities" element={<ActivitiesPage />} />
         <Route path="activities/:activityId" element={<ActivityDetailPage />} />

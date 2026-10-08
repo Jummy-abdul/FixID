@@ -12,7 +12,7 @@ export function CardDesignsPage() {
     <>
       <PageHeader
         title="Templates"
-        description="How your credentials look in Seamfix Wallet. Every organization starts with a default digital ID design."
+        description="Reusable identifiers, credentials and designs. Every organization starts with a default digital ID design."
         actions={<PlannedButton variant="primary" icon={<Palette className="h-4 w-4" />} info={PLANNED.cardDesignEditor}>Customize design</PlannedButton>}
       />
       <TemplatesTabs />

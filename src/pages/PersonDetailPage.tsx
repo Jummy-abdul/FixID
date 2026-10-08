@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertCircle, BadgePlus, Fingerprint, Link2, ScanFace, ShieldCheck } from 'lucide-react';
-import { Avatar, Badge, Button, Card, CardBody, CardHeader, DescriptionList, EmptyState, PageHeader, Skeleton } from '@/components/ui';
+import { Avatar, Badge, Button, ButtonLink, Card, CardBody, CardHeader, DescriptionList, EmptyState, PageHeader, Skeleton } from '@/components/ui';
 import { CredentialStatusBadge, MemberStatusBadge, SimulatedBadge, WalletBadge } from '@/components/domain/StatusBadges';
-import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { TransactionsTable } from '@/components/domain/TransactionsTable';
 import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
 import { cn } from '@/lib/cn';
@@ -17,7 +16,7 @@ type LoadState = { status: 'loading' } | { status: 'ready'; identity: CanonicalI
 
 export function PersonDetailPage() {
   const { personId } = useParams();
-  const { organization, memberById, credentials, credentialTypeById, cardDesignById, transactions } = useOrgData();
+  const { organization, memberById, credentials, credentialTypeById, cardDesignById, transactions, identifierConfigById } = useOrgData();
   const { idSwitch } = useServices();
   const member = personId ? memberById.get(personId) : undefined;
   const [identity, setIdentity] = useState<LoadState>({ status: 'loading' });
@@ -47,8 +46,8 @@ export function PersonDetailPage() {
       <PageHeader
         breadcrumbs={[{ label: 'Users', to: '/users' }, { label: member.displayName }]}
         title={<span className="flex items-center gap-3"><Avatar name={member.displayName} photoUrl={member.photoDataUrl} size="lg" />{member.displayName}</span>}
-        meta={<><MemberStatusBadge status={member.status} /><Badge>{member.relationship}</Badge>{member.unit && <Badge tone="neutral">{member.unit}</Badge>}</>}
-        actions={<PlannedButton icon={<BadgePlus className="h-4 w-4" />} info={PLANNED.issueAdditional}>Issue another credential</PlannedButton>}
+        meta={<><MemberStatusBadge status={member.status} />{member.relationship && <Badge>{member.relationship}</Badge>}{member.unit && <Badge tone="neutral">{member.unit}</Badge>}</>}
+        actions={member.status === 'active' && <ButtonLink to={`/users/${member.id}/issue`} variant="secondary" icon={<BadgePlus className="h-4 w-4" />}>Issue credential</ButtonLink>}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -93,9 +92,14 @@ export function PersonDetailPage() {
           <CardHeader title="Organization context" description="Owned by FixID for this organization only." action={<Badge tone="brand">FixID</Badge>} />
           <CardBody>
             <DescriptionList items={[
-              { label: 'User type', value: member.relationship },
+              ...(member.identifier ? [{
+                label: identifierConfigById.get(member.identifier.configId)?.name ?? 'Identifier',
+                value: <span className="font-mono">{member.identifier.value}</span>,
+                hint: member.identifier.source ? `Source: ${member.identifier.source}` : 'Organizational identifier',
+              }] : []),
+              { label: 'Status', value: <MemberStatusBadge status={member.status} />, hint: 'User status is separate from credential status.' },
+              ...(member.relationship ? [{ label: 'Role', value: member.relationship }] : []),
               ...(member.unit ? [{ label: 'Unit', value: member.unit }] : []),
-              ...(member.externalRef ? [{ label: member.externalRef.label, value: <span className="font-mono">{member.externalRef.value}</span>, hint: `Source: ${member.externalRef.source}` }] : []),
               {
                 label: 'Identity resolution', value: member.resolution === 'linked-existing'
                   ? <span className="flex items-center gap-1.5"><Link2 className="h-4 w-4 text-sky-600" />Existing ID Switch identity reused</span>
@@ -119,8 +123,9 @@ export function PersonDetailPage() {
       <Card className="mt-6">
         <CardHeader title="Credentials" description={`${memberCreds.length} issued to ${member.displayName}`} />
         {memberCreds.length === 0 ? (
-          <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No credentials issued"
-            description={member.status === 'pending' ? 'Onboarding is pending. A credential can be issued once onboarding completes.' : 'This person has not been issued a credential yet.'} />
+          <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No credentials issued yet"
+            description={member.status === 'pending' ? 'Onboarding is pending. A credential can be issued once onboarding completes.' : "Issue a digital ID whenever you're ready."}
+            action={member.status === 'active' ? <ButtonLink to={`/users/${member.id}/issue`} variant="primary" icon={<BadgePlus className="h-4 w-4" />}>Issue credential</ButtonLink> : undefined} />
         ) : (
           <div className="grid lg:grid-cols-5">
             <ul className="divide-y divide-slate-100 lg:col-span-3 lg:border-r lg:border-slate-100">

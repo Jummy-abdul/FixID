@@ -176,9 +176,8 @@ describe('dashboard', () => {
     expect(steps[0]).toHaveTextContent('Add your first user and issue an ID');
     expect(screen.getByRole('button', { name: 'Set up verification' })).toBeDisabled();
     await user.click(within(steps[0]).getByRole('link', { name: /get started/i }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Add your first user' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Add users' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /add manually/i })).toHaveAttribute('href', '/users/new/manual');
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
   });
 
   it('first-ID-issued preview advances the next milestone and enables verification', async () => {

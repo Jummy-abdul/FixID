@@ -1,9 +1,12 @@
 import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
 import type { AuditEvent, Credential, Organization } from '@/domain/types';
-import { applyCredentialSetup, applyIssuance, applyWalletUpdate, type CredentialSetupInput, type IssuanceInput } from './operations';
+import {
+  applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, applyWalletUpdate,
+  type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput, type PreparedUser,
+} from './operations';
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 export const STORAGE_KEY = 'fixid.prototype.state';
 
 export interface Session {
@@ -26,7 +29,9 @@ export type OrganizationProfileUpdate = Pick<
 export type Action =
   | { type: 'session/switchOrganization'; organizationId: string }
   | { type: 'organization/updateProfile'; organizationId: string; changes: OrganizationProfileUpdate; at: string }
-  | { type: 'setup/credential'; input: CredentialSetupInput }
+  | { type: 'config/identifier'; input: IdentifierConfigInput }
+  | { type: 'config/credential'; input: CredentialConfigInput }
+  | { type: 'users/create'; prepared: PreparedUser }
   | { type: 'issuance/issue'; input: IssuanceInput }
   | { type: 'wallet/update'; credentialId: string; status: Credential['wallet']['status']; at: string }
   | { type: 'demo/reset'; state: AppState };
@@ -82,8 +87,16 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
-    case 'setup/credential': {
-      const r = applyCredentialSetup(state, action.input);
+    case 'config/identifier': {
+      const r = applyIdentifierConfig(state, action.input);
+      return r.ok ? r.state : state;
+    }
+    case 'config/credential': {
+      const r = applyCredentialConfig(state, action.input);
+      return r.ok ? r.state : state;
+    }
+    case 'users/create': {
+      const r = applyCreateUser(state, action.prepared);
       return r.ok ? r.state : state;
     }
     case 'issuance/issue': {

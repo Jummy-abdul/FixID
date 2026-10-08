@@ -1,5 +1,6 @@
+import { generateIdentifier, validateManualValue, validatePattern, type PatternErrors } from '@/domain/identifierPattern';
 import type {
-  AuditEvent, Credential, CredentialStatus, CredentialType, EffectiveDateRule, Member, UserType, ValidityRule,
+  AuditEvent, Credential, CredentialStatus, CredentialType, EffectiveDateRule, IdentifierConfig, IdentifierSegment, Member, ValidityRule,
 } from '@/domain/types';
 import { formatIdentifier } from '@/lib/identifiers';
 import { computeValidity } from '@/services/issuance';
@@ -9,130 +10,253 @@ type Result<T> = ({ ok: true; state: AppState } & T) | { ok: false; errors: Reco
 
 const ci = (v: string) => v.trim().toLowerCase();
 
-function nextAuditId(audit: AuditEvent[], offset = 0): string {
-  const max = audit.reduce((m, e) => Math.max(m, Number(e.id.replace(/\D/g, '')) || 0), 0);
-  return `AUD-${String(max + 1 + offset).padStart(5, '0')}`;
+function withAudit(state: AppState, events: Omit<AuditEvent, 'id'>[]): AuditEvent[] {
+  const max = state.data.audit.reduce((m, e) => Math.max(m, Number(e.id.replace(/\D/g, '')) || 0), 0);
+  const numbered = events.map((e, i) => ({ ...e, id: `AUD-${String(max + 1 + i).padStart(5, '0')}` }));
+  return [...numbered.reverse(), ...state.data.audit];
 }
 
 /* ------------------------------------------------------------------ */
-/* Credential setup: reusable, organization-level configuration         */
+/* Identifier configurations                                           */
 /* ------------------------------------------------------------------ */
 
-export interface NewCredentialConfig {
-  name: string;
-  identifierLabel: string;
-  identifierMode: 'generated' | 'manual';
-  prefix: string;
-  digits: number;
-  effectiveDate: Extract<EffectiveDateRule, 'on-issue' | 'custom-date'>;
-  validity: ValidityRule;
-  renewal: { allowed: boolean; windowDays: number };
-  cardDesignId: string;
-}
-
-export interface CredentialSetupInput {
+export interface IdentifierConfigInput {
   organizationId: string;
   at: string;
-  /** Existing user type, or the name of a new one. */
-  userType: { id: string } | { name: string };
-  /** Reuse an existing credential type, or create a new one. */
-  credential: { existingId: string } | { config: NewCredentialConfig };
-  ids: { userTypeId: string; credentialTypeId: string };
+  /** Existing id to update, or the id to create. */
+  id: string;
+  name: string;
+  mode: 'manual' | 'generated';
+  segments: IdentifierSegment[];
 }
 
-export function validateCredentialConfig(state: AppState, organizationId: string, c: NewCredentialConfig, now = new Date()) {
-  const errors: Record<string, string> = {};
-  const types = state.data.credentialTypes.filter((t) => t.organizationId === organizationId);
-  if (c.name.trim().length < 2) errors.name = 'Enter a name for this credential, e.g. Student ID.';
-  else if (c.name.trim().length > 60) errors.name = 'Keep the name under 60 characters.';
-  else if (types.some((t) => ci(t.name) === ci(c.name))) errors.name = `A credential called "${c.name.trim()}" already exists. Choose it instead, or use a different name.`;
-  if (c.identifierLabel.trim().length < 2) errors.identifierLabel = 'Name the identifier, e.g. Matric number.';
-  if (c.identifierMode === 'generated') {
-    if (!/^[A-Z0-9][A-Z0-9/-]{0,11}$/.test(c.prefix) && c.prefix !== '') errors.prefix = 'Use up to 12 capital letters, numbers, "-" or "/".';
-    if (!(c.digits >= 3 && c.digits <= 10)) errors.digits = 'Choose between 3 and 10 digits.';
-    else if (c.prefix && types.some((t) => t.identifier.mode === 'generated' && t.identifier.prefix === c.prefix)) {
-      errors.prefix = 'Another credential already uses this prefix. Use a different one so identifiers stay distinct.';
-    }
+export interface IdentifierConfigErrors { name?: string; segments?: PatternErrors }
+
+export function validateIdentifierConfig(state: AppState, input: Omit<IdentifierConfigInput, 'at'>): IdentifierConfigErrors {
+  const errors: IdentifierConfigErrors = {};
+  const name = input.name.trim();
+  if (name.length < 2) errors.name = 'Enter a name of at least 2 characters, e.g. Matric Number.';
+  else if (name.length > 40) errors.name = 'Keep the name under 40 characters.';
+  else if (!/[A-Za-z]/.test(name)) errors.name = 'Use a meaningful name that includes letters.';
+  else if (state.data.identifierConfigs.some((c) => c.organizationId === input.organizationId && c.id !== input.id && ci(c.name) === ci(name))) {
+    errors.name = `An identifier called "${name}" already exists. Select it instead, or use a different name.`;
   }
-  if (c.validity.kind === 'duration' && !(c.validity.months >= 1 && c.validity.months <= 120)) errors.validity = 'Choose a validity period.';
-  if (c.validity.kind === 'fixed-date') {
-    if (!c.validity.date || Number.isNaN(new Date(c.validity.date).getTime())) errors.validity = 'Choose an expiry date.';
-    else if (new Date(c.validity.date) <= now) errors.validity = 'The expiry date must be in the future.';
+  if (input.mode === 'generated') {
+    const patternErrors = validatePattern(input.segments);
+    if (Object.keys(patternErrors).length) errors.segments = patternErrors;
   }
-  if (c.renewal.allowed && !(c.renewal.windowDays >= 1 && c.renewal.windowDays <= 180)) errors.renewal = 'Renewal window must be 1–180 days.';
-  if (!state.data.cardDesigns.some((d) => d.id === c.cardDesignId && d.organizationId === organizationId)) errors.cardDesignId = 'Choose a template.';
   return errors;
 }
 
-export function applyCredentialSetup(state: AppState, input: CredentialSetupInput): Result<{ userTypeId: string; credentialTypeId: string }> {
-  const { organizationId, at } = input;
-  const actor = state.data.admin.name;
-  const audit: AuditEvent[] = [];
-  let credentialTypes = state.data.credentialTypes;
-  let userTypes = state.data.userTypes;
-
-  // Credential type
-  let credentialTypeId: string;
-  if ('existingId' in input.credential) {
-    const existing = credentialTypes.find((t) => t.id === (input.credential as { existingId: string }).existingId && t.organizationId === organizationId);
-    if (!existing) return { ok: false, errors: { credential: 'That credential no longer exists.' } };
-    credentialTypeId = existing.id;
-  } else {
-    const c = input.credential.config;
-    const errors = validateCredentialConfig(state, organizationId, c);
-    if (Object.keys(errors).length) return { ok: false, errors };
-    credentialTypeId = input.ids.credentialTypeId;
-    const type: CredentialType = {
-      id: credentialTypeId,
-      organizationId,
-      name: c.name.trim(),
-      description: '',
-      identifier: { label: c.identifierLabel.trim(), mode: c.identifierMode, prefix: c.prefix, digits: c.digits, nextSequence: 1 },
-      effectiveDate: c.effectiveDate,
-      validity: c.validity,
-      renewal: c.renewal.allowed ? c.renewal : { allowed: false, windowDays: 0 },
-      lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: c.validity.kind !== 'no-expiry' },
-      cardDesignId: c.cardDesignId,
-      status: 'active',
-      createdAt: at,
+export function applyIdentifierConfig(state: AppState, input: IdentifierConfigInput): Result<{ configId: string }> {
+  const errors = validateIdentifierConfig(state, input);
+  if (errors.name || errors.segments) {
+    return { ok: false, errors: { ...(errors.name ? { name: errors.name } : {}), ...(errors.segments ?? {}) } };
+  }
+  const existing = state.data.identifierConfigs.find((c) => c.id === input.id);
+  if (existing && existing.organizationId !== input.organizationId) return { ok: false, errors: { name: 'Not found.' } };
+  const segments = input.mode === 'generated' ? input.segments : [];
+  const seq = segments.find((s) => s.kind === 'sequence');
+  const config: IdentifierConfig = existing
+    // Editing keeps the sequence counter: values already assigned never change or get reused.
+    ? { ...existing, name: input.name.trim(), mode: input.mode, segments, updatedAt: input.at }
+    : {
+      id: input.id, organizationId: input.organizationId, name: input.name.trim(), mode: input.mode, segments,
+      nextSequence: seq && seq.kind === 'sequence' ? seq.start : 1, createdAt: input.at, updatedAt: input.at,
     };
-    credentialTypes = [...credentialTypes, type];
-    audit.push({
-      id: '', organizationId, action: 'credential-type.created', actor, actorType: 'admin', resourceType: 'credential-type',
-      resourceId: type.id, result: 'success', occurredAt: at, summary: `Created credential "${type.name}"`, href: `/templates/credential-types/${type.id}`,
-    });
-  }
-
-  // User type
-  let userTypeId: string;
-  if ('id' in input.userType) {
-    const existing = userTypes.find((u) => u.id === (input.userType as { id: string }).id && u.organizationId === organizationId);
-    if (!existing) return { ok: false, errors: { userType: 'That user type no longer exists.' } };
-    userTypeId = existing.id;
-    if (!existing.credentialTypeId) {
-      userTypes = userTypes.map((u) => (u.id === existing.id ? { ...u, credentialTypeId } : u));
-    }
-  } else {
-    const name = input.userType.name.trim();
-    if (name.length < 2) return { ok: false, errors: { userType: 'Enter a user type, e.g. Student.' } };
-    if (userTypes.some((u) => u.organizationId === organizationId && ci(u.name) === ci(name))) {
-      return { ok: false, errors: { userType: `"${name}" already exists. Select it instead.` } };
-    }
-    userTypeId = input.ids.userTypeId;
-    const ut: UserType = { id: userTypeId, organizationId, name, credentialTypeId, createdAt: at };
-    userTypes = [...userTypes, ut];
-    audit.push({
-      id: '', organizationId, action: 'user-type.created', actor, actorType: 'admin', resourceType: 'user-type',
-      resourceId: ut.id, result: 'success', occurredAt: at, summary: `Added user type "${name}"`,
-    });
-  }
-
-  const numbered = audit.map((e, i) => ({ ...e, id: nextAuditId(state.data.audit, i) })).reverse();
   return {
     ok: true,
-    userTypeId,
-    credentialTypeId,
-    state: { ...state, data: { ...state.data, credentialTypes, userTypes, audit: [...numbered, ...state.data.audit] } },
+    configId: config.id,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        identifierConfigs: existing
+          ? state.data.identifierConfigs.map((c) => (c.id === config.id ? config : c))
+          : [...state.data.identifierConfigs, config],
+        audit: withAudit(state, [{
+          organizationId: input.organizationId, action: existing ? 'identifier.updated' : 'identifier.created', actor: state.data.admin.name,
+          actorType: 'admin', resourceType: 'identifier', resourceId: config.id, result: 'success', occurredAt: input.at,
+          summary: `${existing ? 'Updated' : 'Created'} identifier "${config.name}" (${config.mode === 'manual' ? 'entered manually' : 'generated automatically'})`,
+          href: '/templates/identifiers',
+        }]),
+      },
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Users                                                               */
+/* ------------------------------------------------------------------ */
+
+export interface CreateUserInput {
+  requestId: string;
+  organizationId: string;
+  at: string;
+  identifierConfigId: string;
+  /** Required for manual identifiers. Ignored for generated ones. */
+  identifierValue?: string;
+  person: { givenName: string; familyName: string; photoDataUrl?: string };
+  identity: { idSwitchId: string; resolution: Member['resolution'] };
+  memberId: string;
+}
+
+/** A create request with its identifier already assigned, so the reducer stays deterministic. */
+export interface PreparedUser extends CreateUserInput {
+  assigned: { value: string; nextSequence: number | null };
+}
+
+export function isIdentifierTaken(state: AppState, configId: string, value: string) {
+  return state.data.members.some((m) => m.identifier?.configId === configId && ci(m.identifier.value) === ci(value));
+}
+
+type PrepareResult = { ok: true; prepared: PreparedUser; duplicateRequest?: { memberId: string } } | { ok: false; errors: Record<string, string> };
+
+/** Validates a new user and assigns the identifier. Generation happens here, once per create request. */
+export function prepareCreateUser(state: AppState, input: CreateUserInput, random: () => number = Math.random): PrepareResult {
+  const prior = state.data.members.find((m) => m.creationRequestId === input.requestId);
+  if (prior) return { ok: true, prepared: { ...input, assigned: { value: prior.identifier?.value ?? '', nextSequence: null } }, duplicateRequest: { memberId: prior.id } };
+
+  const org = state.data.organizations.find((o) => o.id === input.organizationId);
+  const config = state.data.identifierConfigs.find((c) => c.id === input.identifierConfigId && c.organizationId === input.organizationId);
+  if (!org || !config) return { ok: false, errors: { form: 'The selected identifier is no longer available.' } };
+  if (!input.person.givenName.trim() || !input.person.familyName.trim()) return { ok: false, errors: { form: 'First and last name are required.' } };
+
+  const existing = state.data.members.find((m) => m.organizationId === input.organizationId && m.idSwitchId === input.identity.idSwitchId);
+  if (existing) return { ok: false, errors: { form: `${existing.displayName} is already a user in your organization.` } };
+
+  if (config.mode === 'manual') {
+    const value = (input.identifierValue ?? '').trim();
+    const invalid = validateManualValue(value);
+    if (invalid) return { ok: false, errors: { identifier: invalid } };
+    if (isIdentifierTaken(state, config.id, value)) return { ok: false, errors: { identifier: `${value} is already assigned to another user.` } };
+    return { ok: true, prepared: { ...input, assigned: { value, nextSequence: null } } };
+  }
+  const generated = generateIdentifier(config, (v) => isIdentifierTaken(state, config.id, v), org.timezone, new Date(input.at), random);
+  if (!generated) return { ok: false, errors: { identifier: `A unique ${config.name} could not be generated. Review the identifier pattern.` } };
+  return { ok: true, prepared: { ...input, assigned: { value: generated.value, nextSequence: generated.nextSequence } } };
+}
+
+export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memberId: string; duplicateRequest?: boolean }> {
+  const prior = state.data.members.find((m) => m.creationRequestId === p.requestId);
+  if (prior) return { ok: true, state, memberId: prior.id, duplicateRequest: true };
+  const config = state.data.identifierConfigs.find((c) => c.id === p.identifierConfigId && c.organizationId === p.organizationId);
+  if (!config) return { ok: false, errors: { form: 'The selected identifier is no longer available.' } };
+  if (state.data.members.some((m) => m.organizationId === p.organizationId && m.idSwitchId === p.identity.idSwitchId)) {
+    return { ok: false, errors: { form: 'This person is already a user in your organization.' } };
+  }
+  if (!p.assigned.value || isIdentifierTaken(state, config.id, p.assigned.value)) {
+    return { ok: false, errors: { identifier: `${p.assigned.value} is already assigned to another user.` } };
+  }
+  const member: Member = {
+    id: p.memberId,
+    organizationId: p.organizationId,
+    idSwitchId: p.identity.idSwitchId,
+    displayName: `${p.person.givenName.trim()} ${p.person.familyName.trim()}`,
+    relationship: '',
+    unit: '',
+    identifier: { configId: config.id, value: p.assigned.value },
+    status: 'active',
+    resolution: p.identity.resolution,
+    factors: { face: false, fingerprint: false },
+    photoDataUrl: p.person.photoDataUrl,
+    joinedAt: p.at,
+    creationRequestId: p.requestId,
+  };
+  return {
+    ok: true,
+    memberId: member.id,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        members: [...state.data.members, member],
+        identifierConfigs: p.assigned.nextSequence === null
+          ? state.data.identifierConfigs
+          : state.data.identifierConfigs.map((c) => (c.id === config.id ? { ...c, nextSequence: p.assigned.nextSequence! } : c)),
+        audit: withAudit(state, [{
+          organizationId: p.organizationId, action: 'user.created', actor: state.data.admin.name, actorType: 'admin',
+          resourceType: 'member', resourceId: member.id, result: 'success', occurredAt: p.at, href: `/users/${member.id}`,
+          summary: `Added ${member.displayName} (${config.name} ${member.identifier!.value}), ${p.identity.resolution === 'created-new'
+            ? `new ID Switch identity ${member.idSwitchId}` : `reusing ID Switch identity ${member.idSwitchId}`}`,
+        }]),
+      },
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Credential configurations                                           */
+/* ------------------------------------------------------------------ */
+
+export interface CredentialConfigInput {
+  organizationId: string;
+  at: string;
+  id: string;
+  name: string;
+  identifierConfigId: string;
+  cardDesignId: string;
+  effectiveDate: Extract<EffectiveDateRule, 'on-issue' | 'custom-date'>;
+  validity: ValidityRule;
+  renewal: { allowed: boolean; windowDays: number };
+}
+
+export function validateCredentialConfig(state: AppState, c: Omit<CredentialConfigInput, 'at' | 'id'>, now = new Date()) {
+  const errors: Record<string, string> = {};
+  const types = state.data.credentialTypes.filter((t) => t.organizationId === c.organizationId);
+  if (c.name.trim().length < 2) errors.name = 'Enter a name for this credential, e.g. Student ID.';
+  else if (c.name.trim().length > 60) errors.name = 'Keep the name under 60 characters.';
+  else if (types.some((t) => ci(t.name) === ci(c.name))) errors.name = `A credential called "${c.name.trim()}" already exists. Select it instead, or use a different name.`;
+  if (!state.data.identifierConfigs.some((i) => i.id === c.identifierConfigId && i.organizationId === c.organizationId)) {
+    errors.identifierConfigId = 'Choose the identifier shown on this credential.';
+  }
+  if (!state.data.cardDesigns.some((d) => d.id === c.cardDesignId && d.organizationId === c.organizationId)) errors.cardDesignId = 'Choose a template.';
+  if (c.validity.kind === 'duration' && !(c.validity.months >= 1 && c.validity.months <= 120)) errors.validity = 'Choose a validity period.';
+  if (c.validity.kind === 'fixed-date') {
+    const d = new Date(c.validity.date);
+    if (!c.validity.date || Number.isNaN(d.getTime())) errors.validity = 'Choose an expiry date.';
+    else if (d <= now) errors.validity = 'The expiry date must be after today, when credentials can first become effective.';
+  }
+  if (c.renewal.allowed && c.validity.kind !== 'no-expiry' && !(c.renewal.windowDays >= 1 && c.renewal.windowDays <= 180)) {
+    errors.renewal = 'Renewal can open 1 to 180 days before expiry.';
+  }
+  return errors;
+}
+
+export function applyCredentialConfig(state: AppState, input: CredentialConfigInput): Result<{ credentialTypeId: string }> {
+  const errors = validateCredentialConfig(state, input, new Date(input.at));
+  if (Object.keys(errors).length) return { ok: false, errors };
+  const idConfig = state.data.identifierConfigs.find((i) => i.id === input.identifierConfigId)!;
+  const type: CredentialType = {
+    id: input.id,
+    organizationId: input.organizationId,
+    name: input.name.trim(),
+    description: '',
+    identifier: { label: idConfig.name, mode: 'manual', prefix: '', digits: 0, nextSequence: 1 },
+    identifierConfigId: idConfig.id,
+    effectiveDate: input.effectiveDate,
+    validity: input.validity,
+    renewal: input.renewal.allowed && input.validity.kind !== 'no-expiry' ? input.renewal : { allowed: false, windowDays: 0 },
+    lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: input.validity.kind !== 'no-expiry' },
+    cardDesignId: input.cardDesignId,
+    status: 'active',
+    createdAt: input.at,
+  };
+  return {
+    ok: true,
+    credentialTypeId: type.id,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        credentialTypes: [...state.data.credentialTypes, type],
+        audit: withAudit(state, [{
+          organizationId: input.organizationId, action: 'credential-type.created', actor: state.data.admin.name, actorType: 'admin',
+          resourceType: 'credential-type', resourceId: type.id, result: 'success', occurredAt: input.at,
+          summary: `Created credential "${type.name}" using ${idConfig.name}`, href: `/templates/credential-types/${type.id}`,
+        }]),
+      },
+    },
   };
 }
 
@@ -141,99 +265,68 @@ export function applyCredentialSetup(state: AppState, input: CredentialSetupInpu
 /* ------------------------------------------------------------------ */
 
 /** Statuses that count as already holding a credential of a type (prevents duplicate issuance). */
-const HOLDING: CredentialStatus[] = ['active', 'pending', 'suspended'];
+export const HOLDING: CredentialStatus[] = ['active', 'pending', 'suspended'];
 
 export interface IssuanceInput {
   requestId: string;
   organizationId: string;
   at: string;
-  userTypeId: string;
+  memberId: string;
   credentialTypeId: string;
-  person: { givenName: string; familyName: string; photoDataUrl?: string };
-  identity: { idSwitchId: string; resolution: Member['resolution'] };
-  /** Issue to someone already in the organization instead of creating a relationship. */
-  existingMemberId?: string;
-  /** Required when the credential type uses manually entered identifiers. */
-  identifierValue?: string;
   /** Used when the credential type lets the issuer choose the effective date. */
   effectiveDate?: string;
-  ids: { memberId: string; credentialId: string };
+  credentialId: string;
 }
 
-export function findDuplicateIdentifier(state: AppState, credentialTypeId: string, value: string) {
-  return state.data.credentials.find((c) => c.credentialTypeId === credentialTypeId && ci(c.identifier) === ci(value));
+/** Why a credential type can or can't be issued to a member. */
+export function issuability(state: AppState, memberId: string, type: CredentialType): { ok: true } | { ok: false; reason: string } {
+  const member = state.data.members.find((m) => m.id === memberId);
+  if (!member) return { ok: false, reason: 'User not found.' };
+  if (type.status !== 'active') return { ok: false, reason: `${type.name} is not active.` };
+  if (type.identifierConfigId && member.identifier?.configId !== type.identifierConfigId) {
+    const needed = state.data.identifierConfigs.find((c) => c.id === type.identifierConfigId)?.name ?? 'a different identifier';
+    return { ok: false, reason: `Uses ${needed}, which this user doesn't have.` };
+  }
+  const holding = state.data.credentials.find((c) => c.memberId === member.id && c.credentialTypeId === type.id && HOLDING.includes(c.status));
+  if (holding) return { ok: false, reason: `Already holds ${type.name} (${holding.status}).` };
+  return { ok: true };
 }
 
-export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ credentialId: string; memberId: string; duplicateRequest?: boolean }> {
-  // Idempotency: a repeated request returns the original result without issuing again.
+export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ credentialId: string; duplicateRequest?: boolean }> {
   const prior = state.data.credentials.find((c) => c.issuanceRequestId === input.requestId);
-  if (prior) return { ok: true, state, credentialId: prior.id, memberId: prior.memberId, duplicateRequest: true };
+  if (prior) return { ok: true, state, credentialId: prior.id, duplicateRequest: true };
 
   const d = state.data;
   const org = d.organizations.find((o) => o.id === input.organizationId);
   const type = d.credentialTypes.find((t) => t.id === input.credentialTypeId && t.organizationId === input.organizationId);
-  const userType = d.userTypes.find((u) => u.id === input.userTypeId && u.organizationId === input.organizationId);
-  if (!org || !type || !userType) return { ok: false, errors: { form: 'The selected user type or credential is no longer available.' } };
-  if (type.status !== 'active') return { ok: false, errors: { form: `${type.name} is not active and cannot be issued.` } };
+  const member = d.members.find((m) => m.id === input.memberId && m.organizationId === input.organizationId);
+  if (!org || !type || !member) return { ok: false, errors: { form: 'The user or credential is no longer available.' } };
+  const check = issuability(state, member.id, type);
+  if (!check.ok) return { ok: false, errors: { form: check.reason } };
 
-  const givenName = input.person.givenName.trim();
-  const familyName = input.person.familyName.trim();
-  if (!givenName || !familyName) return { ok: false, errors: { form: 'First and last name are required.' } };
-
-  // Organization relationship
-  let member: Member;
-  let isNewMember = false;
-  if (input.existingMemberId) {
-    const existing = d.members.find((m) => m.id === input.existingMemberId && m.organizationId === input.organizationId);
-    if (!existing) return { ok: false, errors: { form: 'That user is no longer in your organization.' } };
-    if (existing.idSwitchId !== input.identity.idSwitchId) return { ok: false, errors: { form: 'Identity does not match the selected user.' } };
-    member = existing;
-  } else {
-    const already = d.members.find((m) => m.organizationId === input.organizationId && m.idSwitchId === input.identity.idSwitchId);
-    if (already) return { ok: false, errors: { form: `${already.displayName} is already a user in your organization.` } };
-    isNewMember = true;
-    member = {
-      id: input.ids.memberId,
-      organizationId: input.organizationId,
-      idSwitchId: input.identity.idSwitchId,
-      displayName: `${givenName} ${familyName}`,
-      relationship: userType.name,
-      userTypeId: userType.id,
-      unit: '',
-      status: 'active',
-      resolution: input.identity.resolution,
-      factors: { face: false, fingerprint: false },
-      photoDataUrl: input.person.photoDataUrl,
-      joinedAt: input.at,
-    };
-  }
-
-  const holding = d.credentials.find((c) => c.memberId === member.id && c.credentialTypeId === type.id && HOLDING.includes(c.status));
-  if (holding) return { ok: false, errors: { form: `${member.displayName} already holds ${type.name} ${holding.identifier}.` } };
-
-  // Identifier
+  // The credential shows the user's existing organizational identifier; it is never regenerated here.
   let identifier: string;
   let nextSequence = type.identifier.nextSequence;
-  if (type.identifier.mode === 'manual') {
-    identifier = (input.identifierValue ?? '').trim();
-    if (!identifier) return { ok: false, errors: { identifier: `Enter the ${type.identifier.label.toLowerCase()}.` } };
-    const dup = findDuplicateIdentifier(state, type.id, identifier);
-    if (dup) return { ok: false, errors: { identifier: `${identifier} is already assigned to another ${type.name}.` } };
+  if (type.identifierConfigId) {
+    identifier = member.identifier!.value;
   } else {
+    // Legacy sample-data credential types generate their own numbers.
     do {
       identifier = formatIdentifier(type.identifier.prefix, type.identifier.digits, nextSequence++);
-    } while (findDuplicateIdentifier(state, type.id, identifier));
+    } while (d.credentials.some((c) => c.credentialTypeId === type.id && c.identifier === identifier));
   }
 
   // Validity: the effective date is a rule; the issuance timestamp is when it actually happened.
   const issuedAt = new Date(input.at);
   const chosen = type.effectiveDate === 'custom-date' && input.effectiveDate ? new Date(input.effectiveDate) : undefined;
   const { effectiveFrom, expiresAt } = computeValidity(type, issuedAt, chosen);
-  if (expiresAt && expiresAt <= effectiveFrom) return { ok: false, errors: { form: 'This credential would expire before it becomes effective. Check its validity rules.' } };
+  if (expiresAt && expiresAt <= effectiveFrom) {
+    return { ok: false, errors: { form: 'This credential would expire before it becomes effective. Choose a different effective date or update its validity.' } };
+  }
 
   const status: CredentialStatus = type.lifecycle.requiresApproval ? 'pending' : 'active';
   const credential: Credential = {
-    id: input.ids.credentialId,
+    id: input.credentialId,
     organizationId: input.organizationId,
     memberId: member.id,
     credentialTypeId: type.id,
@@ -246,39 +339,21 @@ export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ c
     issuanceRequestId: input.requestId,
   };
 
-  const actor = d.admin.name;
-  const events: AuditEvent[] = [];
-  if (isNewMember) {
-    events.push({
-      id: '', organizationId: input.organizationId, actor, actorType: 'admin', resourceType: 'member', resourceId: member.id,
-      result: 'success', occurredAt: input.at, href: `/users/${member.id}`,
-      action: input.identity.resolution === 'created-new' ? 'identity.created' : 'identity.linked',
-      summary: input.identity.resolution === 'created-new'
-        ? `Added ${member.displayName} as ${userType.name} with new ID Switch identity ${member.idSwitchId}`
-        : `Added ${member.displayName} as ${userType.name}, reusing ID Switch identity ${member.idSwitchId}`,
-    });
-  }
-  events.push({
-    id: '', organizationId: input.organizationId, action: 'credential.issued', actor, actorType: 'admin', resourceType: 'credential',
-    resourceId: credential.id, result: 'success', occurredAt: input.at, href: `/credentials/${credential.id}`,
-    summary: `Issued ${type.name} ${identifier} to ${member.displayName}`,
-  });
-  const numbered = events.map((e, i) => ({ ...e, id: nextAuditId(d.audit, i) })).reverse();
-
   return {
     ok: true,
     credentialId: credential.id,
-    memberId: member.id,
     state: {
       ...state,
       data: {
         ...d,
-        members: isNewMember ? [...d.members, member] : d.members,
         credentials: [...d.credentials, credential],
-        credentialTypes: type.identifier.mode === 'generated'
-          ? d.credentialTypes.map((t) => (t.id === type.id ? { ...t, identifier: { ...t.identifier, nextSequence } } : t))
-          : d.credentialTypes,
-        audit: [...numbered, ...d.audit],
+        credentialTypes: type.identifierConfigId ? d.credentialTypes
+          : d.credentialTypes.map((t) => (t.id === type.id ? { ...t, identifier: { ...t.identifier, nextSequence } } : t)),
+        audit: withAudit(state, [{
+          organizationId: input.organizationId, action: 'credential.issued', actor: d.admin.name, actorType: 'admin', resourceType: 'credential',
+          resourceId: credential.id, result: 'success', occurredAt: input.at, href: `/credentials/${credential.id}`,
+          summary: `Issued ${type.name} ${identifier} to ${member.displayName}`,
+        }]),
       },
     },
   };
@@ -288,19 +363,17 @@ export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ c
 export function applyWalletUpdate(state: AppState, credentialId: string, status: Credential['wallet']['status'], at: string): AppState {
   const c = state.data.credentials.find((x) => x.id === credentialId);
   if (!c || c.wallet.status === status) return state;
-  const event: AuditEvent = {
-    id: nextAuditId(state.data.audit), organizationId: c.organizationId,
-    action: status === 'failed' ? 'wallet.failed' : 'wallet.delivered', actor: 'Seamfix Wallet (simulated)', actorType: 'integration',
-    resourceType: 'credential', resourceId: c.id, result: status === 'failed' ? 'failure' : 'success', occurredAt: at,
-    summary: status === 'failed' ? `Wallet delivery failed for ${c.identifier}` : `${c.identifier} made available in Seamfix Wallet`,
-    href: `/credentials/${c.id}`,
-  };
   return {
     ...state,
     data: {
       ...state.data,
       credentials: state.data.credentials.map((x) => (x.id === credentialId ? { ...x, wallet: { status, updatedAt: at } } : x)),
-      audit: status === 'not-sent' ? state.data.audit : [event, ...state.data.audit],
+      audit: status === 'not-sent' ? state.data.audit : withAudit(state, [{
+        organizationId: c.organizationId, action: status === 'failed' ? 'wallet.failed' : 'wallet.delivered', actor: 'Seamfix Wallet (simulated)',
+        actorType: 'integration', resourceType: 'credential', resourceId: c.id, result: status === 'failed' ? 'failure' : 'success', occurredAt: at,
+        summary: status === 'failed' ? `Wallet delivery failed for ${c.identifier}` : `${c.identifier} made available in Seamfix Wallet`,
+        href: `/credentials/${c.id}`,
+      }]),
     },
   };
 }

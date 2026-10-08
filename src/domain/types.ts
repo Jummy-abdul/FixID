@@ -69,13 +69,11 @@ export interface Member {
   idSwitchId: string;
   /** Snapshot of display name for fast listing; source of truth remains ID Switch. */
   displayName: string;
-  /** Display name of the user type, e.g. "Student". Kept for listing; `userTypeId` is the reference. */
+  /** Optional descriptive role from a source system, e.g. "Student". Not a configuration entity. */
   relationship: string;
-  /** Organization-specific user type. */
-  userTypeId?: string;
   unit: string;
-  /** Organization identifier for this person, e.g. matric or staff number, with its source system. */
-  externalRef?: { label: string; value: string; source: string };
+  /** The organizational identifier assigned to this person, e.g. a matric number. */
+  identifier?: { configId: string; value: string; source?: string };
   status: MemberStatus;
   /** How the ID Switch identity was obtained when the person was onboarded (PRD §15.4). */
   resolution: 'linked-existing' | 'created-new';
@@ -84,19 +82,36 @@ export interface Member {
   /** Optional profile photo for the digital ID (downscaled data URL). Part of the FixID profile. */
   photoDataUrl?: string;
   joinedAt: ISODate;
+  /** Idempotency key of the request that created this user. */
+  creationRequestId?: string;
 }
 
+export type DateFormat = 'YYYY' | 'YY' | 'MM' | 'DD' | 'YYYYMM' | 'YYYYMMDD';
+
+/** One building block of a generated identifier. */
+export type IdentifierSegment =
+  | { id: string; kind: 'static'; value: string }
+  | { id: string; kind: 'separator'; value: '-' | '/' | '_' | '.' }
+  | { id: string; kind: 'sequence'; start: number; digits: number; zeroPad: boolean }
+  | { id: string; kind: 'random-numeric'; length: number }
+  | { id: string; kind: 'random-alphanumeric'; length: number; charset: 'upper' | 'mixed' }
+  | { id: string; kind: 'date'; format: DateFormat };
+
 /**
- * Organization-specific category of person, e.g. Student, Staff, Member.
- * Points at the credential type normally issued to this category; the two stay separate concepts.
+ * Reusable, organization-level identifier configuration (e.g. Matric Number).
+ * Keyed by a stable id, never by its display name.
  */
-export interface UserType {
+export interface IdentifierConfig {
   id: string;
   organizationId: string;
   name: string;
-  /** Default credential type issued to this user type, once configured. */
-  credentialTypeId: string | null;
+  mode: 'manual' | 'generated';
+  /** Pattern for generated identifiers. Empty for manual entry. */
+  segments: IdentifierSegment[];
+  /** Next value of the sequential segment. Persisted; only advanced when an identifier is assigned. */
+  nextSequence: number;
   createdAt: ISODate;
+  updatedAt: ISODate;
 }
 
 export type ValidityRule =
@@ -116,6 +131,11 @@ export interface CredentialType {
    * `manual`: supplied per person (e.g. an existing matric number). Unique per credential type either way.
    */
   identifier: { label: string; mode: 'generated' | 'manual'; prefix: string; digits: number; nextSequence: number };
+  /**
+   * When set, the credential shows the holder's organizational identifier from this configuration
+   * instead of generating its own. Credentials configured in FixID always use this.
+   */
+  identifierConfigId?: string;
   effectiveDate: EffectiveDateRule;
   validity: ValidityRule;
   renewal: { allowed: boolean; windowDays: number };
@@ -219,7 +239,9 @@ export type AuditAction =
   | 'identity.resolved'
   | 'identity.linked'
   | 'identity.created'
-  | 'user-type.created'
+  | 'user.created'
+  | 'identifier.created'
+  | 'identifier.updated'
   | 'credential-type.created'
   | 'credential.issued'
   | 'credential.activated'
@@ -238,7 +260,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'user-type' | 'activity' | 'organization';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization';
   resourceId: string;
   result: 'success' | 'failure';
   summary: string;

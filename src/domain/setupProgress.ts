@@ -1,4 +1,4 @@
-import type { Credential, VerificationActivity } from './types';
+import type { Credential, Member, VerificationActivity } from './types';
 
 /**
  * A credential counts as issued once issuance completed. `pending` (awaiting approval)
@@ -23,18 +23,28 @@ export interface SetupProgress {
   /** The recommended next milestone, or null when setup is complete. */
   next: SetupMilestoneId | null;
   isComplete: boolean;
+  /** Tracked separately: a user can exist before any digital ID is issued. */
+  firstUserCreated: boolean;
+  firstCredentialIssued: boolean;
+  firstVerificationConfigured: boolean;
 }
 
 /**
  * Derives first-time setup progress from organization data.
- * Deliberately ignores user count: adding a user without issuing an ID is not progress.
+ * The first milestone needs both a user and an issued credential; a user alone is partial progress.
  */
-export function getSetupProgress(data: { credentials: Credential[]; activities: VerificationActivity[] }): SetupProgress {
+export function getSetupProgress(data: { members?: Member[]; credentials: Credential[]; activities: VerificationActivity[] }): SetupProgress {
+  const firstCredentialIssued = data.credentials.some(isIssued);
+  const firstUserCreated = (data.members?.length ?? 0) > 0 || firstCredentialIssued;
+  const firstVerificationConfigured = data.activities.some(isConfiguredActivity);
   const milestones: SetupProgress['milestones'] = [
-    { id: 'first-id', done: data.credentials.some(isIssued) },
-    { id: 'first-verification', done: data.activities.some(isConfiguredActivity) },
+    { id: 'first-id', done: firstUserCreated && firstCredentialIssued },
+    { id: 'first-verification', done: firstVerificationConfigured },
   ];
   const completed = milestones.filter((m) => m.done).length;
   const next = milestones.find((m) => !m.done)?.id ?? null;
-  return { milestones, completed, total: milestones.length, next, isComplete: next === null };
+  return {
+    milestones, completed, total: milestones.length, next, isComplete: next === null,
+    firstUserCreated, firstCredentialIssued, firstVerificationConfigured,
+  };
 }

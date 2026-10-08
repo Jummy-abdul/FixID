@@ -60,23 +60,27 @@ Deployed on Vercel from this repository. `vercel.json` rewrites all paths to `in
 
 The app opens in **Crestfield Academy**, a brand-new organization with no users, credentials or activities, so the first-time journey runs on real data. Northbridge University, Meridian Health Group and Lagos Tech Summit are established sample organizations. Switch under **Settings → Demo data**.
 
-## Add user journey (Milestone 2)
+## Add user journey
 
-`/users/new` → choose **Add manually** (bulk upload is marked Coming soon) → `/users/new/manual`:
+`/users/new` (from the dashboard or Users) offers **Add manually**; **Select existing** and **Bulk upload** are marked Planned.
 
-1. **User type**: existing types, examples (Student, Staff, Member) or a custom one.
-2. **Credential**: one-time setup (name, identifier label, entered or generated identifiers, validity, renewal, template). Skipped when the user type already has a saved credential.
-3. **Details**: name, email/phone, identifier when entered manually, optional photo.
-4. **Identity**: simulated ID Switch resolution. Email/phone plus name = reuse; email/phone with a different name = blocked; name only = explicit confirmation required.
-5. **Review** → **Issue digital ID** (atomic, idempotent per request), then a success screen. Seamfix Wallet delivery is tracked separately.
+`/users/new/manual`:
 
-The draft is kept in `sessionStorage` so it survives refreshes and visits to Templates. Business rules live in `src/store/operations.ts`.
+1. **Select identifier**: pick a saved identifier, or set one up from a suggestion (Matric Number, Staff ID, Employee Number, Membership Number, Other) in the **identifier drawer**.
+2. **User information**: name, email/phone, the identifier value (manual) or a generated preview, optional photo. **Create user** runs a simulated ID Switch check: new or confidently matched people are created immediately; existing members, conflicts and name-only matches need attention first.
+3. **User added successfully** → optionally **Issue digital ID** (choose or configure a credential in the **credential drawer**, review, issue) or **I'll do this later**.
+
+Users without a credential can be issued one later from their profile (`/users/:id/issue`), which uses the same issuance flow.
+
+Identifiers and credentials are reusable, organization-level configurations, managed under **Templates → Identifiers** and **Templates → Credential types** with the same drawers. Generated identifiers come from a segment pattern (static text, separator, sequential number, random digits, random letters and numbers, date in the organization's time zone). Previews never consume a sequence number; the identifier is assigned once, when the user is created, and credentials display it without regenerating it.
+
+Business rules live in `src/store/operations.ts` and `src/domain/identifierPattern.ts`. The draft is kept in `sessionStorage`.
 
 ## Data model
 
-- `Organization` → `CredentialType` (identifier format, effective date, validity, renewal, lifecycle) → `CardDesign` (one default per org)
-- `UserType` (organization-specific, points at its default `CredentialType`)
-- `Member` (FixID context, references `idSwitchId` and `userTypeId`) → `Credential` (Member × CredentialType, with wallet delivery status)
+- `Organization` → `CredentialType` (identifier configuration, effective date, validity, renewal, lifecycle) → `CardDesign` (one default per org)
+- `IdentifierConfig` (stable id, name, manual or generated pattern, persisted sequence)
+- `Member` (FixID context, references `idSwitchId`, holds one organizational identifier) → `Credential` (Member × CredentialType, with wallet delivery status)
 - `VerificationActivity` (purpose, eligibility, primary + fallback methods, assurance, outcome, schedule) → `Transaction` (result, decision, assurance achieved, fallback used, reason)
 - `AuditEvent` (actor, action, resource, result)
 

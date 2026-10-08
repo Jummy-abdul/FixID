@@ -2,84 +2,53 @@ import type { CanonicalIdentity } from '@/domain/types';
 import { newId } from '@/lib/identifiers';
 import type { ResolutionResult } from '@/services/types';
 
-export type StepId = 'type' | 'credential' | 'details' | 'identity' | 'review' | 'done';
-
-export interface CredentialForm {
-  name: string;
-  identifierLabel: string;
-  identifierMode: 'generated' | 'manual';
-  prefix: string;
-  digits: number;
-  effectiveDate: 'on-issue' | 'custom-date';
-  expiry: 'duration' | 'fixed-date' | 'no-expiry';
-  months: number;
-  fixedDate: string;
-  renewalAllowed: boolean;
-  renewalWindowDays: number;
-  cardDesignId: string;
-}
+/** identifier → details → created → (issue | skipped) */
+export type Phase = 'identifier' | 'details' | 'created' | 'issue' | 'skipped';
 
 export interface PersonForm {
   givenName: string;
   familyName: string;
   email: string;
   phone: string;
-  identifier: string;
-  effectiveDate: string;
+  /** Only for identifiers entered manually. */
+  identifierValue: string;
   photoDataUrl?: string;
 }
 
 export interface Draft {
-  version: 1;
+  version: 2;
   organizationId: string;
-  /** Idempotency key for the issuance request. */
+  /** Idempotency key for creating this user. */
   requestId: string;
-  step: StepId;
-  /** Existing user type, or the name of a new one (saved together with the credential setup). */
-  userType: { id: string } | { name: string } | null;
-  /** How the credential step is answered: reuse an existing credential or configure a new one. */
-  credentialChoice: { existingId: string } | 'new' | null;
-  credentialForm: CredentialForm | null;
-  /** The saved credential type that will be issued. */
-  credentialTypeId: string | null;
-  /** True when a saved configuration was reused, so the credential step was skipped. */
-  reusedCredential: boolean;
+  phase: Phase;
+  identifierConfigId: string | null;
   person: PersonForm;
   resolution: ResolutionResult | null;
-  /** Identity fields the resolution was run against; a change invalidates it. */
+  /** Identity fields the resolution was run against; any change invalidates it. */
   resolvedFor: string | null;
-  existingMemberId: string | null;
   confirmNewIdentity: boolean;
-  /** Identity created in ID Switch during a previous issuance attempt, reused on retry. */
+  /** Identity created in ID Switch during an earlier attempt, reused on retry. */
   createdIdentity: CanonicalIdentity | null;
-  issued: { credentialId: string; memberId: string } | null;
+  memberId: string | null;
 }
 
-export const today = () => new Date().toISOString().slice(0, 10);
-
-export function emptyDraft(organizationId: string): Draft {
+export function emptyDraft(organizationId: string, identifierConfigId: string | null = null): Draft {
   return {
-    version: 1,
+    version: 2,
     organizationId,
     requestId: newId('req'),
-    step: 'type',
-    userType: null,
-    credentialChoice: null,
-    credentialForm: null,
-    credentialTypeId: null,
-    reusedCredential: false,
-    person: { givenName: '', familyName: '', email: '', phone: '', identifier: '', effectiveDate: today() },
+    phase: 'identifier',
+    identifierConfigId,
+    person: { givenName: '', familyName: '', email: '', phone: '', identifierValue: '' },
     resolution: null,
     resolvedFor: null,
-    existingMemberId: null,
     confirmNewIdentity: false,
     createdIdentity: null,
-    issued: null,
+    memberId: null,
   };
 }
 
-export const identityKey = (p: PersonForm) =>
-  [p.givenName, p.familyName, p.email, p.phone].map((v) => v.trim().toLowerCase()).join('|');
+export const identityKey = (p: PersonForm) => [p.givenName, p.familyName, p.email, p.phone].map((v) => v.trim().toLowerCase()).join('|');
 
 const key = (organizationId: string) => `fixid.prototype.addUserDraft.${organizationId}`;
 
@@ -88,7 +57,7 @@ export function loadDraft(organizationId: string): Draft | null {
     const raw = window.sessionStorage.getItem(key(organizationId));
     if (!raw) return null;
     const d = JSON.parse(raw) as Draft;
-    return d.version === 1 && d.organizationId === organizationId && d.step !== 'done' ? d : null;
+    return d.version === 2 && d.organizationId === organizationId ? d : null;
   } catch {
     return null;
   }
@@ -110,5 +79,6 @@ export function clearDraft(organizationId: string) {
   }
 }
 
-/** A draft worth offering to resume: the admin has made at least one choice. */
-export const hasProgress = (d: Draft | null) => !!d && (d.userType !== null || d.person.givenName !== '');
+/** An unfinished draft worth offering to resume (before the user is created). */
+export const hasProgress = (d: Draft | null) =>
+  !!d && (d.phase === 'identifier' || d.phase === 'details') && (d.identifierConfigId !== null || d.person.givenName !== '');

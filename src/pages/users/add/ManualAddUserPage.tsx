@@ -1,126 +1,116 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, ConfirmDialog, PageHeader } from '@/components/ui';
-import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
-import { formatIdentifier } from '@/lib/identifiers';
-import { computeValidity, previewIdentifier } from '@/services/issuance';
+import { BadgeCheck, CheckCircle2, LayoutDashboard, UserPlus, UserRound } from 'lucide-react';
+import { Button, ButtonLink, ConfirmDialog, PageHeader } from '@/components/ui';
+import { IssueCredentialFlow } from '@/components/issuance/IssueCredentialFlow';
 import { useOrgData } from '@/store/AppStore';
 import { clearDraft, emptyDraft, hasProgress, loadDraft, saveDraft, type Draft } from './draft';
-import { IssuedSuccess } from './IssuedSuccess';
 import { Stepper } from './parts';
-import { StepCredential, toValidity } from './StepCredential';
 import { StepDetails } from './StepDetails';
-import { StepIdentity } from './StepIdentity';
-import { StepReview } from './StepReview';
-import { StepUserType } from './StepUserType';
+import { StepIdentifier } from './StepIdentifier';
+
+const STEPS = [
+  { id: 'identifier', label: 'Identifier' },
+  { id: 'details', label: 'User information' },
+  { id: 'credential', label: 'Digital ID (optional)' },
+];
 
 export function ManualAddUserPage() {
   const org = useOrgData();
   const orgId = org.organization.id;
   const navigate = useNavigate();
-  const [draft, setDraft] = useState<Draft>(() => loadDraft(orgId) ?? emptyDraft(orgId));
+  const [draft, setDraft] = useState<Draft>(() => loadDraft(orgId) ?? emptyDraft(orgId, org.identifierConfigs.length === 1 ? org.identifierConfigs[0].id : null));
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
-  // Switching organization (demo setting) starts a separate draft.
   useEffect(() => {
     if (draft.organizationId !== orgId) setDraft(loadDraft(orgId) ?? emptyDraft(orgId));
   }, [orgId, draft.organizationId]);
 
-  useEffect(() => {
-    if (draft.step === 'done') clearDraft(draft.organizationId);
-    else saveDraft(draft);
-  }, [draft]);
-
-  useEffect(() => { window.scrollTo?.(0, 0); }, [draft.step]);
+  useEffect(() => { saveDraft(draft); }, [draft]);
+  useEffect(() => { window.scrollTo?.(0, 0); }, [draft.phase]);
+  // Leaving after the user was created ends this journey; a refresh (no unmount) keeps it.
+  useEffect(() => () => {
+    if (!['identifier', 'details'].includes(draftRef.current.phase)) clearDraft(draftRef.current.organizationId);
+  }, []);
 
   const update = useCallback((patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch })), []);
+  const restart = () => setDraft(emptyDraft(orgId, draft.identifierConfigId));
 
-  const userType = draft.userType && 'id' in draft.userType ? org.userTypes.find((u) => u.id === (draft.userType as { id: string }).id) : undefined;
-  const userTypeName = userType?.name ?? (draft.userType && 'name' in draft.userType ? draft.userType.name : '');
-  const type = draft.credentialTypeId ? org.credentialTypeById.get(draft.credentialTypeId) : undefined;
+  const config = draft.identifierConfigId ? org.identifierConfigById.get(draft.identifierConfigId) : undefined;
+  const member = draft.memberId ? org.memberById.get(draft.memberId) : undefined;
 
-  // A step that depends on missing configuration falls back to the right place (e.g. after a demo reset).
+  // Recover from configuration that no longer exists (e.g. after a demo reset).
   useEffect(() => {
-    if (['details', 'identity', 'review'].includes(draft.step) && (!type || !userType)) update({ step: draft.userType ? 'credential' : 'type' });
-    if (draft.step === 'credential' && (!draft.userType || !draft.credentialForm)) update({ step: 'type' });
-  }, [draft.step, draft.userType, draft.credentialForm, type, userType, update]);
+    if (draft.phase === 'details' && !config) update({ phase: 'identifier' });
+    if (['created', 'issue', 'skipped'].includes(draft.phase) && !member) setDraft(emptyDraft(orgId));
+  }, [draft.phase, config, member, orgId, update]);
 
   const cancel = () => (hasProgress(draft) ? setConfirmCancel(true) : navigate('/users/new'));
   const footerStart = <Button variant="ghost" onClick={cancel}>Cancel</Button>;
+  const stepIndex = draft.phase === 'identifier' ? 0 : draft.phase === 'details' ? 1 : 2;
 
-  // Live preview of what will be issued.
-  const form = draft.credentialChoice === 'new' && !type ? draft.credentialForm : null;
-  const previewType = type ?? (typeof draft.credentialChoice === 'object' && draft.credentialChoice ? org.credentialTypeById.get(draft.credentialChoice.existingId) : undefined);
-  const designId = form?.cardDesignId ?? previewType?.cardDesignId ?? org.organization.defaultCardDesignId;
-  const design = org.cardDesignById.get(designId) ?? org.cardDesignById.get(org.organization.defaultCardDesignId)!;
-  const name = `${draft.person.givenName} ${draft.person.familyName}`.trim();
-  const identifier = form
-    ? (form.identifierMode === 'generated' ? formatIdentifier(form.prefix.toUpperCase(), form.digits, 1) : form.identifierLabel)
-    : previewType
-      ? (previewType.identifier.mode === 'manual' ? draft.person.identifier || previewType.identifier.label : previewIdentifier(previewType)!)
-      : 'ID number';
-  const expiresAt = previewType
-    ? computeValidity(previewType, new Date()).expiresAt
-    : form ? computeValidity({ effectiveDate: 'on-issue', validity: toValidity(form) }, new Date()).expiresAt : null;
+  const doneActions = (memberId: string) => (
+    <>
+      <ButtonLink to={`/users/${memberId}`} variant="primary" icon={<UserRound className="h-4 w-4" />}>View user</ButtonLink>
+      <Button variant="secondary" icon={<UserPlus className="h-4 w-4" />} onClick={restart}>Add another user</Button>
+      <ButtonLink to="/" variant="ghost" icon={<LayoutDashboard className="h-4 w-4" />}>Return to dashboard</ButtonLink>
+    </>
+  );
 
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'Users', to: '/users' }, { label: 'Add user', to: '/users/new' }, { label: 'Manually' }]}
-        title={draft.step === 'done' ? 'User added' : org.members.length === 0 ? 'Add your first user' : 'Add a user'}
+        breadcrumbs={[{ label: 'Users', to: '/users' }, { label: 'Add users', to: '/users/new' }, { label: 'Manually' }]}
+        title="Add a user"
       />
+      <Stepper steps={STEPS} currentIndex={stepIndex} />
 
-      {draft.step === 'done' && draft.issued ? (
-        <IssuedSuccess org={org} credentialId={draft.issued.credentialId} memberId={draft.issued.memberId}
-          onAddAnother={() => setDraft(emptyDraft(orgId))} />
-      ) : (
-        <>
-          <Stepper current={draft.step} reusedCredential={draft.reusedCredential} onSelect={(step) => update({ step })} />
-          <div className="grid grid-cols-1 gap-8 xl:grid-cols-12">
-            <div className="min-w-0 xl:col-span-8">
-              {draft.step === 'type' && <StepUserType org={org} draft={draft} onContinue={update} footerStart={footerStart} />}
-              {draft.step === 'credential' && draft.credentialForm && draft.userType && (
-                <StepCredential org={org} draft={draft} userTypeName={userTypeName} update={update} footerStart={footerStart} />
+      {draft.phase === 'identifier' && <StepIdentifier org={org} draft={draft} update={update} footerStart={footerStart} />}
+      {draft.phase === 'details' && config && <StepDetails org={org} draft={draft} config={config} update={update} footerStart={footerStart} />}
+
+      {(draft.phase === 'created' || draft.phase === 'skipped') && member && (
+        <section aria-labelledby="added-title" className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-white to-emerald-50/50 shadow-card">
+          <div className="px-6 py-10 sm:px-10 lg:px-14 lg:py-12">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500 text-white"><CheckCircle2 className="h-6 w-6" aria-hidden="true" /></span>
+            <h2 id="added-title" className="mt-6 text-3xl font-semibold tracking-tight text-slate-900">User added successfully</h2>
+            <p className="mt-2 text-lg text-slate-600">
+              {draft.phase === 'created' ? 'The user has been added to your organization.' : "You can issue a digital ID for this user whenever you're ready."}
+            </p>
+            <dl className="mt-6 flex flex-wrap gap-x-10 gap-y-3 text-sm">
+              <div><dt className="text-slate-500">Name</dt><dd className="mt-0.5 font-medium text-slate-900">{member.displayName}</dd></div>
+              {member.identifier && (
+                <div><dt className="text-slate-500">{org.identifierConfigById.get(member.identifier.configId)?.name}</dt><dd className="mt-0.5 font-mono font-medium text-slate-900">{member.identifier.value}</dd></div>
               )}
-              {draft.step === 'details' && type && userType && (
-                <StepDetails org={org} draft={draft} type={type} userTypeName={userTypeName} update={update} footerStart={footerStart} />
-              )}
-              {draft.step === 'identity' && type && userType && (
-                <StepIdentity org={org} draft={draft} type={type} update={update} footerStart={footerStart} />
-              )}
-              {draft.step === 'review' && type && userType && (
-                <StepReview org={org} draft={draft} type={type} userTypeName={userTypeName} update={update} footerStart={footerStart}
-                  onIssued={(issued) => setDraft((d) => ({ ...d, issued, step: 'done' }))} />
-              )}
-            </div>
-            <aside className="xl:col-span-4" aria-label="Digital ID preview">
-              <div className="sticky top-24 rounded-2xl border border-slate-200 bg-white p-6 shadow-card">
-                <p className="text-sm font-semibold text-slate-900">Digital ID preview</p>
-                <p className="mt-0.5 text-xs text-slate-500">{design.name}{previewType ? ` · ${previewType.name}` : form ? ` · ${form.name || 'New credential'}` : ''}</p>
-                <div className="mt-5 flex justify-center overflow-hidden">
-                  <div className="origin-top scale-[0.85] sm:scale-100 xl:scale-[0.82] 2xl:scale-100">
-                    <DigitalIdCard design={design} organization={org.organization} content={{
-                      name: name || 'Full name',
-                      identifier,
-                      identifierLabel: form?.identifierLabel || previewType?.identifier.label,
-                      credentialTypeName: previewType?.name ?? form?.name ?? 'Digital ID',
-                      relationship: userTypeName || org.organization.memberLabel,
-                      expiresAt: expiresAt ? expiresAt.toISOString() : null,
-                      photoUrl: draft.person.photoDataUrl,
-                    }} />
-                  </div>
+              <div><dt className="text-slate-500">Identity</dt><dd className="mt-0.5 text-slate-900">{member.resolution === 'linked-existing' ? 'Existing ID Switch identity linked' : 'New ID Switch identity (simulated)'}</dd></div>
+            </dl>
+
+            {draft.phase === 'created' ? (
+              <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-6">
+                <p className="text-lg font-semibold text-slate-900">Would you like to issue a digital ID?</p>
+                <p className="mt-1 text-sm text-slate-500">Optional. {member.displayName.split(' ')[0]} is saved either way, and you can issue one later from their profile.</p>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Button icon={<BadgeCheck className="h-4 w-4" />} onClick={() => update({ phase: 'issue' })}>Issue digital ID</Button>
+                  <Button variant="secondary" onClick={() => update({ phase: 'skipped' })}>I'll do this later</Button>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">Preview. The final identifier and dates are set when the ID is issued.</p>
               </div>
-            </aside>
+            ) : (
+              <div className="mt-10 flex flex-wrap gap-3">{doneActions(member.id)}</div>
+            )}
           </div>
-        </>
+        </section>
+      )}
+
+      {draft.phase === 'issue' && member && (
+        <IssueCredentialFlow memberId={member.id} cancelLabel="Back" onCancel={() => update({ phase: 'created' })}
+          issuedActions={() => doneActions(member.id)} />
       )}
 
       <ConfirmDialog
         open={confirmCancel}
         title="Discard this user?"
-        description="The details you've entered for this person will be cleared. Any credential settings you've already saved are kept."
+        description="The details you've entered will be cleared. Identifiers and credentials you've already configured are kept."
         confirmLabel="Discard"
         tone="danger"
         onCancel={() => setConfirmCancel(false)}

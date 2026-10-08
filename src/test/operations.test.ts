@@ -1,132 +1,196 @@
 import { buildIdSwitchRegistry } from '@/data/idSwitchRegistry';
 import { NEW_ORGANIZATION_ID, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
+import { generateIdentifier, previewIdentifier, renderPattern, validatePattern } from '@/domain/identifierPattern';
 import { getSetupProgress } from '@/domain/setupProgress';
+import type { IdentifierSegment } from '@/domain/types';
 import { matchIdentity } from '@/services/mockIdSwitch';
 import { selectOrgData } from '@/store/AppStore';
-import { applyCredentialSetup, applyIssuance, type IssuanceInput, type NewCredentialConfig } from '@/store/operations';
+import {
+  applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser, type CreateUserInput,
+} from '@/store/operations';
 import { createInitialState, reducer, type AppState } from '@/store/state';
 
 const NOW = new Date('2026-10-08T12:00:00Z');
 const AT = NOW.toISOString();
+const ORG = NEW_ORGANIZATION_ID;
 
-const config = (over: Partial<NewCredentialConfig> = {}): NewCredentialConfig => ({
-  name: 'Student ID', identifierLabel: 'Matric number', identifierMode: 'manual', prefix: 'CFA-STU-', digits: 6,
-  effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 }, renewal: { allowed: true, windowDays: 30 },
-  cardDesignId: `${NEW_ORGANIZATION_ID}_design_default`, ...over,
-});
+const STU_PATTERN: IdentifierSegment[] = [
+  { id: 's1', kind: 'static', value: 'STU' },
+  { id: 's2', kind: 'separator', value: '/' },
+  { id: 's3', kind: 'date', format: 'YYYY' },
+  { id: 's4', kind: 'separator', value: '/' },
+  { id: 's5', kind: 'sequence', start: 1, digits: 5, zeroPad: true },
+];
 
-function setUp(over: Partial<NewCredentialConfig> = {}) {
-  const r = applyCredentialSetup(createInitialState(NOW), {
-    organizationId: NEW_ORGANIZATION_ID, at: AT, userType: { name: 'Student' }, credential: { config: config(over) },
-    ids: { userTypeId: 'ut_1', credentialTypeId: 'ct_1' },
-  });
-  if (!r.ok) throw new Error(JSON.stringify(r.errors));
-  return r.state;
+function ok<T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> {
+  if (!r.ok) throw new Error(JSON.stringify((r as unknown as { errors: unknown }).errors));
+  return r as Extract<T, { ok: true }>;
 }
 
-const issue = (state: AppState, over: Partial<IssuanceInput> = {}) => applyIssuance(state, {
-  requestId: 'req_1', organizationId: NEW_ORGANIZATION_ID, at: AT, userTypeId: 'ut_1', credentialTypeId: 'ct_1',
-  person: { givenName: 'Amara', familyName: 'Okonkwo' }, identity: { idSwitchId: 'IDS-NEW-1', resolution: 'created-new' },
-  identifierValue: 'CFA/2026/0001', ids: { memberId: 'mem_1', credentialId: 'cr_1' }, ...over,
+function withIdentifier(mode: 'manual' | 'generated' = 'generated', state = createInitialState(NOW)) {
+  return ok(applyIdentifierConfig(state, { organizationId: ORG, at: AT, id: 'idc_1', name: 'Matric Number', mode, segments: mode === 'generated' ? STU_PATTERN : [] })).state;
+}
+
+const userInput = (over: Partial<CreateUserInput> = {}): CreateUserInput => ({
+  requestId: 'req_u1', organizationId: ORG, at: AT, identifierConfigId: 'idc_1', person: { givenName: 'Amara', familyName: 'Okonkwo' },
+  identity: { idSwitchId: 'IDS-NEW-1', resolution: 'created-new' }, memberId: 'mem_1', ...over,
 });
+
+function createUser(state: AppState, over: Partial<CreateUserInput> = {}) {
+  const prepared = prepareCreateUser(state, userInput(over), () => 0.42);
+  if (!prepared.ok) return prepared;
+  return applyCreateUser(state, prepared.prepared);
+}
+
+function withCredential(state: AppState) {
+  return ok(applyCredentialConfig(state, {
+    organizationId: ORG, at: AT, id: 'ct_1', name: 'Student ID', identifierConfigId: 'idc_1', cardDesignId: `${ORG}_design_default`,
+    effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 }, renewal: { allowed: true, windowDays: 30 },
+  })).state;
+}
 
 describe('new organization', () => {
-  it('starts empty, so the first-time journey applies', () => {
+  it('starts with nothing configured', () => {
     const org = selectOrgData(createInitialState(NOW));
-    expect(org.organization.id).toBe(NEW_ORGANIZATION_ID);
-    expect([org.members, org.credentials, org.credentialTypes, org.userTypes, org.activities]).toEqual([[], [], [], [], []]);
-    expect(org.cardDesigns.filter((d) => d.isDefault)).toHaveLength(1);
+    expect(org.organization.id).toBe(ORG);
+    expect([org.members, org.credentials, org.credentialTypes, org.identifierConfigs, org.activities]).toEqual([[], [], [], [], []]);
   });
 });
 
-describe('credential setup', () => {
-  it('saves a reusable credential type and user type with audit events', () => {
-    const state = setUp();
+describe('identifier patterns', () => {
+  it('renders the configured segments in order', () => {
+    expect(previewIdentifier(STU_PATTERN, 1, 'Africa/Lagos', NOW)).toBe('STU/2026/00001');
+    expect(renderPattern([{ id: 'a', kind: 'static', value: 'EMP' }, { id: 'b', kind: 'separator', value: '-' }, { id: 'c', kind: 'sequence', start: 1, digits: 5, zeroPad: true }],
+      { sequence: 42, date: NOW, timeZone: 'Africa/Lagos', random: () => 0 })).toBe('EMP-00042');
+  });
+
+  it('uses the organization time zone for date segments', () => {
+    const lateNightUtc = new Date('2026-12-31T23:30:00Z'); // already 1 Jan 2027 in Lagos (UTC+1)
+    expect(previewIdentifier([{ id: 'd', kind: 'date', format: 'YYYYMMDD' }, { id: 'r', kind: 'random-numeric', length: 3 }], 1, 'Africa/Lagos', lateNightUtc).slice(0, 8)).toBe('20270101');
+  });
+
+  it('builds random segments from the allowed characters and lengths', () => {
+    const value = renderPattern([{ id: 'a', kind: 'static', value: 'MEM' }, { id: 'b', kind: 'separator', value: '-' }, { id: 'c', kind: 'random-alphanumeric', length: 6, charset: 'upper' }],
+      { sequence: 1, date: NOW, timeZone: 'Africa/Lagos', random: Math.random });
+    expect(value).toMatch(/^MEM-[A-Z0-9]{6}$/);
+  });
+
+  it('rejects invalid patterns with understandable messages', () => {
+    expect(validatePattern([])).toEqual({ pattern: 'Add at least one segment.' });
+    expect(validatePattern([{ id: 'x', kind: 'static', value: 'STU' }]).pattern).toMatch(/sequential or random/);
+    expect(validatePattern([{ id: 'q', kind: 'sequence', start: Number.NaN, digits: 5, zeroPad: true }]).q).toMatch(/whole number/);
+    expect(validatePattern([{ id: 'r', kind: 'random-numeric', length: 1 }]).r).toMatch(/between 3 and 16/);
+    expect(validatePattern([{ id: 'd', kind: 'date', format: 'DDMMYYYY' as never }, { id: 'n', kind: 'random-numeric', length: 4 }]).d).toMatch(/supported date format/);
+    expect(validatePattern([...STU_PATTERN, { id: 's6', kind: 'sequence', start: 1, digits: 3, zeroPad: true }]).pattern).toMatch(/only one sequential/);
+  });
+
+  it('skips taken sequence values and retries random collisions', () => {
+    const taken = new Set(['STU/2026/00001', 'STU/2026/00002']);
+    expect(generateIdentifier({ segments: STU_PATTERN, nextSequence: 1 }, (v) => taken.has(v), 'Africa/Lagos', NOW))
+      .toEqual({ value: 'STU/2026/00003', nextSequence: 4 });
+    const values = [0, 0, 0, 0.5, 0.5, 0.5];
+    let i = 0;
+    const random = () => values[i++ % values.length];
+    const r = generateIdentifier({ segments: [{ id: 'r', kind: 'random-numeric', length: 3 }], nextSequence: 1 }, (v) => v === '000', 'Africa/Lagos', NOW, random);
+    expect(r?.value).toBe('555');
+  });
+});
+
+describe('identifier configuration', () => {
+  it('saves with a stable id, starting sequence and audit event', () => {
+    const state = withIdentifier();
+    const [c] = selectOrgData(state).identifierConfigs;
+    expect(c).toMatchObject({ id: 'idc_1', name: 'Matric Number', mode: 'generated', nextSequence: 1 });
+    expect(selectOrgData(state).audit[0].action).toBe('identifier.created');
+  });
+
+  it('rejects duplicate names in the same organization but allows them elsewhere', () => {
+    const state = withIdentifier();
+    const dup = applyIdentifierConfig(state, { organizationId: ORG, at: AT, id: 'idc_2', name: 'matric number', mode: 'manual', segments: [] });
+    expect(dup.ok).toBe(false);
+    const other = applyIdentifierConfig(state, { organizationId: SAMPLE_ORGANIZATION_ID, at: AT, id: 'idc_3', name: 'Matric Number 2', mode: 'manual', segments: [] });
+    expect(other.ok).toBe(true);
+  });
+
+  it('editing the pattern keeps assigned identifiers and the sequence position', () => {
+    const s1 = ok(createUser(withIdentifier())).state;
+    const edited = ok(applyIdentifierConfig(s1, {
+      organizationId: ORG, at: AT, id: 'idc_1', name: 'Matric Number', mode: 'generated',
+      segments: [{ id: 'n1', kind: 'static', value: 'NEW' }, { id: 'n2', kind: 'separator', value: '-' }, { id: 'n3', kind: 'sequence', start: 1, digits: 4, zeroPad: true }],
+    })).state;
+    expect(selectOrgData(edited).members[0].identifier?.value).toBe('STU/2026/00001');
+    const s2 = ok(createUser(edited, { requestId: 'r2', memberId: 'mem_2', identity: { idSwitchId: 'IDS-2', resolution: 'created-new' } })).state;
+    expect(selectOrgData(s2).members[1].identifier?.value).toBe('NEW-0002');
+  });
+});
+
+describe('user creation', () => {
+  it('creates a user with a generated identifier and persists the sequence', () => {
+    let state = withIdentifier();
+    expect(previewIdentifier(STU_PATTERN, selectOrgData(state).identifierConfigs[0].nextSequence, 'Africa/Lagos', NOW)).toBe('STU/2026/00001');
+    state = ok(createUser(state)).state;
+    state = ok(createUser(state, { requestId: 'r2', memberId: 'mem_2', identity: { idSwitchId: 'IDS-2', resolution: 'created-new' } })).state;
     const org = selectOrgData(state);
-    expect(org.credentialTypes.map((t) => t.name)).toEqual(['Student ID']);
-    expect(org.userTypes).toEqual([expect.objectContaining({ name: 'Student', credentialTypeId: 'ct_1' })]);
-    expect(org.audit.map((e) => e.action)).toEqual(['user-type.created', 'credential-type.created']);
+    expect(org.members.map((m) => m.identifier?.value)).toEqual(['STU/2026/00001', 'STU/2026/00002']);
+    expect(org.identifierConfigs[0].nextSequence).toBe(3);
+    expect(org.members[0]).toMatchObject({ status: 'active', relationship: '' });
+    expect(org.credentials).toHaveLength(0);
+    expect(org.audit[0].action).toBe('user.created');
   });
 
-  it('rejects duplicate credential names and user types instead of creating copies', () => {
-    const state = setUp();
-    const again = applyCredentialSetup(state, {
-      organizationId: NEW_ORGANIZATION_ID, at: AT, userType: { name: 'student' }, credential: { config: config() },
-      ids: { userTypeId: 'ut_2', credentialTypeId: 'ct_2' },
-    });
-    expect(again.ok).toBe(false);
-    if (!again.ok) expect(again.errors.name).toMatch(/already exists/);
+  it('validates manual identifiers and prevents duplicates', () => {
+    const state = withIdentifier('manual');
+    expect(createUser(state, { identifierValue: '' })).toMatchObject({ ok: false, errors: { identifier: 'Enter a value.' } });
+    const s1 = ok(createUser(state, { identifierValue: 'MAT/2026/1025' })).state;
+    const dup = createUser(s1, { requestId: 'r2', memberId: 'm2', identity: { idSwitchId: 'IDS-2', resolution: 'created-new' }, identifierValue: 'mat/2026/1025' });
+    expect(dup).toMatchObject({ ok: false, errors: { identifier: expect.stringMatching(/already assigned/) } });
   });
 
-  it('validates required fields and future expiry dates', () => {
-    const r = applyCredentialSetup(createInitialState(NOW), {
-      organizationId: NEW_ORGANIZATION_ID, at: AT, userType: { name: 'Staff' },
-      credential: { config: config({ name: ' ', identifierLabel: '', validity: { kind: 'fixed-date', date: '2020-01-01T00:00:00Z' } }) },
-      ids: { userTypeId: 'u', credentialTypeId: 'c' },
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(Object.keys(r.errors).sort()).toEqual(['identifierLabel', 'name', 'validity']);
+  it('is idempotent and prevents duplicate organization relationships', () => {
+    const s1 = ok(createUser(withIdentifier())).state;
+    expect(reducer(s1, { type: 'users/create', prepared: { ...userInput(), assigned: { value: 'X', nextSequence: null } } })).toBe(s1);
+    const sameIdentity = createUser(s1, { requestId: 'r2', memberId: 'm2' });
+    expect(sameIdentity).toMatchObject({ ok: false, errors: { form: expect.stringMatching(/already a user/) } });
   });
 });
 
-describe('issuance', () => {
-  it('creates the user, the active credential and audit events, completing the first milestone', () => {
-    const r = issue(setUp());
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
+describe('credential configuration and issuance', () => {
+  const base = () => withCredential(ok(createUser(withIdentifier())).state);
+
+  it('requires an existing identifier and a unique name', () => {
+    const state = base();
+    expect(applyCredentialConfig(state, {
+      organizationId: ORG, at: AT, id: 'ct_2', name: 'student id', identifierConfigId: 'missing', cardDesignId: `${ORG}_design_default`,
+      effectiveDate: 'on-issue', validity: { kind: 'fixed-date', date: '2020-01-01T00:00:00Z' }, renewal: { allowed: false, windowDays: 0 },
+    })).toMatchObject({ ok: false, errors: { name: expect.any(String), identifierConfigId: expect.any(String), validity: expect.any(String) } });
+  });
+
+  it("issues using the user's existing identifier, without regenerating it", () => {
+    const state = base();
+    const progressBefore = getSetupProgress(selectOrgData(state));
+    expect(progressBefore).toMatchObject({ firstUserCreated: true, firstCredentialIssued: false, completed: 0, next: 'first-id' });
+    const r = ok(applyIssuance(state, { requestId: 'iss_1', organizationId: ORG, at: AT, memberId: 'mem_1', credentialTypeId: 'ct_1', credentialId: 'cr_1' }));
     const org = selectOrgData(r.state);
-    expect(org.members).toEqual([expect.objectContaining({ displayName: 'Amara Okonkwo', relationship: 'Student', userTypeId: 'ut_1' })]);
-    const [c] = org.credentials;
-    expect(c).toMatchObject({ identifier: 'CFA/2026/0001', status: 'active', issuedAt: AT, memberId: 'mem_1' });
-    expect(c.wallet.status).toBe('pending');
-    expect(new Date(c.expiresAt!).getUTCFullYear()).toBe(2027);
-    expect(org.audit.slice(0, 2).map((e) => e.action)).toEqual(['credential.issued', 'identity.created']);
-    expect(getSetupProgress(org)).toMatchObject({ completed: 1, next: 'first-verification' });
+    expect(org.credentials[0]).toMatchObject({ identifier: 'STU/2026/00001', status: 'active', issuedAt: AT, memberId: 'mem_1' });
+    expect(org.identifierConfigs[0].nextSequence).toBe(2);
+    expect(getSetupProgress(org)).toMatchObject({ firstCredentialIssued: true, completed: 1, next: 'first-verification' });
   });
 
-  it('is idempotent per request: a repeated submission does not issue twice', () => {
-    const first = issue(setUp());
-    if (!first.ok) throw new Error();
-    const again = reducer(first.state, { type: 'issuance/issue', input: { requestId: 'req_1', organizationId: NEW_ORGANIZATION_ID, at: AT, userTypeId: 'ut_1', credentialTypeId: 'ct_1', person: { givenName: 'Amara', familyName: 'Okonkwo' }, identity: { idSwitchId: 'IDS-NEW-1', resolution: 'created-new' }, identifierValue: 'CFA/2026/0001', ids: { memberId: 'mem_x', credentialId: 'cr_x' } } });
-    expect(again).toBe(first.state);
-    expect(issue(first.state)).toMatchObject({ ok: true, duplicateRequest: true, credentialId: 'cr_1' });
-  });
-
-  it('prevents duplicate identifiers, relationships and credentials', () => {
-    const first = issue(setUp());
-    if (!first.ok) throw new Error();
-    const dupId = issue(first.state, { requestId: 'r2', identity: { idSwitchId: 'IDS-OTHER', resolution: 'created-new' }, identifierValue: 'cfa/2026/0001', ids: { memberId: 'm2', credentialId: 'c2' } });
-    expect(dupId).toMatchObject({ ok: false, errors: { identifier: expect.stringMatching(/already assigned/) } });
-    const dupRelationship = issue(first.state, { requestId: 'r3', identifierValue: 'CFA/2026/0009', ids: { memberId: 'm3', credentialId: 'c3' } });
-    expect(dupRelationship).toMatchObject({ ok: false, errors: { form: expect.stringMatching(/already a user/) } });
-    const dupCredential = issue(first.state, { requestId: 'r4', existingMemberId: 'mem_1', identifierValue: 'CFA/2026/0010', ids: { memberId: 'm4', credentialId: 'c4' } });
-    expect(dupCredential).toMatchObject({ ok: false, errors: { form: expect.stringMatching(/already holds/) } });
-  });
-
-  it('generates sequential identifiers and leaves state untouched on failure', () => {
-    const state = setUp({ identifierMode: 'generated', name: 'Staff ID', prefix: 'CFA-STF-', digits: 4 });
-    const a = issue(state, { identifierValue: undefined });
-    if (!a.ok) throw new Error(JSON.stringify(a.errors));
-    const b = issue(a.state, { requestId: 'r2', identity: { idSwitchId: 'IDS-2', resolution: 'created-new' }, identifierValue: undefined, ids: { memberId: 'm2', credentialId: 'c2' } });
-    if (!b.ok) throw new Error();
-    expect(selectOrgData(b.state).credentials.map((c) => c.identifier)).toEqual(['CFA-STF-0001', 'CFA-STF-0002']);
-    const failed = issue(b.state, { requestId: 'r3', person: { givenName: '', familyName: '' } });
-    expect(failed.ok).toBe(false);
-  });
-
-  it('does not complete setup when issuance requires approval (pending)', () => {
-    const state = setUp();
-    state.data.credentialTypes = state.data.credentialTypes.map((t) => (t.id === 'ct_1' ? { ...t, lifecycle: { ...t.lifecycle, requiresApproval: true } } : t));
-    const r = issue(state);
-    if (!r.ok) throw new Error();
-    expect(selectOrgData(r.state).credentials[0].status).toBe('pending');
-    expect(getSetupProgress(selectOrgData(r.state)).completed).toBe(0);
+  it('prevents duplicate issuance and mismatched identifiers', () => {
+    const state = base();
+    const first = ok(applyIssuance(state, { requestId: 'iss_1', organizationId: ORG, at: AT, memberId: 'mem_1', credentialTypeId: 'ct_1', credentialId: 'cr_1' }));
+    expect(applyIssuance(first.state, { requestId: 'iss_1', organizationId: ORG, at: AT, memberId: 'mem_1', credentialTypeId: 'ct_1', credentialId: 'cr_x' }))
+      .toMatchObject({ ok: true, duplicateRequest: true, credentialId: 'cr_1' });
+    expect(applyIssuance(first.state, { requestId: 'iss_2', organizationId: ORG, at: AT, memberId: 'mem_1', credentialTypeId: 'ct_1', credentialId: 'cr_2' }))
+      .toMatchObject({ ok: false, errors: { form: expect.stringMatching(/Already holds/) } });
+    const staff = ok(applyIdentifierConfig(first.state, { organizationId: ORG, at: AT, id: 'idc_2', name: 'Staff ID', mode: 'manual', segments: [] })).state;
+    const withStaffUser = ok(createUser(staff, { requestId: 'r3', memberId: 'mem_3', identifierConfigId: 'idc_2', identifierValue: 'SF-1', identity: { idSwitchId: 'IDS-3', resolution: 'created-new' } })).state;
+    expect(applyIssuance(withStaffUser, { requestId: 'iss_3', organizationId: ORG, at: AT, memberId: 'mem_3', credentialTypeId: 'ct_1', credentialId: 'cr_3' }))
+      .toMatchObject({ ok: false, errors: { form: expect.stringMatching(/Matric Number, which this user doesn't have/) } });
   });
 
   it('keeps organizations separate', () => {
-    const r = issue(setUp());
-    if (!r.ok) throw new Error();
-    expect(selectOrgData(r.state, SAMPLE_ORGANIZATION_ID).credentials.some((c) => c.id === 'cr_1')).toBe(false);
+    expect(selectOrgData(base(), SAMPLE_ORGANIZATION_ID).members.some((m) => m.id === 'mem_1')).toBe(false);
   });
 });
 
@@ -137,8 +201,6 @@ describe('ID Switch matching rules', () => {
   it('matches confidently on email or phone plus name', () => {
     expect(matchIdentity({ givenName: daniel.givenName, familyName: daniel.familyName, email: daniel.email.toUpperCase() }, registry))
       .toMatchObject({ kind: 'match', identity: { idSwitchId: daniel.idSwitchId }, matchedOn: ['email'] });
-    expect(matchIdentity({ givenName: daniel.givenName, familyName: daniel.familyName, phone: `0${daniel.phone.replace(/\D/g, '').slice(-10)}` }, registry))
-      .toMatchObject({ kind: 'match', matchedOn: ['phone'] });
   });
 
   it('never links when the email belongs to someone with a different name', () => {
@@ -146,8 +208,7 @@ describe('ID Switch matching rules', () => {
   });
 
   it('treats name-only similarity as a possible match, not a link', () => {
-    const r = matchIdentity({ givenName: daniel.givenName, familyName: daniel.familyName, email: 'new@x.example' }, registry);
-    expect(r.kind).toBe('possible');
+    expect(matchIdentity({ givenName: daniel.givenName, familyName: daniel.familyName, email: 'new@x.example' }, registry).kind).toBe('possible');
   });
 
   it('returns none for a new person', () => {

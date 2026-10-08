@@ -9,26 +9,31 @@ import { useOrgData } from '@/store/AppStore';
 const PAGE_SIZE = 15;
 
 export function PeoplePage() {
-  const { members, credentials } = useOrgData();
+  const { members, credentials, identifierConfigById } = useOrgData();
   const [q, setQ] = useQueryState('q');
   const [status, setStatus] = useQueryState('status', 'all');
   const [relationship, setRelationship] = useQueryState('relationship', 'all');
   const [page, setPage] = usePageParam();
 
   const credCount = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const c of credentials) if (c.status === 'active') map.set(c.memberId, (map.get(c.memberId) ?? 0) + 1);
+    const map = new Map<string, { active: number; total: number }>();
+    for (const c of credentials) {
+      const e = map.get(c.memberId) ?? { active: 0, total: 0 };
+      e.total += 1;
+      if (c.status === 'active') e.active += 1;
+      map.set(c.memberId, e);
+    }
     return map;
   }, [credentials]);
 
-  const relationships = useMemo(() => [...new Set(members.map((m) => m.relationship))].sort(), [members]);
+  const relationships = useMemo(() => [...new Set(members.map((m) => m.relationship).filter(Boolean))].sort(), [members]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
     return members
       .filter((m) => status === 'all' || m.status === status)
       .filter((m) => relationship === 'all' || m.relationship === relationship)
-      .filter((m) => !query || m.displayName.toLowerCase().includes(query) || m.idSwitchId.toLowerCase().includes(query) || m.externalRef?.value.toLowerCase().includes(query) || m.unit.toLowerCase().includes(query))
+      .filter((m) => !query || m.displayName.toLowerCase().includes(query) || m.idSwitchId.toLowerCase().includes(query) || m.identifier?.value.toLowerCase().includes(query) || m.unit.toLowerCase().includes(query))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [members, q, status, relationship]);
 
@@ -44,9 +49,11 @@ export function PeoplePage() {
       />
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
-          <SearchInput value={q} onChange={setQ} placeholder="Search name, ID Switch ID, reference or unit" className="sm:w-80" />
-          <FilterSelect label="Relationship" value={relationship} onChange={setRelationship}
-            options={[{ value: 'all', label: 'All relationships' }, ...relationships.map((r) => ({ value: r, label: r }))]} />
+          <SearchInput value={q} onChange={setQ} placeholder="Search name, identifier or ID Switch ID" className="sm:w-80" />
+          {relationships.length > 0 && (
+            <FilterSelect label="Role" value={relationship} onChange={setRelationship}
+              options={[{ value: 'all', label: 'All roles' }, ...relationships.map((r) => ({ value: r, label: r }))]} />
+          )}
           <FilterSelect label="Status" value={status} onChange={setStatus}
             options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'pending', label: 'Pending' }, { value: 'inactive', label: 'Inactive' }]} />
           {hasFilters && (
@@ -77,10 +84,22 @@ export function PeoplePage() {
                 </span>
               ),
             },
-            { key: 'rel', header: 'Relationship', cell: (m) => m.relationship },
-            { key: 'unit', header: 'Unit', cell: (m) => <span className="text-slate-600">{m.unit || '—'}</span> },
-            { key: 'ref', header: 'Reference', cell: (m) => m.externalRef ? <span className="font-mono text-xs text-slate-600">{m.externalRef.value}</span> : <span className="text-slate-400">—</span> },
-            { key: 'creds', header: 'Active credentials', cell: (m) => <span className="tabular-nums">{credCount.get(m.id) ?? 0}</span> },
+            {
+              key: 'identifier', header: 'Identifier', cell: (m) => m.identifier ? (
+                <span>
+                  <span className="block font-mono text-xs text-slate-800">{m.identifier.value}</span>
+                  <span className="block text-[11px] text-slate-500">{identifierConfigById.get(m.identifier.configId)?.name}</span>
+                </span>
+              ) : <span className="text-slate-400">—</span>,
+            },
+            ...(relationships.length > 0 ? [{ key: 'rel', header: 'Role', cell: (m: (typeof members)[number]) => <span className="text-slate-600">{m.relationship || '—'}</span> }] : []),
+            {
+              key: 'creds', header: 'Credentials', cell: (m) => {
+                const c = credCount.get(m.id);
+                return c ? <span className="tabular-nums">{c.active} active{c.total > c.active ? <span className="text-slate-400"> · {c.total} total</span> : ''}</span>
+                  : <span className="text-slate-400">None yet</span>;
+              },
+            },
             {
               key: 'source', header: 'Identity', cell: (m) => m.resolution === 'linked-existing'
                 ? <Badge tone="info"><Link2 className="h-3 w-3" />Reused</Badge>

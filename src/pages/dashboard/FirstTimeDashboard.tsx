@@ -89,7 +89,16 @@ export function FirstTimeDashboard({ data, adminName, headerActions }: { data: D
                       {m.done && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Done</span>}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">{info.description}</p>
-                    {!m.done && <MilestoneAction id={m.id} available={m.id === 'first-id' || progress.milestones[0].done} />}
+                    {m.id === 'first-id' && !m.done && progress.firstUserCreated && (
+                      <ul className="mt-3 space-y-1 text-sm" aria-label="First milestone progress">
+                        <li className="flex items-center gap-2 text-slate-700"><Check className="h-4 w-4 text-emerald-600" aria-hidden="true" />First user added</li>
+                        <li className="flex items-center gap-2 text-slate-500"><span className="h-4 w-4 rounded-full border-2 border-slate-300" aria-hidden="true" />First digital ID issued</li>
+                      </ul>
+                    )}
+                    {!m.done && <MilestoneAction id={m.id} available={m.id === 'first-id' || progress.milestones[0].done}
+                      resumeMemberId={m.id === 'first-id' && progress.firstUserCreated
+                        ? data.members.find((u) => !data.credentials.some((c) => c.memberId === u.id))?.id
+                        : undefined} />}
                   </div>
                 </li>
               );
@@ -140,7 +149,17 @@ export function FirstTimeDashboard({ data, adminName, headerActions }: { data: D
   );
 }
 
-function MilestoneAction({ id, available }: { id: SetupMilestoneId; available: boolean }) {
+function MilestoneAction({ id, available, resumeMemberId }: { id: SetupMilestoneId; available: boolean; resumeMemberId?: string }) {
+  if (id === 'first-id' && resumeMemberId) {
+    return (
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <ButtonLink to={`/users/${resumeMemberId}/issue`} variant="primary" size="sm" icon={null}>
+          Issue digital ID <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </ButtonLink>
+        <ButtonLink to="/users/new" variant="ghost" size="sm">Add another user</ButtonLink>
+      </div>
+    );
+  }
   if (id === 'first-id') {
     return (
       <ButtonLink to="/users/new" variant="primary" size="sm" className="mt-4" icon={null}>

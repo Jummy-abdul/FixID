@@ -14,7 +14,7 @@ export function DataTable<T>({ columns, rows, rowKey, rowHref, empty }: { column
   const navigate = useNavigate();
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
         <thead className="bg-slate-50/80">
           <tr>
