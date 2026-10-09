@@ -21,11 +21,11 @@ export function ActivitiesPage() {
   return (
     <>
       <PageHeader
-        title="Activities"
+        title="Verification Events"
         description="Verification activities define why, where and how people are verified, and what happens when they are. One engine, configured per purpose."
         actions={
           <>
-            <PlannedButton icon={<ScanLine className="h-4 w-4" />} info={PLANNED.verifierSimulator}>Simulate verification</PlannedButton>
+            <PlannedButton icon={<ScanLine className="h-4 w-4" />} info={PLANNED.verifierSimulator}>Test verification</PlannedButton>
             <PlannedButton variant="primary" icon={<Plus className="h-4 w-4" />} info={PLANNED.activityBuilder}>New activity</PlannedButton>
           </>
         }

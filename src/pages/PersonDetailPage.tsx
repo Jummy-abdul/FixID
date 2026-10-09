@@ -119,7 +119,7 @@ function ProfileTab({ member }: { member: Member }) {
           <Field label="Email Address">{value(identity?.email)}</Field>
           <Field label="Phone Number">{value(identity?.phone)}</Field>
           <Field label="Gender">{value(identity?.gender)}</Field>
-          <Field label="Location">{value(identity?.location)}</Field>
+          <Field label="Location">{value([identity?.region, identity?.country].filter(Boolean).join(', ') || identity?.location)}</Field>
           <Field label="Identifier Name">{member.identifier ? orDash(identifierConfigById.get(member.identifier.configId)?.name) : '—'}</Field>
           <Field label="Identifier Value">{member.identifier ? <span className="font-mono">{member.identifier.value}</span> : '—'}</Field>
         </dl>

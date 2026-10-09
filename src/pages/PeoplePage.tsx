@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ScanFace, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
+import { ScanFace, Send, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
 import {
-  ButtonLink, Card, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, StatCard, usePageSlice,
+  Button, ButtonLink, Card, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, StatCard, usePageSlice,
 } from '@/components/ui';
 import { MemberStatusBadge, PortraitEnrollmentBadge } from '@/components/domain/StatusBadges';
-import { useUserActions } from '@/components/users/useUserActions';
+import { bulkEligibility, useUserActions } from '@/components/users/useUserActions';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
@@ -18,7 +18,7 @@ export function PeoplePage() {
   const [status, setStatus] = useQueryState('status', 'all');
   const [relationship, setRelationship] = useQueryState('relationship', 'all');
   const [page, setPage] = usePageParam();
-  const { menuItems, dialogs } = useUserActions();
+  const { menuItems, dialogs, openBulk } = useUserActions();
 
   const kpis = useMemo(() => ({
     total: members.length,
@@ -54,6 +54,13 @@ export function PeoplePage() {
     const visible = new Set(visibleKey.split(','));
     setSelected((s) => ([...s].some((id) => !visible.has(id)) ? new Set([...s].filter((id) => visible.has(id))) : s));
   }, [visibleKey]);
+  const clearSelection = () => setSelected(new Set());
+  const selectedMembers = pageRows.filter((m) => selected.has(m.id));
+  const bulkCounts = {
+    invite: bulkEligibility('invite', selectedMembers).eligible.length,
+    activate: bulkEligibility('activate', selectedMembers).eligible.length,
+    deactivate: bulkEligibility('deactivate', selectedMembers).eligible.length,
+  };
   const allSelected = visibleIds.length > 0 && selectedVisible.length === visibleIds.length;
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -78,19 +85,37 @@ export function PeoplePage() {
           )}
           <FilterSelect label="Status" value={status} onChange={setStatus}
             options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'pending', label: 'Pending' }, { value: 'inactive', label: 'Inactive' }]} />
-          {selectedVisible.length > 0 && (
-            <span className="text-sm text-slate-600 sm:ml-auto" aria-live="polite">
-              {selectedVisible.length} selected
-              <button type="button" className="ml-2 font-medium text-brand-600 hover:text-brand-700" onClick={() => setSelected(new Set())}>Clear</button>
-            </span>
-          )}
           {hasFilters && (
-            <button type="button" className={`text-sm font-medium text-brand-600 hover:text-brand-700 ${selectedVisible.length ? '' : 'sm:ml-auto'}`}
+            <button type="button" className="text-sm font-medium text-brand-600 hover:text-brand-700 sm:ml-auto"
               onClick={() => { setQ(''); setStatus('all'); setRelationship('all'); }}>
               Clear filters
             </button>
           )}
         </div>
+        {selectedVisible.length > 0 && (
+          <div role="toolbar" aria-label="Bulk actions" className="flex flex-wrap items-center gap-2 border-b border-brand-100 bg-brand-50/60 px-4 py-2.5">
+            <span className="mr-2 text-sm font-medium text-slate-700" aria-live="polite">{selectedVisible.length} selected</span>
+            {bulkCounts.invite > 0 && (
+              <Button size="sm" variant="secondary" icon={<Send className="h-4 w-4" />} onClick={() => openBulk('invite', selectedVisible, clearSelection)}>
+                Send Enrollment Link{bulkCounts.invite < selectedVisible.length ? ` (${bulkCounts.invite})` : ''}
+              </Button>
+            )}
+            {bulkCounts.activate > 0 && (
+              <Button size="sm" variant="secondary" icon={<UserCheck className="h-4 w-4" />} onClick={() => openBulk('activate', selectedVisible, clearSelection)}>
+                Activate Users{bulkCounts.activate < selectedVisible.length ? ` (${bulkCounts.activate})` : ''}
+              </Button>
+            )}
+            {bulkCounts.deactivate > 0 && (
+              <Button size="sm" variant="secondary" icon={<UserX className="h-4 w-4" />} onClick={() => openBulk('deactivate', selectedVisible, clearSelection)}>
+                Deactivate Users{bulkCounts.deactivate < selectedVisible.length ? ` (${bulkCounts.deactivate})` : ''}
+              </Button>
+            )}
+            {bulkCounts.invite + bulkCounts.activate + bulkCounts.deactivate === 0 && (
+              <span className="text-sm text-slate-500">No actions apply to the selected users.</span>
+            )}
+            <button type="button" className="ml-auto text-sm font-medium text-brand-600 hover:text-brand-700" onClick={() => setSelected(new Set())}>Clear selection</button>
+          </div>
+        )}
         <DataTable
           rows={pageRows}
           rowKey={(m) => m.id}

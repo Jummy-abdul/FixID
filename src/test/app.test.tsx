@@ -29,14 +29,14 @@ describe('navigation', () => {
   const items = NAVIGATION.flatMap((g) => g.items);
   const headings: Record<string, RegExp> = {
     '/': /^dashboard$|good (morning|afternoon|evening)/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
-    '/templates': /^templates$/i, '/activities': /^activities$/i, '/verification-history': /^verification history$/i,
+    '/activities': /^verification events$/i, '/verification-history': /^verification history$/i,
     '/audit': /^audit log$/i, '/settings': /^settings$/i,
   };
 
   it('has the approved sidebar structure and order', () => {
     expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Templates', 'Activities', 'Verification History', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Events', 'Verification History', 'Audit Log', 'Settings',
     ]);
   });
 
@@ -51,10 +51,11 @@ describe('navigation', () => {
     }
   });
 
-  it('keeps the parent item active on nested routes', async () => {
+  it('keeps the parent item active on nested routes, with Templates under Credentials', async () => {
     renderApp('/templates/credential-types');
     const nav = screen.getByRole('navigation', { name: 'Primary' });
-    expect(within(nav).getByRole('link', { name: 'Templates' })).toHaveClass('bg-white/10');
+    expect(within(nav).queryByRole('link', { name: 'Templates' })).toBeNull();
+    expect(within(nav).getByRole('link', { name: 'Credentials' })).toHaveClass('bg-white/10');
     expect(await screen.findByText('Student ID')).toBeInTheDocument();
   });
 
@@ -157,7 +158,7 @@ describe('groups', () => {
 });
 
 describe('dashboard', () => {
-  const previewSelect = () => screen.getByLabelText('Dashboard preview (prototype only)');
+  const previewSelect = () => screen.getByLabelText('Dashboard preview');
 
   it('shows the first-time experience for a new organization with zero metrics and empty states', async () => {
     const { user } = renderApp('/', NEW_ORGANIZATION_ID);
@@ -252,7 +253,7 @@ describe('planned features', () => {
     const before = localStorage.getItem('fixid.prototype.state');
     await user.click(screen.getByRole('button', { name: /customize design/i }));
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/Planned · Milestone 3/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Planned')).toBeInTheDocument();
     expect(within(dialog).getByText(/Nothing has been changed/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Got it' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

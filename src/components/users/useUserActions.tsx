@@ -9,7 +9,10 @@ import { enrollmentInviteEligibility } from '@/store/operations';
 
 type Pending =
   | { kind: 'status'; memberId: string; next: 'active' | 'inactive' }
-  | { kind: 'invite'; memberId: string };
+  | { kind: 'invite'; memberId: string }
+  | { kind: 'bulk'; action: BulkAction; memberIds: string[]; onDone?: () => void };
+
+export type BulkAction = 'invite' | 'activate' | 'deactivate';
 
 type Contact = { status: 'loading' } | { status: 'ready'; email: string } | { status: 'missing' } | { status: 'error' };
 
@@ -35,14 +38,23 @@ export function useUserActions() {
     return items;
   }, [navigate]);
 
+  /** Opens the confirmation for a bulk action; `onDone` runs after it completes (not on cancel). */
+  const openBulk = useCallback((action: BulkAction, memberIds: string[], onDone?: () => void) => {
+    setPending({ kind: 'bulk', action, memberIds, onDone });
+  }, []);
+
   const dialogs = (
     <>
       <StatusDialog pending={pending?.kind === 'status' ? pending : null} onDone={() => setPending(null)} />
       <InviteDialog memberId={pending?.kind === 'invite' ? pending.memberId : null} onDone={() => setPending(null)} />
+      {pending?.kind === 'bulk' && (
+        <BulkDialog key={`${pending.action}:${pending.memberIds.join(',')}`} action={pending.action} memberIds={pending.memberIds}
+          onCancel={() => setPending(null)} onDone={() => { const done = pending.onDone; setPending(null); done?.(); }} />
+      )}
     </>
   );
 
-  return { menuItems, dialogs };
+  return { menuItems, dialogs, openBulk };
 }
 
 function StatusDialog({ pending, onDone }: { pending: Extract<Pending, { kind: 'status' }> | null; onDone: () => void }) {
@@ -113,8 +125,8 @@ function InviteDialog({ memberId, onDone }: { memberId: string | null; onDone: (
       onDone();
       toast({
         tone: 'success',
-        title: resend ? 'Enrollment link resent' : 'Enrollment link created',
-        description: `Simulated: no email was sent. Portrait enrollment for ${member.displayName} is now pending.`,
+        title: resend ? 'Enrollment link resent' : 'Enrollment link sent',
+        description: `An enrollment invitation has been sent to ${contact.email}.`,
       });
     } catch (err) {
       setError((err as Error).message || 'The enrollment link could not be created. Nothing was changed.');
@@ -143,8 +155,128 @@ function InviteDialog({ memberId, onDone }: { memberId: string | null; onDone: (
           {canSend && <Button onClick={send} loading={sending} icon={sending ? undefined : <Send className="h-4 w-4" />}>{resend ? 'Resend Link' : 'Send Link'}</Button>}
         </>
       }>
-      {canSend && <p className="text-xs text-slate-500">Prototype: the link is recorded but no email is delivered.</p>}
-      {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
+      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
+    </Modal>
+  );
+}
+
+const users = (n: number) => `${n} ${n === 1 ? 'user' : 'users'}`;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** Which of the selected users a bulk action applies to, and why the others are skipped. */
+export function bulkEligibility(action: BulkAction, members: Member[], now = new Date()) {
+  const eligible: Member[] = [];
+  const skipped = new Map<string, number>();
+  const skip = (reason: string) => skipped.set(reason, (skipped.get(reason) ?? 0) + 1);
+  for (const m of members) {
+    if (action === 'activate') {
+      if (m.status === 'inactive') eligible.push(m);
+      else skip(m.status === 'active' ? 'Already active' : 'Still being onboarded');
+    } else if (action === 'deactivate') {
+      if (m.status === 'active') eligible.push(m);
+      else skip(m.status === 'inactive' ? 'Already inactive' : 'Still being onboarded');
+    } else {
+      const e = enrollmentInviteEligibility(m, now);
+      if (e.ok) eligible.push(m);
+      else if (m.faceEnrollment.status === 'enrolled') skip('Already enrolled');
+      else if (m.status !== 'active') skip('Not active');
+      else skip('Link sent less than a minute ago');
+    }
+  }
+  return { eligible, skipped };
+}
+
+function BulkDialog({ action, memberIds, onCancel, onDone }: { action: BulkAction; memberIds: string[]; onCancel: () => void; onDone: () => void }) {
+  const { organization, memberById } = useOrgData();
+  const { setMemberStatus, recordEnrollmentInvite } = useActions();
+  const { enrollment, idSwitch } = useServices();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const selected = memberIds.map((id) => memberById.get(id)).filter((m): m is Member => !!m);
+  // Computed once when the dialog opens so the counts don't shift while it's in progress.
+  const [{ eligible, skipped }] = useState(() => bulkEligibility(action, selected));
+  const [emails, setEmails] = useState<Map<string, string> | 'loading' | 'error'>(action === 'invite' ? 'loading' : new Map());
+
+  useEffect(() => {
+    if (action !== 'invite') return;
+    let cancelled = false;
+    idSwitch.getContacts(eligible.map((m) => m.idSwitchId))
+      .then((map) => {
+        if (cancelled) return;
+        const out = new Map<string, string>();
+        for (const m of eligible) {
+          const email = map.get(m.idSwitchId)?.email?.trim();
+          if (email && EMAIL.test(email)) out.set(m.id, email);
+        }
+        setEmails(out);
+      })
+      .catch(() => { if (!cancelled) setEmails('error'); });
+    return () => { cancelled = true; };
+  }, [action, eligible, idSwitch]);
+
+  const reachable = action === 'invite' && emails instanceof Map ? eligible.filter((m) => emails.has(m.id)) : eligible;
+  const noEmail = action === 'invite' && emails instanceof Map ? eligible.length - reachable.length : 0;
+  const skips = [...skipped.entries(), ...(noEmail ? [['No email address', noEmail] as [string, number]] : [])];
+  const count = reachable.length;
+
+  const copy = {
+    invite: { title: 'Send enrollment links?', confirm: 'Send Links', tone: 'primary' as const, body: `Enrollment links will be sent to ${count} selected ${count === 1 ? 'user' : 'users'}.` },
+    activate: { title: 'Activate users?', confirm: 'Activate Users', tone: 'primary' as const, body: `${users(count)} will be activated.` },
+    deactivate: { title: 'Deactivate users?', confirm: 'Deactivate Users', tone: 'danger' as const, body: `${users(count)} will be deactivated.` },
+  }[action];
+
+  const loading = action === 'invite' && emails === 'loading';
+  let description: string;
+  if (loading) description = 'Checking the selected users…';
+  else if (emails === 'error') description = "Contact details couldn't be loaded right now. Nothing was sent.";
+  else if (count === 0) description = `None of the ${users(selected.length)} selected can receive this action.`;
+  else description = copy.body;
+
+  const run = async () => {
+    setBusy(true);
+    const at = () => new Date().toISOString();
+    let ok = 0;
+    let failed = 0;
+    if (action === 'invite' && emails instanceof Map) {
+      for (const m of reachable) {
+        try {
+          const inv = await enrollment.sendInvitation({ memberId: m.id, name: m.displayName, email: emails.get(m.id)! });
+          const r = recordEnrollmentInvite({ organizationId: organization.id, memberId: m.id, invitationId: inv.invitationId, sentTo: inv.sentTo, at: at() });
+          if (r.ok) ok += 1; else failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (ok) toast({ tone: 'success', title: 'Enrollment invitations sent', description: `Enrollment invitations have been sent to ${users(ok)}.` });
+    } else {
+      const status = action === 'activate' ? 'active' : 'inactive';
+      for (const m of reachable) {
+        const r = setMemberStatus({ organizationId: organization.id, memberId: m.id, status, at: at() });
+        if (r.ok) ok += 1; else failed += 1;
+      }
+      if (ok) toast({ tone: 'success', title: `${users(ok)} ${action === 'activate' ? 'activated' : 'deactivated'}` });
+    }
+    if (failed) toast({ tone: 'error', title: `${users(failed)} couldn't be updated`, description: 'Nothing else was changed for them.' });
+    setBusy(false);
+    onDone();
+  };
+
+  return (
+    <Modal open onClose={busy ? () => {} : onCancel} size="sm" title={copy.title} description={description}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onCancel} disabled={busy}>{count > 0 && !loading ? 'Cancel' : 'Close'}</Button>
+          {count > 0 && !loading && emails !== 'error' && <Button variant={copy.tone} onClick={run} loading={busy}>{copy.confirm}</Button>}
+        </>
+      }>
+      {!loading && skips.length > 0 && (
+        <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
+          <p className="font-medium text-slate-800">Skipped</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {skips.map(([reason, n]) => <li key={reason}>{reason}: {users(n)}</li>)}
+          </ul>
+        </div>
+      )}
     </Modal>
   );
 }

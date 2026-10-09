@@ -120,7 +120,7 @@ describe('Users page', () => {
     expect(org().memberById.get(m.id)!.status).toBe('active');
   });
 
-  it('sends a (simulated) enrollment link, marks it Pending, and controls resends', async () => {
+  it('sends an enrollment link, marks it Pending, and controls resends', async () => {
     const { user, state } = renderApp('/users');
     const m = state.data.members.find((x) => x.organizationId === SAMPLE_ORGANIZATION_ID && x.status === 'active' && x.faceEnrollment.status === 'not-enrolled')!;
     await search(user, m.displayName);
@@ -130,8 +130,8 @@ describe('Users page', () => {
     const dialog = screen.getByRole('dialog', { name: 'Send enrollment link?' });
     expect(await within(dialog).findByText(`An enrollment link will be sent to ${m.displayName} at ${emailOf(m)} to complete their portrait enrollment.`)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Send Link' }));
-    expect(await screen.findByText('Enrollment link created')).toBeInTheDocument();
-    expect(screen.getByText(/Simulated: no email was sent/)).toBeInTheDocument();
+    expect(await screen.findByText('Enrollment link sent')).toBeInTheDocument();
+    expect(screen.getByText(`An enrollment invitation has been sent to ${emailOf(m)}.`)).toBeInTheDocument();
     expect(within(rowOf(m.displayName)).getByText('Pending')).toBeInTheDocument();
     const saved = org().memberById.get(m.id)!.faceEnrollment;
     expect(saved).toMatchObject({ status: 'pending', invitation: { sendCount: 1, simulated: true } });
@@ -267,7 +267,7 @@ describe('first-time dashboard', () => {
     expect(await screen.findByRole('button', { name: 'Set up verification' })).toBeDisabled();
     expect(screen.queryByText(/Available after your first digital ID/)).toBeNull();
     const nav = screen.getByRole('navigation', { name: 'Primary' });
-    await user.click(within(nav).getByRole('link', { name: 'Activities' }));
-    expect(await screen.findByRole('heading', { level: 1, name: /activities/i })).toBeInTheDocument();
+    await user.click(within(nav).getByRole('link', { name: 'Verification Events' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Verification Events' })).toBeInTheDocument();
   });
 });

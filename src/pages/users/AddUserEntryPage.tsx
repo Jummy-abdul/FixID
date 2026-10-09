@@ -50,7 +50,7 @@ function PlannedOption({ icon, title, text }: { icon: ReactNode; title: string; 
       <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-200 text-slate-500">{icon}</span>
       <span className="mt-6 flex items-center gap-2 text-lg font-semibold text-slate-500">{title} <Badge tone="violet">Planned</Badge></span>
       <span className="mt-1 text-slate-500">{text}</span>
-      <span className="mt-auto pt-8 text-sm text-slate-400">Not available in this prototype yet.</span>
+      <span className="mt-auto pt-8 text-sm text-slate-400">Coming soon.</span>
     </div>
   );
 }

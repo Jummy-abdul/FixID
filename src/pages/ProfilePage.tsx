@@ -9,13 +9,12 @@ export function ProfilePage() {
     <>
       <PageHeader
         title="My Profile"
-        description="Your administrator details in this prototype."
+        description="Your administrator details."
         actions={<PlannedButton icon={<Pencil className="h-4 w-4" />} info={PLANNED.profile}>Edit profile</PlannedButton>}
       />
       <Card className="max-w-3xl">
         <CardHeader
           title={<span className="flex items-center gap-3"><Avatar name={admin.name} initials={admin.initials} />{admin.name}</span>}
-          action={<Badge tone="warning">Simulated session</Badge>}
         />
         <CardBody>
           <DescriptionList items={[
@@ -24,7 +23,6 @@ export function ProfilePage() {
             { label: 'Role', value: <Badge tone="brand">{admin.role}</Badge> },
             { label: 'Organization', value: organization.name },
           ]} />
-          <p className="mt-4 text-sm text-slate-500">Sign-up and login are out of scope for this prototype.</p>
         </CardBody>
       </Card>
     </>

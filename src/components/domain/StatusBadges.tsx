@@ -55,6 +55,3 @@ export function AssuranceBadge({ level }: { level: AssuranceLevel }) {
   return <Badge tone={tone[level]}>{ASSURANCE_LABEL[level]} assurance</Badge>;
 }
 
-export function SimulatedBadge({ label = 'Simulated' }: { label?: string }) {
-  return <Badge tone="warning">{label}</Badge>;
-}

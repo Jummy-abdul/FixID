@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Activity, CheckCircle2, Fingerprint, Wallet, XCircle } from 'lucide-react';
 import { Badge, Button, Card, CardBody, CardHeader } from '@/components/ui';
-import { SimulatedBadge } from '@/components/domain/StatusBadges';
 import type { Organization } from '@/domain/types';
 import type { ServiceHealth } from '@/services/types';
 import { formatDateTime } from '@/lib/dates';
@@ -20,7 +19,6 @@ export function IntegrationsPanel({ organization }: { organization: Organization
   const { idSwitch, wallet } = useServices();
   const [checking, setChecking] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, ServiceHealth>>({});
-  const [outage, setOutage] = useState(() => idSwitch.simulation.isOutage());
 
   const check = async (key: 'idSwitch' | 'wallet') => {
     setChecking(key);
@@ -32,8 +30,8 @@ export function IntegrationsPanel({ organization }: { organization: Organization
   const { idSwitch: ids, seamfixWallet: sw, fixiam } = organization.integrations;
   const items = [
     {
-      key: 'idSwitch' as const, icon: Fingerprint, name: 'ID Switch', connected: ids.connected, required: true,
-      body: 'Owns canonical identities. FixID resolves people here before onboarding and only stores a reference.',
+      key: 'idSwitch' as const, icon: Fingerprint, name: 'Identity service', connected: ids.connected, required: true,
+      body: "Keeps each person's identity record, so the same person isn't added twice.",
       meta: ids.connected ? `Tenant ${ids.tenantRef}` : 'Not linked',
     },
     {
@@ -50,7 +48,7 @@ export function IntegrationsPanel({ organization }: { organization: Organization
           <CardHeader
             title={<span className="flex items-center gap-2"><it.icon className="h-4 w-4 text-slate-500" />{it.name}{it.required && <Badge>Required</Badge>}</span>}
             description={it.body}
-            action={<span className="flex gap-1.5"><Badge tone={it.connected ? 'success' : 'warning'} dot>{it.connected ? 'Connected' : 'Not connected'}</Badge><SimulatedBadge /></span>}
+            action={<span className="flex gap-1.5"><Badge tone={it.connected ? 'success' : 'warning'} dot>{it.connected ? 'Connected' : 'Not connected'}</Badge></span>}
           />
           <CardBody>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -60,13 +58,6 @@ export function IntegrationsPanel({ organization }: { organization: Organization
               </Button>
             </div>
             {results[it.key] && <HealthResult health={results[it.key]} />}
-            {it.key === 'idSwitch' && (
-              <label className="mt-4 flex items-start gap-3 rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-600">
-                <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" checked={outage}
-                  onChange={(e) => { idSwitch.simulation.setOutage(e.target.checked); setOutage(e.target.checked); setResults(({ idSwitch: _cleared, ...rest }) => rest); }} />
-                <span><span className="font-medium text-slate-800">Simulate an ID Switch outage</span> (prototype only). Identity checks and creation fail, so you can see how FixID prevents issuing.</span>
-              </label>
-            )}
           </CardBody>
         </Card>
       ))}

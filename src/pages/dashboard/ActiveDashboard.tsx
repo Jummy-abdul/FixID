@@ -71,7 +71,7 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="People" value={members.length.toLocaleString()} icon={<Users className="h-4 w-4" />} to="/people"
-          hint={`${m.activeMembers} active · ${m.reused} reused from ID Switch`} />
+          hint={`${m.activeMembers} active`} />
         <StatCard label="Active credentials" value={m.activeCreds.toLocaleString()} icon={<BadgeCheck className="h-4 w-4" />} to="/credentials?status=active" tone="emerald"
           hint={`${m.expiring} expiring in the next 30 days`} />
         <StatCard label="Verifications today" value={m.todayTx.length.toLocaleString()} icon={<ShieldCheck className="h-4 w-4" />} to="/transactions?range=today" tone="violet"

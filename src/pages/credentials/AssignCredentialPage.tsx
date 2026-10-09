@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, BadgeCheck, CheckCircle2, CreditCard, LayoutDash
 import { Avatar, Badge, Button, ButtonLink, Field, Input, PageHeader, SearchInput } from '@/components/ui';
 import { CredentialSetup } from '@/components/config/CredentialSetup';
 import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
-import { CredentialStatusBadge, SimulatedBadge, WalletBadge } from '@/components/domain/StatusBadges';
+import { CredentialStatusBadge, WalletBadge } from '@/components/domain/StatusBadges';
 import { assignUrl, readList, type AssignContext, type AssignOrigin, type AssignStep } from '@/components/issuance/assignment';
 import { validityLabel } from '@/domain/labels';
 import type { CredentialType, Member } from '@/domain/types';
@@ -150,7 +150,7 @@ export function AssignCredentialPage() {
                   <div><dt className="text-slate-500">Issued</dt><dd className="mt-0.5 text-slate-900">{formatDateTime(first.issuedAt)}</dd></div>
                   <div><dt className="text-slate-500">Expires</dt><dd className="mt-0.5 text-slate-900">{first.expiresAt ? formatDate(first.expiresAt) : 'Never'}</dd></div>
                   <div className="col-span-2">
-                    <dt className="flex items-center gap-2 text-slate-500">Seamfix Wallet <SimulatedBadge /></dt>
+                    <dt className="text-slate-500">Seamfix Wallet</dt>
                     <dd className="mt-1 flex items-center gap-2" aria-live="polite">
                       <WalletBadge status={first.wallet.status} />
                       <span className="text-xs text-slate-500">
@@ -319,7 +319,7 @@ export function AssignCredentialPage() {
                 </Field>
               </div>
             )}
-            <p className="text-xs text-slate-500">After issuing, FixID makes the digital ID available to Seamfix Wallet. Delivery is tracked separately (simulated).</p>
+            <p className="text-xs text-slate-500">After issuing, FixID makes the digital ID available to Seamfix Wallet. Delivery is tracked separately.</p>
           </div>
           {recipients[0] && (
             <div className="flex justify-center overflow-hidden">

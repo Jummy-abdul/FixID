@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Fingerprint, UserPlus } from 'lucide-react';
-import { Badge, Button, Field, Input } from '@/components/ui';
-import { SimulatedBadge } from '@/components/domain/StatusBadges';
+import { Badge, Button, Field, Input, Select } from '@/components/ui';
+import { COUNTRIES, countryByCode, toE164 } from '@/data/countries';
 import { describePattern, previewIdentifier, validateManualValue } from '@/domain/identifierPattern';
 import type { CanonicalIdentity, IdentifierConfig } from '@/domain/types';
 import { maskEmail, maskPhone, newId } from '@/lib/identifiers';
@@ -23,10 +23,9 @@ export function validatePerson(p: PersonForm, config: IdentifierConfig, taken: (
   else if (!NAME.test(p.givenName.trim())) e.givenName = 'Use letters only.';
   if (!p.familyName.trim()) e.familyName = 'Enter their last name.';
   else if (!NAME.test(p.familyName.trim())) e.familyName = 'Use letters only.';
-  if (p.email.trim() && !EMAIL.test(p.email.trim())) e.email = 'Enter a valid email address.';
-  const digits = p.phone.replace(/\D/g, '');
-  if (p.phone.trim() && (!/^[+\d][\d\s()-]*$/.test(p.phone.trim()) || digits.length < 7 || digits.length > 15)) e.phone = 'Enter a valid phone number.';
-  if (!p.email.trim() && !p.phone.trim()) e.email = 'Add an email address or phone number.';
+  if (!p.email.trim()) e.email = 'Enter their email address.';
+  else if (!EMAIL.test(p.email.trim())) e.email = 'Enter a valid email address.';
+  if (p.phone.trim() && (!/^[+\d][\d\s()-]*$/.test(p.phone.trim()) || !internationalPhone(p))) e.phone = 'Enter a valid phone number.';
   if (config.mode === 'manual') {
     const v = p.identifierValue.trim();
     const invalid = v ? validateManualValue(v) : `Enter their ${config.name}.`;
@@ -34,6 +33,12 @@ export function validatePerson(p: PersonForm, config: IdentifierConfig, taken: (
     else if (taken(v)) e.identifierValue = `${v} is already assigned to another user.`;
   }
   return e;
+}
+
+/** The phone number in international format (E.164), or '' when none was entered. */
+export function internationalPhone(p: PersonForm): string | null {
+  if (!p.phone.trim()) return '';
+  return toE164(countryByCode(p.phoneCountry)?.dial ?? '+234', p.phone);
 }
 
 /** What the identity check means for creating this user. */
@@ -51,7 +56,6 @@ function IdentityCard({ identity }: { identity: CanonicalIdentity }) {
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Fingerprint className="h-4 w-4" aria-hidden="true" /></span>
       <div className="min-w-0">
         <p className="font-semibold text-slate-900">{identity.givenName} {identity.familyName}</p>
-        <p className="font-mono text-xs text-slate-500">{identity.idSwitchId}</p>
         <p className="text-slate-600">{[maskEmail(identity.email), maskPhone(identity.phone)].filter(Boolean).join(' · ')}</p>
       </div>
     </div>
@@ -88,7 +92,10 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
       } else {
         let created = draft.createdIdentity;
         if (!created) {
-          created = await idSwitch.createIdentity({ givenName: p.givenName, familyName: p.familyName, email: p.email, phone: p.phone });
+          created = await idSwitch.createIdentity({
+            givenName: p.givenName, familyName: p.familyName, email: p.email, phone: internationalPhone(p) ?? '',
+            gender: p.gender || undefined, country: countryByCode(p.country)?.name, region: p.region.trim() || undefined,
+          });
           update({ createdIdentity: created });
         }
         identity = { idSwitchId: created.idSwitchId, resolution: 'created-new' };
@@ -107,7 +114,7 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
       update({ memberId: r.memberId, phase: 'created' });
     } catch (err) {
       setFailure(err instanceof IdSwitchUnavailableError
-        ? "ID Switch is unavailable, so the identity couldn't be created. Nothing was saved."
+        ? "We couldn't add this user right now. Nothing was saved. Please try again shortly."
         : (err as Error).message || 'Something went wrong. Nothing was saved.');
     } finally {
       setBusy(null);
@@ -128,7 +135,7 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
         return;
       }
       setBusy('checking');
-      const resolution = await idSwitch.resolveIdentity({ givenName: p.givenName, familyName: p.familyName, email: p.email, phone: p.phone });
+      const resolution = await idSwitch.resolveIdentity({ givenName: p.givenName, familyName: p.familyName, email: p.email, phone: internationalPhone(p) ?? '' });
       setBusy(null);
       update({ resolution, resolvedFor: identityKey(p), confirmNewIdentity: false, createdIdentity: null });
       const member = resolution.kind === 'match' ? org.members.find((m) => m.idSwitchId === resolution.identity.idSwitchId) : undefined;
@@ -136,13 +143,14 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
       if (resolution.kind === 'none' || (resolution.kind === 'match' && !member)) await create(resolution);
     } catch (err) {
       setBusy(null);
-      if (err instanceof IdSwitchUnavailableError) setFailure("We couldn't reach ID Switch to check for an existing identity. Nothing has been saved. Try again shortly.");
+      if (err instanceof IdSwitchUnavailableError) setFailure("We couldn't check for existing records right now. Nothing has been saved. Please try again shortly.");
       else throw err;
     } finally {
       inFlight.current = false;
     }
   };
 
+  const regions = countryByCode(p.country)?.regions;
   const generatedExample = config.mode === 'generated' ? previewIdentifier(config.segments, config.nextSequence, org.organization.timezone) : null;
 
   return (
@@ -157,32 +165,69 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
             <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => update({ phase: 'identifier' })} disabled={!!busy}>Back</Button>
           </div>
           <Button onClick={submit} loading={!!busy} disabled={!!current && !d.canCreate} icon={busy ? undefined : <UserPlus className="h-4 w-4" />}>
-            {busy === 'checking' ? 'Checking ID Switch…' : busy === 'creating' ? 'Creating user…' : 'Create user'}
+            {busy === 'checking' ? 'Checking…' : busy === 'creating' ? 'Creating user…' : 'Create user'}
           </Button>
         </>
       }
     >
       {failure && <div className="mb-6"><Callout tone="danger" title="The user wasn't created">{failure}</Callout></div>}
 
-      <FormSection title="Name and contact" description="Held in ID Switch, Seamfix's shared identity record. FixID keeps only what your organization needs.">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="First name" required error={errors.givenName}>
+      <FormSection title="Personal Information">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+          <Field label="First Name" required error={errors.givenName}>
             {(f) => <Input {...f} autoComplete="off" value={p.givenName} onChange={(e) => set('givenName', e.target.value)} />}
           </Field>
-          <Field label="Last name" required error={errors.familyName}>
+          <Field label="Last Name" required error={errors.familyName}>
             {(f) => <Input {...f} autoComplete="off" value={p.familyName} onChange={(e) => set('familyName', e.target.value)} />}
           </Field>
-          <Field label="Email address" error={errors.email}>
+          <Field label="Email Address" required error={errors.email}>
             {(f) => <Input {...f} type="email" autoComplete="off" value={p.email} onChange={(e) => set('email', e.target.value)} />}
           </Field>
-          <Field label="Phone number" error={errors.phone}>
-            {(f) => <Input {...f} type="tel" autoComplete="off" value={p.phone} onChange={(e) => set('phone', e.target.value)} />}
+          <Field label="Phone Number" error={errors.phone}>
+            {(f) => (
+              <div className="flex gap-2">
+                <div className="w-32 shrink-0">
+                  <Select aria-label="Country calling code" value={p.phoneCountry} onChange={(e) => set('phoneCountry', e.target.value)}>
+                    {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.code} {c.dial}</option>)}
+                  </Select>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Input {...f} type="tel" autoComplete="off" placeholder="803 555 0101" value={p.phone} onChange={(e) => set('phone', e.target.value)} />
+                </div>
+              </div>
+            )}
+          </Field>
+          <Field label="Country">
+            {(f) => (
+              <Select {...f} value={p.country} onChange={(e) => update({ person: { ...p, country: e.target.value, region: '' } })}>
+                <option value="">Select country</option>
+                {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </Select>
+            )}
+          </Field>
+          <Field label="Region/State">
+            {(f) => regions
+              ? (
+                <Select {...f} value={p.region} onChange={(e) => set('region', e.target.value)}>
+                  <option value="">Select region/state</option>
+                  {regions.map((r) => <option key={r} value={r}>{r}</option>)}
+                </Select>
+              )
+              : <Input {...f} autoComplete="off" value={p.region} onChange={(e) => set('region', e.target.value)} />}
+          </Field>
+          <Field label="Gender">
+            {(f) => (
+              <Select {...f} value={p.gender} onChange={(e) => set('gender', e.target.value as PersonForm['gender'])}>
+                <option value="">Select gender</option>
+                <option value="Female">Female</option>
+                <option value="Male">Male</option>
+              </Select>
+            )}
           </Field>
         </div>
-        <p className="text-xs text-slate-500">Add at least an email or phone number. It's used to find an existing identity and later to deliver their digital ID.</p>
       </FormSection>
 
-      <FormSection title={config.name} description={config.mode === 'manual' ? 'Entered for each person. Must be unique.' : 'Generated automatically.'}>
+      <FormSection title={config.name} description={config.mode === 'manual' ? 'Entered for each user. Must be unique.' : 'Generated automatically.'}>
         {config.mode === 'manual' ? (
           <Field label={config.name} required error={errors.identifierValue}>
             {(f) => <Input {...f} autoComplete="off" className="font-mono" value={p.identifierValue} onChange={(e) => set('identifierValue', e.target.value)} />}
@@ -197,7 +242,7 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
 
       {current && current.kind !== 'none' && (
         <section aria-label="Identity check" className="mt-6 space-y-3 border-t border-slate-100 pt-6">
-          <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">Identity check <SimulatedBadge /></p>
+          <p className="text-sm font-semibold text-slate-900">Existing records</p>
           {existingMember && (
             <Callout tone="warning" title={`${existingMember.displayName} is already a user in your organization`}
               action={<Link to={`/users/${existingMember.id}`} className="text-sm font-medium text-amber-900 underline">View user</Link>}>
@@ -206,15 +251,15 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
           )}
           {current.kind === 'match' && !existingMember && (
             <>
-              <Callout tone="success" title="Existing identity found">
-                Matched on {current.matchedOn.join(' and ')}. FixID will link this identity instead of creating a new one.
+              <Callout tone="success" title="Existing record found">
+                Matched on {current.matchedOn.join(' and ')}. FixID will use this person's existing record instead of creating a new one.
               </Callout>
               <IdentityCard identity={current.identity} />
             </>
           )}
           {current.kind === 'conflict' && (
             <Callout tone="danger" title="These details belong to someone else">
-              The {current.field === 'email-and-phone' ? 'email address and phone number match two different people' : `${current.field === 'email' ? 'email address' : 'phone number'} is already on record for a person with a different name`} in ID Switch.
+              The {current.field === 'email-and-phone' ? 'email address and phone number match two different people' : `${current.field === 'email' ? 'email address' : 'phone number'} is already on record for a person with a different name`}.
               To avoid merging two people, change the details before continuing.
             </Callout>
           )}
@@ -227,7 +272,7 @@ export function StepDetails({ org, draft, config, update, footerStart }: {
               <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
                 <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"
                   checked={draft.confirmNewIdentity} onChange={(e) => update({ confirmNewIdentity: e.target.checked })} />
-                <span>I've confirmed this is a different person. <span className="text-slate-500">Create a new identity in ID Switch.</span></span>
+                <span>I've confirmed this is a different person.</span>
               </label>
             </>
           )}

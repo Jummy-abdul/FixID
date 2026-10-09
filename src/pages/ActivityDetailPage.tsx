@@ -28,7 +28,7 @@ export function ActivityDetailPage() {
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: 'Activities', to: '/activities' }, { label: activity.name }]}
+        breadcrumbs={[{ label: 'Verification Events', to: '/activities' }, { label: activity.name }]}
         title={activity.name}
         description={activity.description}
         meta={<><ActivityStatusBadge status={activity.status} /><Badge>{PURPOSE_LABEL[activity.purpose]}</Badge><AssuranceBadge level={activity.assuranceLevel} /></>}

@@ -57,6 +57,9 @@ export interface CanonicalIdentity {
   /** Optional profile attributes held in the canonical record. */
   gender?: 'Female' | 'Male';
   location?: string;
+  /** Country name and region/state, when recorded. */
+  country?: string;
+  region?: string;
   nationality: string;
   verificationLevel: 'basic' | 'verified' | 'high-assurance';
   /** Other Seamfix products that reference this canonical identity, e.g. Fixiam. */

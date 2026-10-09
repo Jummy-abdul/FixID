@@ -512,11 +512,9 @@ export function buildSeed(now: Date = new Date()): SeedData {
     const recentMembers = [...orgMembers].sort((a, b) => b.joinedAt.localeCompare(a.joinedAt)).slice(0, 8);
     for (const m of recentMembers) {
       audit.push({
-        id: '', organizationId: orgId, action: 'identity.linked', actor: ADMIN_NAME, actorType: 'admin',
+        id: '', organizationId: orgId, action: 'user.created', actor: ADMIN_NAME, actorType: 'admin',
         resourceType: 'member', resourceId: m.id, result: 'success', occurredAt: m.joinedAt, href: `/users/${m.id}`,
-        summary: m.resolution === 'linked-existing'
-          ? `Linked existing ID Switch identity ${m.idSwitchId} (${m.displayName})`
-          : `Requested new ID Switch identity ${m.idSwitchId} for ${m.displayName}`,
+        summary: `Added ${m.displayName}`,
       });
     }
     const recentCredentials = [...orgCredentials].sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)).slice(0, 14);

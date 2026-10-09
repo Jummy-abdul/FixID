@@ -46,13 +46,11 @@ export function FormSection({ title, description, children }: { title: string; d
   return (
     <fieldset className="min-w-0 border-t border-slate-100 py-6 first:border-t-0 first:pt-0 last:pb-0">
       <legend className="sr-only">{title}</legend>
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-900" aria-hidden="true">{title}</p>
-          {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
-        </div>
-        <div className="space-y-4 lg:col-span-2">{children}</div>
+      <div className="mb-4">
+        <p className="text-base font-semibold text-slate-900" aria-hidden="true">{title}</p>
+        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
       </div>
+      <div className="space-y-4">{children}</div>
     </fieldset>
   );
 }

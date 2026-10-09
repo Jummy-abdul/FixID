@@ -179,8 +179,7 @@ export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memb
         audit: withAudit(state, [{
           organizationId: p.organizationId, action: 'user.created', actor: state.data.admin.name, actorType: 'admin',
           resourceType: 'member', resourceId: member.id, result: 'success', occurredAt: p.at, href: `/users/${member.id}`,
-          summary: `Added ${member.displayName} (${config.name} ${member.identifier!.value}), ${p.identity.resolution === 'created-new'
-            ? `new ID Switch identity ${member.idSwitchId}` : `reusing ID Switch identity ${member.idSwitchId}`}`,
+          summary: `Added ${member.displayName} (${config.name} ${member.identifier!.value})`,
         }]),
       },
     },
@@ -266,7 +265,7 @@ export function applyEnrollmentInvite(state: AppState, input: EnrollmentInviteIn
         audit: withAudit(state, [{
           organizationId: m.organizationId, action: 'enrollment.invited', actor: state.data.admin.name, actorType: 'admin',
           resourceType: 'member', resourceId: m.id, result: 'success', occurredAt: input.at, href: `/users/${m.id}`,
-          summary: `${eligible.resend ? 'Resent' : 'Sent'} portrait enrollment link to ${m.displayName} at ${input.sentTo} (simulated)`,
+          summary: `${eligible.resend ? 'Resent' : 'Sent'} portrait enrollment link to ${m.displayName} at ${input.sentTo}`,
         }]),
       },
     },
@@ -457,7 +456,7 @@ export function applyWalletUpdate(state: AppState, credentialId: string, status:
       ...state.data,
       credentials: state.data.credentials.map((x) => (x.id === credentialId ? { ...x, wallet: { status, updatedAt: at } } : x)),
       audit: status === 'not-sent' ? state.data.audit : withAudit(state, [{
-        organizationId: c.organizationId, action: status === 'failed' ? 'wallet.failed' : 'wallet.delivered', actor: 'Seamfix Wallet (simulated)',
+        organizationId: c.organizationId, action: status === 'failed' ? 'wallet.failed' : 'wallet.delivered', actor: 'Seamfix Wallet',
         actorType: 'integration', resourceType: 'credential', resourceId: c.id, result: status === 'failed' ? 'failure' : 'success', occurredAt: at,
         summary: status === 'failed' ? `Wallet delivery failed for ${c.identifier}` : `${c.identifier} made available in Seamfix Wallet`,
         href: `/credentials/${c.id}`,

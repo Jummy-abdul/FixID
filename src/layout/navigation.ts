@@ -1,8 +1,12 @@
 import {
-  Activity, BadgeCheck, History, LayoutDashboard, LayoutTemplate, Layers, ScrollText, Settings, Users, type LucideIcon,
+  Activity, BadgeCheck, History, LayoutDashboard, Layers, ScrollText, Settings, Users, type LucideIcon,
 } from 'lucide-react';
 
-export interface NavItem { label: string; to: string; icon: LucideIcon; description: string }
+export interface NavItem {
+  label: string; to: string; icon: LucideIcon; description: string;
+  /** Other route prefixes that belong to this item (e.g. Templates is reached from Credentials). */
+  alsoActiveOn?: string[];
+}
 /** A group without a label renders its items directly under the branding (e.g. Dashboard). */
 export interface NavGroup { label: string | null; items: NavItem[] }
 
@@ -21,14 +25,13 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Credential Management',
     items: [
-      { label: 'Credentials', to: '/credentials', icon: BadgeCheck, description: 'Issued credentials and their management' },
-      { label: 'Templates', to: '/templates', icon: LayoutTemplate, description: 'Card designs and credential type configuration' },
+      { label: 'Credentials', to: '/credentials', icon: BadgeCheck, description: 'Issued credentials and their management', alsoActiveOn: ['/templates'] },
     ],
   },
   {
     label: 'Verification',
     items: [
-      { label: 'Activities', to: '/activities', icon: Activity, description: 'Verification use cases' },
+      { label: 'Verification Events', to: '/activities', icon: Activity, description: 'Where and how credentials are verified' },
       { label: 'Verification History', to: '/verification-history', icon: History, description: 'Verification attempts and decisions' },
     ],
   },

@@ -11,7 +11,7 @@ export function createMockWallet(): WalletService {
         ok: connected,
         latencyMs,
         message: connected
-          ? `Issuer ${issuerDid} is registered with Seamfix Wallet (simulated).`
+          ? `Issuer ${issuerDid} is registered with Seamfix Wallet.`
           : 'This organization has not been registered as a Seamfix Wallet issuer.',
         checkedAt: new Date().toISOString(),
       };

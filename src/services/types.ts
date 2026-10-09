@@ -12,6 +12,10 @@ export interface IdentityQuery {
   familyName: string;
   email?: string;
   phone?: string;
+  /** Optional profile attributes, recorded when a new identity is created. */
+  gender?: 'Female' | 'Male';
+  country?: string;
+  region?: string;
 }
 
 /**
@@ -29,7 +33,7 @@ export type ResolutionResult =
 
 export class IdSwitchUnavailableError extends Error {
   constructor() {
-    super('ID Switch is temporarily unavailable.');
+    super('The identity service is temporarily unavailable.');
     this.name = 'IdSwitchUnavailableError';
   }
 }

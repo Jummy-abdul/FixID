@@ -1,9 +1,10 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { Fingerprint } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { NAVIGATION } from './navigation';
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const { pathname } = useLocation();
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-300">
       <div className="flex h-16 items-center gap-2.5 px-5">
@@ -26,9 +27,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     to={item.to}
                     end={item.to === '/'}
                     onClick={onNavigate}
-                    className={({ isActive }) =>
-                      cn('flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                        isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100')}
+                    className={({ isActive: exact }) => {
+                      const isActive = exact || !!item.alsoActiveOn?.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+                      return cn('flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                        isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100');
+                    }}
                   >
                     <item.icon className="h-[18px] w-[18px]" />
                     {item.label}
@@ -39,10 +42,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ))}
       </nav>
-      <div className="m-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-xs text-slate-400">
-        <p className="font-medium text-slate-200">Prototype · Milestone 1</p>
-        <p className="mt-1">Integrations with ID Switch and Seamfix Wallet are simulated.</p>
-      </div>
     </div>
   );
 }

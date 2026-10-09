@@ -103,7 +103,7 @@ export function createMockIdSwitch(): IdSwitchService {
       ensureAvailable();
       const check = matchIdentity(query, all());
       if (check.kind === 'match' || check.kind === 'conflict') {
-        throw new Error('This email or phone number already belongs to an identity in ID Switch.');
+        throw new Error('This email address or phone number already belongs to another person.');
       }
       const n = registry.length + store.created.length + 1;
       const identity: CanonicalIdentity = {
@@ -112,6 +112,9 @@ export function createMockIdSwitch(): IdSwitchService {
         familyName: query.familyName.trim(),
         email: normalizeEmail(query.email),
         phone: (query.phone ?? '').trim(),
+        ...(query.gender ? { gender: query.gender } : {}),
+        ...(query.country ? { country: query.country } : {}),
+        ...(query.region ? { region: query.region } : {}),
         dateOfBirth: '',
         nationality: '',
         verificationLevel: 'basic',
@@ -128,10 +131,10 @@ export function createMockIdSwitch(): IdSwitchService {
         ok,
         latencyMs,
         message: store.outage
-          ? 'Simulated outage is on. Identity resolution and creation will fail until it is turned off.'
+          ? 'The identity service is unavailable. Adding users will fail until it is back.'
           : ok
-            ? `Connected to tenant ${org.integrations.idSwitch.tenantRef}. ${all().length} canonical identities reachable (simulated).`
-            : 'No ID Switch tenant is linked to this organization.',
+            ? `Connected to tenant ${org.integrations.idSwitch.tenantRef}.`
+            : 'No identity service tenant is linked to this organization.',
         checkedAt: new Date().toISOString(),
       };
     },

@@ -12,7 +12,7 @@ function PreviewControl({ value, onChange }: { value: DashboardPreview; onChange
     <div className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-xs text-slate-400 transition-colors focus-within:text-slate-600 hover:text-slate-600">
       <Eye className="h-3.5 w-3.5" aria-hidden="true" />
       <span aria-hidden="true">Preview</span>
-      <select aria-label="Dashboard preview (prototype only)" value={value} onChange={(e) => onChange(e.target.value as DashboardPreview)}
+      <select aria-label="Dashboard preview" value={value} onChange={(e) => onChange(e.target.value as DashboardPreview)}
         className="h-7 cursor-pointer rounded-md border border-transparent bg-transparent pl-1 pr-6 text-xs font-medium text-slate-500 hover:border-slate-200 hover:bg-white focus:border-slate-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20">
         {PREVIEW_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>

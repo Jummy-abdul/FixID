@@ -4,7 +4,6 @@ import { Badge, Button, Modal } from '@/components/ui';
 
 export interface PlannedFeatureInfo {
   title: string;
-  milestone: string;
   summary: string;
   steps?: string[];
 }
@@ -22,8 +21,8 @@ export function PlannedFeatureProvider({ children }: { children: ReactNode }) {
     <PlannedContext.Provider value={setInfo}>
       {children}
       <Modal open={!!info} onClose={close} size="md"
-        title={<span className="flex items-center gap-2">{info?.title} <Badge tone="violet">Planned · {info?.milestone}</Badge></span>}
-        description="This capability is not available in the current prototype milestone. Nothing has been changed."
+        title={<span className="flex items-center gap-2">{info?.title} <Badge tone="violet">Planned</Badge></span>}
+        description="This feature isn't available yet. Nothing has been changed."
         footer={<Button variant="secondary" onClick={close} data-autofocus>Got it</Button>}>
         {info && (
           <div className="space-y-3 text-sm text-slate-600">
@@ -65,11 +64,10 @@ export function PlannedButton({ info, children, icon, variant = 'secondary', siz
 export const PLANNED = {
   onboardAndIssue: {
     title: 'Add person & issue credential',
-    milestone: 'Milestone 2',
-    summary: 'A single guided journey that resolves the person in ID Switch, links them to your organization, collects only the FixID-specific details you need, and issues their first credential to Seamfix Wallet.',
+    summary: 'A single guided journey that finds or adds the person, links them to your organization, collects the details you need, and issues their first credential to Seamfix Wallet.',
     steps: [
-      'Search ID Switch for an existing identity (name, email, phone or ID Switch ID).',
-      'Link the existing identity, or request a new canonical identity when there is no match.',
+      'Search for an existing person by name, email or phone.',
+      'Use their existing record, or add a new one when there is no match.',
       'Capture minimal organization context (relationship, unit, reference number).',
       'Choose a credential type. Defaults, identifier and validity are pre-filled.',
       'Review, issue, and deliver to Seamfix Wallet.',
@@ -77,47 +75,38 @@ export const PLANNED = {
   },
   issueAdditional: {
     title: 'Issue additional credential',
-    milestone: 'Milestone 2',
     summary: 'Issue another credential type to a person who is already linked to your organization, without re-onboarding them.',
   },
   credentialLifecycle: {
     title: 'Credential lifecycle actions',
-    milestone: 'Milestone 3',
     summary: 'Activate, suspend, revoke and renew credentials with confirmation, reason capture, wallet sync and a full audit trail.',
   },
   credentialTypeEditor: {
     title: 'Create or edit credential type',
-    milestone: 'Milestone 2',
     summary: 'Define a credential type: identifier format, effective date, validity, renewal window, lifecycle rules and card design. It can also be created inline during the guided issuance journey and reused later.',
   },
   cardDesignEditor: {
     title: 'Card design editor',
-    milestone: 'Milestone 3',
     summary: 'Customize colours, layout and visible fields of your digital ID card, with live preview. Every organization already has a default design.',
   },
   activityBuilder: {
     title: 'Verification activity builder',
-    milestone: 'Milestone 4',
     summary: 'Configure purpose, eligibility, primary and fallback methods, assurance level, schedule and outcome. Fallbacks that would downgrade assurance are blocked.',
   },
   verifierSimulator: {
-    title: 'Verifier simulator',
-    milestone: 'Milestone 4',
+    title: 'Test verification',
     summary: 'Present a credential at an activity and watch the decision pipeline: credential validation → identity match → authorization → decision → transaction.',
   },
   groups: {
     title: 'Groups',
-    milestone: 'Later milestone',
     summary: 'Organize users into meaningful collections, such as a class, department or event cohort, for issuing credentials and defining verification eligibility in bulk.',
   },
   profile: {
     title: 'Edit profile',
-    milestone: 'Later milestone',
-    summary: 'Update your administrator profile details. Sign-in and account management are outside this prototype.',
+    summary: 'Update your administrator profile details.',
   },
   export: {
     title: 'Export',
-    milestone: 'Later milestone',
     summary: 'Export filtered transactions and audit records as CSV for investigation and reporting.',
   },
 } satisfies Record<string, PlannedFeatureInfo>;

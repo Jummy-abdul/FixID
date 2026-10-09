@@ -201,7 +201,7 @@ describe('manual user creation', () => {
     expect(title()).toHaveTextContent('Select identifier');
     expect(screen.getByRole('radio', { name: /Matric Number/ })).toHaveAttribute('aria-checked', 'true');
     await user.click(button(/^continue/i));
-    await fillPerson(user, { first: 'Tunde', last: 'Bello', phone: '0803 555 0101' });
+    await fillPerson(user, { first: 'Tunde', last: 'Bello', email: 'tunde@crestfield.example', phone: '0803 555 0101' });
     await user.click(button('Create user'));
     const modal = await userCreatedModal();
     expect(within(modal).getByText(`STU/${YEAR}/00002`)).toBeInTheDocument();
@@ -251,7 +251,7 @@ describe('manual user creation', () => {
     await createStudentIdAndAssign(first.user);
     await first.user.click(screen.getByRole('link', { name: /add another user/i }));
     await first.user.click(button(/^continue/i));
-    await fillPerson(first.user, { first: 'Tunde', last: 'Bello', phone: '0803 555 0101' });
+    await fillPerson(first.user, { first: 'Tunde', last: 'Bello', email: 'tunde@crestfield.example', phone: '0803 555 0101' });
     await first.user.click(button('Create user'));
     await userCreatedModal();
     await notNow(first.user);
@@ -296,7 +296,7 @@ describe('manual user creation', () => {
     await notNow(user);
     await startAnotherUser(user);
     await user.click(button(/^continue/i));
-    await fillPerson(user, { first: 'Bisi', last: 'Lawal', phone: '0803 555 0199', id: 'sf-0042' }, /^staff id/i);
+    await fillPerson(user, { first: 'Bisi', last: 'Lawal', email: 'bisi@crestfield.example', phone: '0803 555 0199', id: 'sf-0042' }, /^staff id/i);
     await user.click(button('Create user'));
     expect(screen.getByText('sf-0042 is already assigned to another user.')).toBeInTheDocument();
     expect(org().members).toHaveLength(1);
@@ -384,7 +384,7 @@ describe('identity resolution and duplicates', () => {
     await user.click(button(/^continue/i));
     await fillPerson(user, { first: 'Amara', last: 'Okonkwo', email: 'amara@crestfield.example', id: 'MAT/1' }, /^matric number/i);
     await user.click(button('Create user'));
-    expect(await screen.findByText(/couldn't reach ID Switch/)).toBeInTheDocument();
+    expect(await screen.findByText(/couldn't check for existing records/)).toBeInTheDocument();
     expect(title()).toHaveTextContent('User information');
     expect(org().members).toHaveLength(0);
   });
@@ -415,7 +415,8 @@ describe('persistence and cross-module visibility', () => {
     await user.click(await screen.findByText(`STU/${YEAR}/00001`));
     expect(screen.getByRole('link', { name: 'Amara Okonkwo' })).toBeInTheDocument();
 
-    await user.click(within(nav).getByRole('link', { name: 'Templates' }));
+    await user.click(within(nav).getByRole('link', { name: 'Credentials' }));
+    await user.click(await screen.findByRole('link', { name: 'Manage' }));
     await user.click(await screen.findByRole('link', { name: 'Identifiers' }));
     expect((await screen.findAllByText('Matric Number')).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('link', { name: 'Credential types' }));

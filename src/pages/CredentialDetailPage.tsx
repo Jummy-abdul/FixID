@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Check, ExternalLink } from 'lucide-react';
 import { Badge, Card, CardBody, CardHeader, DescriptionList, PageHeader } from '@/components/ui';
 import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
-import { CredentialStatusBadge, SimulatedBadge, WalletBadge } from '@/components/domain/StatusBadges';
+import { CredentialStatusBadge, WalletBadge } from '@/components/domain/StatusBadges';
 import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { TransactionsTable } from '@/components/domain/TransactionsTable';
 import { formatDate, formatDateTime } from '@/lib/dates';
@@ -55,7 +55,7 @@ export function CredentialDetailPage() {
             <CardHeader title="Details" />
             <CardBody>
               <DescriptionList items={[
-                { label: 'Holder', value: <Link to={`/users/${member.id}`} className="font-medium text-brand-700 hover:underline">{member.displayName}</Link>, hint: `ID Switch ${member.idSwitchId}` },
+                { label: 'Holder', value: <Link to={`/users/${member.id}`} className="font-medium text-brand-700 hover:underline">{member.displayName}</Link> },
                 { label: 'Credential type', value: <Link to={`/templates/credential-types/${type.id}`} className="text-brand-700 hover:underline">{type.name}</Link> },
                 { label: 'Issued', value: formatDate(credential.issuedAt) },
                 { label: 'Effective from', value: formatDate(credential.effectiveFrom) },
@@ -65,7 +65,7 @@ export function CredentialDetailPage() {
             </CardBody>
           </Card>
           <Card>
-            <CardHeader title="Seamfix Wallet" description="The holder experience is provided by Seamfix Wallet." action={<SimulatedBadge />} />
+            <CardHeader title="Seamfix Wallet" description="The holder experience is provided by Seamfix Wallet." />
             <CardBody>
               <DescriptionList items={[
                 { label: 'Delivery', value: <WalletBadge status={credential.wallet.status} />, hint: credential.wallet.status === 'not-sent' ? (organization.integrations.seamfixWallet.connected ? 'Credentials are delivered once active.' : 'Seamfix Wallet is not connected for this organization.') : `Updated ${formatDateTime(credential.wallet.updatedAt)}` },

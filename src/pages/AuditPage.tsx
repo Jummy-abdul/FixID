@@ -33,8 +33,8 @@ export function AuditPage() {
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search events or actors" className="sm:w-72" />
           <FilterSelect label="Area" value={area} onChange={setArea} options={[
-            { value: 'all', label: 'All areas' }, { value: 'identity', label: 'Identity' }, { value: 'credential', label: 'Credentials' },
-            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Verification activities' }, { value: 'organization', label: 'Organization' },
+            { value: 'all', label: 'All areas' }, { value: 'user', label: 'Users' }, { value: 'enrollment', label: 'Enrollment' }, { value: 'identifier', label: 'Identifiers' }, { value: 'credential', label: 'Credentials' },
+            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Verification events' }, { value: 'organization', label: 'Organization' },
           ]} />
           <FilterSelect label="Result" value={result} onChange={setResult} options={[
             { value: 'all', label: 'Any result' }, { value: 'success', label: 'Success' }, { value: 'failure', label: 'Failure' },
