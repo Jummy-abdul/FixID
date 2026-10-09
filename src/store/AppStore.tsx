@@ -1,12 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
-  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, Member, Organization, Transaction, VerificationActivity,
+  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, ActivityConfig, ActivityVersion, VerifierAssignment, Member, Organization, Transaction, VerificationActivity,
 } from '@/domain/types';
 import {
   applyEnrollmentInvite, applyMemberStatus, type EnrollmentInviteInput, type MemberStatusInput,
   applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
   type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
+import {
+  applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
+} from './activityOps';
 import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from './groupOps';
 import { applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, type InviteInput } from './adminOps';
@@ -21,13 +24,22 @@ interface StoreContextValue {
   getState: () => AppState;
 }
 
+const newEntityId = (prefix: string) => `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 export function AppStoreProvider({ children, initialState }: { children: ReactNode; initialState?: AppState }) {
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState ?? loadState() ?? createInitialState());
+  const [state, rawDispatch] = useReducer(reducer, undefined, () => initialState ?? loadState() ?? createInitialState());
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Apply each action to the latest state right away too, so an operation that follows another in the
+  // same handler (e.g. save, then activate) validates against the result of the first. The reducer is
+  // pure and deterministic, so React computes the same state when it renders.
+  const dispatch = useCallback((action: Action) => {
+    stateRef.current = reducer(stateRef.current, action);
+    rawDispatch(action);
+  }, []);
 
   useEffect(() => {
     saveState(state);
@@ -69,6 +81,9 @@ export interface OrgData {
   groups: Group[];
   groupMemberships: GroupMembership[];
   issuanceBatches: IssuanceBatch[];
+  activityConfigs: ActivityConfig[];
+  activityVersions: ActivityVersion[];
+  verifierAssignments: VerifierAssignment[];
   memberById: Map<string, Member>;
   groupById: Map<string, Group>;
   credentialById: Map<string, Credential>;
@@ -102,6 +117,9 @@ export function selectOrgData(state: AppState, organizationId?: string): OrgData
     groups: scope(d.groups),
     groupMemberships: scope(d.groupMemberships),
     issuanceBatches: scope(d.issuanceBatches),
+    activityConfigs: scope(d.activityConfigs),
+    activityVersions: scope(d.activityVersions),
+    verifierAssignments: scope(d.verifierAssignments),
     memberById: new Map(members.map((x) => [x.id, x])),
     groupById: new Map(scope(d.groups).map((x) => [x.id, x])),
     credentialById: new Map(credentials.map((x) => [x.id, x])),
@@ -120,11 +138,14 @@ export function useOrgData(): OrgData {
 
 export function useActions() {
   const { dispatch, getState } = useStore();
-  const run = useCallback((apply: () => { ok: true; state: AppState } | { ok: false; error: string; errors?: Record<string, string | undefined> }, action: Action) => {
+  const run = useCallback((apply: () => { ok: true; state: AppState } | { ok: false; error: string; errors?: Record<string, string | undefined>; problems?: string[]; field?: string }, action: Action) => {
     const denied = authorizeAction(getState(), action.type);
     const r = denied ? { ok: false as const, error: denied } : apply();
     if (r.ok) dispatch(action);
-    return r.ok ? { ok: true as const } : { ok: false as const, error: r.error, errors: 'errors' in r ? r.errors : undefined };
+    return r.ok ? { ok: true as const } : {
+      ok: false as const, error: r.error, errors: 'errors' in r ? r.errors : undefined,
+      problems: 'problems' in r ? r.problems : undefined, field: 'field' in r ? r.field : undefined,
+    };
   }, [dispatch, getState]);
   return useMemo(
     () => ({
@@ -213,6 +234,35 @@ export function useActions() {
       removeGroupMembers: (organizationId: string, groupId: string, memberIds: string[]) => {
         const at = new Date().toISOString();
         return run(() => applyRemoveMembers(getState(), { organizationId, groupId, memberIds, at }), { type: 'groups/removeMembers', organizationId, groupId, memberIds, at });
+      },
+      /** Verification Activities. Each re-checks permissions; rules changes on active activities go to a draft version. */
+      saveActivity: (organizationId: string, activityId: string | undefined, form: ActivityForm) => {
+        const ids = { activityId: activityId ?? newEntityId('va'), versionId: newEntityId('vv') };
+        const action = { type: 'vactivities/save' as const, organizationId, activityId, ids, form, at: new Date().toISOString() };
+        const r = run(() => applySaveActivity(getState(), action), action);
+        return r.ok ? { ...r, activityId: ids.activityId } : r;
+      },
+      activateActivity: (organizationId: string, activityId: string) => {
+        const action = { type: 'vactivities/activate' as const, organizationId, activityId, at: new Date().toISOString() };
+        return run(() => applyActivate(getState(), action), action);
+      },
+      deactivateActivity: (organizationId: string, activityId: string) => {
+        const action = { type: 'vactivities/deactivate' as const, organizationId, activityId, at: new Date().toISOString() };
+        return run(() => applyDeactivate(getState(), action), action);
+      },
+      discardActivityDraft: (organizationId: string, activityId: string) => {
+        const action = { type: 'vactivities/discardDraft' as const, organizationId, activityId, at: new Date().toISOString() };
+        return run(() => applyDiscardDraft(getState(), action), action);
+      },
+      duplicateActivity: (organizationId: string, activityId: string) => {
+        const ids = { activityId: newEntityId('va'), versionId: newEntityId('vv') };
+        const action = { type: 'vactivities/duplicate' as const, organizationId, activityId, ids, at: new Date().toISOString() };
+        const r = run(() => applyDuplicate(getState(), action), action);
+        return r.ok ? { ...r, activityId: ids.activityId } : r;
+      },
+      removeDraftActivity: (organizationId: string, activityId: string) => {
+        const action = { type: 'vactivities/remove' as const, organizationId, activityId, at: new Date().toISOString() };
+        return run(() => applyRemoveDraft(getState(), action), action);
       },
       /**
        * Issues a credential configuration to selected group members through the ordinary issuance

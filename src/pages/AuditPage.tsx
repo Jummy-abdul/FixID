@@ -35,7 +35,7 @@ export function AuditPage() {
           <SearchInput value={q} onChange={setQ} placeholder="Search events or actors" className="sm:w-72" />
           <FilterSelect label="Area" value={area} onChange={setArea} options={[
             { value: 'all', label: 'All areas' }, { value: 'user', label: 'Users' }, { value: 'enrollment', label: 'Enrollment' }, { value: 'identifier', label: 'Identifiers' }, { value: 'credential', label: 'Credentials' },
-            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Verification events' }, { value: 'organization', label: 'Organization' }, { value: 'admin', label: 'Administrators' }, { value: 'group', label: 'Groups' }, { value: 'issuance', label: 'Group issuance' },
+            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Verification events' }, { value: 'organization', label: 'Organization' }, { value: 'admin', label: 'Administrators' }, { value: 'group', label: 'Groups' }, { value: 'issuance', label: 'Group issuance' }, { value: 'verification-activity', label: 'Verification activities' },
           ]} />
           <FilterSelect label="Result" value={result} onChange={setResult} options={[
             { value: 'all', label: 'Any result' }, { value: 'success', label: 'Success' }, { value: 'partial', label: 'Partial' }, { value: 'failure', label: 'Failure' },
@@ -72,7 +72,7 @@ function AuditEventDrawer({ event: e, organizationName, onClose }: { event: Audi
     ['Organization', organizationName],
     ['Actor', e.actor],
     ['Action', <span className="font-mono text-xs">{e.action}</span>],
-    ...(e.subject ? [[{ administrator: 'Affected administrator', group: 'Affected group' }[e.resourceType as string] ?? 'Affected record', e.subject.name] as [string, React.ReactNode]] : []),
+    ...(e.subject ? [[{ administrator: 'Affected administrator', group: 'Affected group', 'verification-activity': 'Activity' }[e.resourceType as string] ?? 'Affected record', e.subject.name] as [string, React.ReactNode]] : []),
     ...(e.related?.length ? [[e.related.length === 1 ? 'Affected user' : `Affected users (${e.related.length})`, (
       <ul className="space-y-0.5">{e.related.map((r) => <li key={r.id}>{r.name}</li>)}</ul>
     )] as [string, React.ReactNode]] : []),

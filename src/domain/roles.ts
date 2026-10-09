@@ -156,13 +156,6 @@ export function canGrantRoles(actor: Set<Permission>, roleIds: readonly string[]
   return actor.has('roles.assign') && coversRoles(actor, roleIds);
 }
 
-/**
- * Activity-level check for the future verifier interface: an active administrator with a role that
- * performs verifications, assigned to the activity. Assignment is made by someone else
- * (verification.verifiers.assign), never by the verifier.
- */
-export function canPerformVerification(admin: { status: string; roleIds: readonly string[]; verifierActivityIds?: readonly string[] }, activityId: string): boolean {
-  return admin.status === 'active' && permissionsFor(admin.roleIds).has('verification.execute') && (admin.verifierActivityIds ?? []).includes(activityId);
-}
+// Activity-level verifier authorization lives with Verification Activities: see authorizeVerifier in domain/verification.ts.
 
 export const INVITATION_TTL_DAYS = 7;

@@ -1,4 +1,4 @@
-import type { Group, GroupMembership, VerificationActivity } from './types';
+import type { ActivityConfig, ActivityVersion, Group, GroupMembership, VerificationActivity } from './types';
 
 /**
  * Group membership queries. This is the one place screens and future features (such as a
@@ -10,6 +10,8 @@ export interface GroupData {
   groups: Group[];
   groupMemberships: GroupMembership[];
   activities?: VerificationActivity[];
+  activityConfigs?: ActivityConfig[];
+  activityVersions?: ActivityVersion[];
 }
 
 export const groupsOf = (d: GroupData, organizationId: string) => d.groups.filter((g) => g.organizationId === organizationId);
@@ -48,11 +50,20 @@ export function memberCounts(d: GroupData, organizationId: string): Map<string, 
   return out;
 }
 
-/** Features that rely on a group. Today only verification activities can; removal is blocked while any do. */
+/**
+ * Features that rely on a group: verification activities whose active or draft configuration checks
+ * membership of it. Removal is blocked while any do.
+ */
 export function groupDependencies(d: GroupData, organizationId: string, groupId: string): { kind: 'verification-activity'; id: string; name: string }[] {
-  return (d.activities ?? [])
+  const legacy = (d.activities ?? [])
     .filter((a) => a.organizationId === organizationId && a.eligibility.groupIds?.includes(groupId))
     .map((a) => ({ kind: 'verification-activity' as const, id: a.id, name: a.name }));
+  const configured = (d.activityConfigs ?? [])
+    .filter((a) => a.organizationId === organizationId)
+    .filter((a) => (d.activityVersions ?? []).some((v) => (v.id === a.activeVersionId || v.id === a.draftVersionId)
+      && v.checks.some((c) => c.type === 'group-membership' && c.params.groupIds?.includes(groupId))))
+    .map((a) => ({ kind: 'verification-activity' as const, id: a.id, name: a.name }));
+  return [...legacy, ...configured];
 }
 
 export const GROUP_NAME_MAX = 80;

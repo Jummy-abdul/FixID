@@ -22,6 +22,9 @@ import { IdentifiersPage } from './pages/IdentifiersPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
+import { VerificationActivitiesPage } from './pages/verification/VerificationActivitiesPage';
+import { ActivityDetailsPage } from './pages/verification/ActivityDetailsPage';
+import { ActivityEditorPage } from './pages/verification/ActivityEditorPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PeoplePage } from './pages/PeoplePage';
 import { PersonDetailPage } from './pages/PersonDetailPage';
@@ -90,6 +93,10 @@ export function AppRoutes() {
         <Route path="templates/credential-types" element={<RequirePermission permission="credentials.view"><CredentialTypesPage /></RequirePermission>} />
         <Route path="templates/identifiers" element={<RequirePermission permission="credentials.view"><IdentifiersPage /></RequirePermission>} />
         <Route path="templates/credential-types/:typeId" element={<ConfigRedirect />} />
+        <Route path="verification-activities" element={<RequirePermission permission="verification.activities.view"><VerificationActivitiesPage /></RequirePermission>} />
+        <Route path="verification-activities/new" element={<RequirePermission permission="verification.activities.create"><ActivityEditorPage /></RequirePermission>} />
+        <Route path="verification-activities/:activityId" element={<RequirePermission permission="verification.activities.view"><ActivityDetailsPage /></RequirePermission>} />
+        <Route path="verification-activities/:activityId/edit" element={<RequirePermission permission="verification.activities.view"><ActivityEditorPage /></RequirePermission>} />
         <Route path="activities" element={<RequirePermission permission="verification.activities.view"><ActivitiesPage /></RequirePermission>} />
         <Route path="activities/:activityId" element={<RequirePermission permission="verification.activities.view"><ActivityDetailPage /></RequirePermission>} />
         <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><TransactionsPage /></RequirePermission>} />

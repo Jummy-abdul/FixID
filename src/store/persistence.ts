@@ -1,4 +1,4 @@
-import { seedAdministrators, seedGroups } from '@/data/seed';
+import { seedAdministrators, seedGroups, seedVerificationActivities } from '@/data/seed';
 import { ensurePrimaryAdmins } from './adminOps';
 import { STATE_VERSION, STORAGE_KEY, type AppState } from './state';
 
@@ -9,7 +9,7 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed?.version !== STATE_VERSION || !parsed.data?.organizations?.length) return null;
-    return ensurePrimaryAdmins(withGroups(withAdministrators(parsed)));
+    return ensurePrimaryAdmins(withVerificationActivities(withGroups(withAdministrators(parsed))));
   } catch {
     return null;
   }
@@ -36,6 +36,13 @@ function withGroups(state: AppState): AppState {
   if (Array.isArray(state.data.groups) && Array.isArray(state.data.groupMemberships)) return state;
   const demo = state.data.organizations.filter((o) => !o.ownerAccountId);
   return { ...state, data: { ...state.data, ...seedGroups(demo, state.data.members, new Date()) } };
+}
+
+/** Saved data from before Verification Activities: demo organizations get the sample activities. */
+function withVerificationActivities(state: AppState): AppState {
+  if (Array.isArray(state.data.activityConfigs) && Array.isArray(state.data.activityVersions) && Array.isArray(state.data.verifierAssignments)) return state;
+  const demo = state.data.organizations.filter((o) => !o.ownerAccountId);
+  return { ...state, data: { ...state.data, ...seedVerificationActivities(demo, state.data, new Date()) } };
 }
 
 export function saveState(state: AppState): boolean {

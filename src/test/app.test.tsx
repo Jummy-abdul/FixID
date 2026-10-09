@@ -30,14 +30,14 @@ describe('navigation', () => {
   const items = NAVIGATION.flatMap((g) => g.items);
   const headings: Record<string, RegExp> = {
     '/': /^dashboard$|good (morning|afternoon|evening)/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
-    '/activities': /^verification events$/i, '/verification-history': /^verification history$/i,
+    '/verification-activities': /^verification activities$/i, '/activities': /^verification events$/i, '/verification-history': /^verification history$/i,
     '/audit': /^audit log$/i, '/settings': /^settings$/i,
   };
 
   it('has the approved sidebar structure and order', () => {
     expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Events', 'Verification History', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification Events', 'Verification History', 'Audit Log', 'Settings',
     ]);
   });
 
@@ -243,7 +243,7 @@ describe('planned features', () => {
     const { user } = renderApp('/activities');
     await waitFor(() => expect(localStorage.getItem('fixid.prototype.state')).not.toBeNull());
     const before = localStorage.getItem('fixid.prototype.state');
-    await user.click(screen.getByRole('button', { name: /new activity/i }));
+    await user.click(screen.getByRole('button', { name: /test verification/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Planned')).toBeInTheDocument();
     expect(within(dialog).getByText(/Nothing has been changed/)).toBeInTheDocument();

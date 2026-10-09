@@ -5,7 +5,8 @@ import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { DEMO_SESSION } from '@/auth/authCore';
 import { DEMO_ADMIN, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
-import { PERMISSIONS, ROLES, canPerformVerification, editableRuleLayers, permissionsFor } from '@/domain/roles';
+import { PERMISSIONS, ROLES, editableRuleLayers, permissionsFor } from '@/domain/roles';
+import { authorizeVerifier } from '@/domain/verification';
 import { actorPermissions, actorRecord, adminsOf, applySetRoles } from '@/store/adminOps';
 import { loadState, saveState } from '@/store/persistence';
 import { PREVIEW_READ_ONLY, authorizeAction, createInitialState, effectivePermissions, reducer, type AppState } from '@/store/state';
@@ -77,12 +78,21 @@ describe('verification governance and verifiers', () => {
     expect(verifier.permissions).not.toContain('verification.rules.manage');
   });
 
-  it('authorizes verifiers per assigned activity', () => {
-    const base = { status: 'active', roleIds: ['verifier'], verifierActivityIds: ['act_1'] };
-    expect(canPerformVerification(base, 'act_1')).toBe(true);
-    expect(canPerformVerification(base, 'act_2')).toBe(false);
-    expect(canPerformVerification({ ...base, status: 'deactivated' }, 'act_1')).toBe(false);
-    expect(canPerformVerification({ ...base, roleIds: ['verification-manager'] }, 'act_1')).toBe(false);
+  it('authorizes verifiers per assigned, active activity', () => {
+    const s = sampleState();
+    const activity = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.status === 'active')!;
+    const assignment = s.data.verifierAssignments.find((v) => v.activityId === activity.id && v.status === 'active')!;
+    const input = { organizationId: SAMPLE_ORGANIZATION_ID, activityId: activity.id, administratorId: assignment.administratorId };
+    expect(authorizeVerifier(s.data, input)).toEqual({ authorized: true });
+    const other = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.id !== activity.id && a.status !== 'active')!;
+    expect(authorizeVerifier(s.data, { ...input, activityId: other.id })).toMatchObject({ authorized: false });
+    const demoted = { ...s.data, administrators: s.data.administrators.map((a) => (a.id === assignment.administratorId ? { ...a, roleIds: ['viewer'] } : a)) };
+    expect(authorizeVerifier(demoted, input)).toMatchObject({ authorized: false, reason: expect.stringMatching(/role/) });
+    const unassigned = { ...s.data, verifierAssignments: s.data.verifierAssignments.map((v) => (v === assignment ? { ...v, status: 'removed' as const } : v)) };
+    expect(authorizeVerifier(unassigned, input)).toMatchObject({ authorized: false, reason: 'Not assigned to this activity.' });
+    // An Organization Admin isn't a verifier unless explicitly authorized.
+    const owner = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('organization-admin'))!;
+    expect(authorizeVerifier(s.data, { ...input, administratorId: owner.id })).toMatchObject({ authorized: false });
   });
 });
 

@@ -10,6 +10,9 @@ import { permissionsFor, roleById, type Permission, type RoleId } from '@/domain
 import {
   actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
 } from './adminOps';
+import {
+  applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
+} from './activityOps';
 import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup, type GroupInput } from './groupOps';
 
@@ -62,6 +65,12 @@ export type Action =
   | { type: 'groups/addMembers'; organizationId: string; groupId: string; memberIds: string[]; at: string }
   | { type: 'groups/removeMembers'; organizationId: string; groupId: string; memberIds: string[]; at: string }
   | { type: 'issuance/group'; input: GroupIssuanceInput }
+  | { type: 'vactivities/save'; organizationId: string; activityId?: string; ids: { activityId: string; versionId: string }; form: ActivityForm; at: string }
+  | { type: 'vactivities/activate'; organizationId: string; activityId: string; at: string }
+  | { type: 'vactivities/deactivate'; organizationId: string; activityId: string; at: string }
+  | { type: 'vactivities/discardDraft'; organizationId: string; activityId: string; at: string }
+  | { type: 'vactivities/duplicate'; organizationId: string; activityId: string; ids: { activityId: string; versionId: string }; at: string }
+  | { type: 'vactivities/remove'; organizationId: string; activityId: string; at: string }
   | { type: 'preview/start'; roleId: RoleId }
   | { type: 'preview/stop' }
   /** Applies the signed-in administrator and their organization to the workspace. */
@@ -91,6 +100,12 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'users/enrollmentInvite': ['users.manage'],
   'issuance/issue': ['credentials.issue'],
   'issuance/group': ['credentials.issue'],
+  'vactivities/save': ['verification.activities.create', 'verification.activities.manage', 'verification.rules.manage', 'verification.verifiers.assign'],
+  'vactivities/activate': ['verification.activities.manage'],
+  'vactivities/deactivate': ['verification.activities.manage'],
+  'vactivities/discardDraft': ['verification.rules.manage'],
+  'vactivities/duplicate': ['verification.activities.create'],
+  'vactivities/remove': ['verification.activities.manage'],
   'groups/create': ['groups.manage'],
   'groups/update': ['groups.manage'],
   'groups/remove': ['groups.manage'],
@@ -223,6 +238,9 @@ export function reducer(state: AppState, action: Action): AppState {
           groups: keep(n.groups, d.groups),
           groupMemberships: keep(n.groupMemberships, d.groupMemberships),
           issuanceBatches: keep(n.issuanceBatches, d.issuanceBatches),
+          activityConfigs: keep(n.activityConfigs, d.activityConfigs),
+          activityVersions: keep(n.activityVersions, d.activityVersions),
+          verifierAssignments: keep(n.verifierAssignments, d.verifierAssignments),
         },
       };
     }
@@ -279,6 +297,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
+    case 'vactivities/save': return orKeep(state, applySaveActivity(state, action));
+    case 'vactivities/activate': return orKeep(state, applyActivate(state, action));
+    case 'vactivities/deactivate': return orKeep(state, applyDeactivate(state, action));
+    case 'vactivities/discardDraft': return orKeep(state, applyDiscardDraft(state, action));
+    case 'vactivities/duplicate': return orKeep(state, applyDuplicate(state, action));
+    case 'vactivities/remove': return orKeep(state, applyRemoveDraft(state, action));
     case 'issuance/group': return orKeep(state, applyGroupIssuance(state, action.input));
     case 'groups/create': return orKeep(state, applyCreateGroup(state, action.input));
     case 'groups/update': return orKeep(state, applyUpdateGroup(state, action.input));

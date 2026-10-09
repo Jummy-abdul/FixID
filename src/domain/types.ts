@@ -142,8 +142,6 @@ export interface OrgAdministrator {
   roleIds: string[];
   status: AdministratorStatus;
   invitation?: { sentAt: ISODate; expiresAt: ISODate; sendCount: number; invitedBy: string };
-  /** Verification activities a verifier may perform (enforced by verification services in production). */
-  verifierActivityIds?: string[];
   createdAt: ISODate;
   lastActiveAt?: ISODate;
 }
@@ -348,6 +346,18 @@ export type AuditAction =
   | 'group.members-removed'
   | 'issuance.batch-started'
   | 'issuance.batch-completed'
+  | 'verification-activity.created'
+  | 'verification-activity.updated'
+  | 'verification-activity.checks-changed'
+  | 'verification-activity.rules-changed'
+  | 'verification-activity.providers-changed'
+  | 'verification-activity.verifier-assigned'
+  | 'verification-activity.verifier-removed'
+  | 'verification-activity.activated'
+  | 'verification-activity.deactivated'
+  | 'verification-activity.duplicated'
+  | 'verification-activity.removed'
+  | 'verification-activity.draft-discarded'
   | 'admin.role-removed'
   | 'admin.roles-changed'
   | 'admin.deactivated'
@@ -362,7 +372,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others. */
   result: 'success' | 'partial' | 'failure';
@@ -429,4 +439,118 @@ export interface IssuanceBatch {
   completedAt: ISODate;
   status: 'completed' | 'partial' | 'failed';
   results: IssuanceBatchResult[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Verification Activities (configuration; not verification events)   */
+/* ------------------------------------------------------------------ */
+
+/** What an activity verifies. Identity checks never require a wallet; credential checks never imply biometrics. */
+export type VerificationType = 'identity' | 'credential' | 'identity-credential';
+
+export type CheckTypeId =
+  | 'identity-lookup' | 'attribute-match' | 'face-match' | 'liveness'
+  | 'credential-authenticity' | 'issuer-trust' | 'credential-validity' | 'credential-status' | 'holder-binding'
+  | 'group-membership' | 'attribute-condition' | 'external-eligibility' | 'previous-verification';
+
+/**
+ * required: must pass for a Verified outcome. optional: recorded as extra evidence only.
+ * alternative: one of the activity's approved alternatives, at least one of which must pass.
+ */
+export type CheckRequirement = 'required' | 'optional' | 'alternative';
+
+/**
+ * Where a check's requirement comes from. Organizations configure their own; platform (and, in future,
+ * governing-authority) requirements are locked and can't be removed or relaxed by an organization.
+ */
+export type PolicySource = 'platform' | 'governing-authority' | 'organization';
+
+export interface CheckParams {
+  /** Identifier used to find the identity record. */
+  identifierConfigId?: string;
+  /** Identity attributes compared with the reference record. */
+  attributes?: string[];
+  /** Credential configurations accepted by this activity. */
+  credentialTypeIds?: string[];
+  /** Permitted groups, by stable group ID. */
+  groupIds?: string[];
+  attribute?: string;
+  operator?: 'is' | 'is-not';
+  value?: string;
+  mode?: 'prevent-duplicate' | 'require-previous';
+  windowDays?: number;
+}
+
+/** One configured check in an activity version. Providers and sources are referenced by ID. */
+export interface ActivityCheck {
+  id: string;
+  type: CheckTypeId;
+  requirement: CheckRequirement;
+  /** The service that runs the check. */
+  providerId?: string;
+  /** The system holding the authoritative record or reference, when different from the provider. */
+  sourceId?: string;
+  params: CheckParams;
+  policySource: PolicySource;
+  /** Locked checks come from a mandatory policy and can't be removed or made optional. */
+  locked?: boolean;
+}
+
+/** How check results become an outcome. Failures can never be mapped to Verified. */
+export interface OutcomePolicy {
+  onRequiredFailure: 'not-verified' | 'pending-review';
+  onInconclusive: 'unable-to-verify' | 'pending-review';
+}
+
+export type VerificationOutcome = 'verified' | 'not-verified' | 'unable-to-verify' | 'pending-review';
+
+/**
+ * An immutable-once-active snapshot of an activity's rules. Future verification events reference the
+ * version they were evaluated against, so later edits never change earlier results.
+ */
+export interface ActivityVersion {
+  id: string;
+  organizationId: string;
+  activityId: string;
+  number: number;
+  type: VerificationType;
+  checks: ActivityCheck[];
+  outcome: OutcomePolicy;
+  status: 'draft' | 'active' | 'superseded';
+  createdAt: ISODate;
+  createdBy: string;
+  updatedAt: ISODate;
+  activatedAt?: ISODate;
+  activatedBy?: string;
+}
+
+/** A configured verification activity (Verification → Verification Activities). */
+export interface ActivityConfig {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string;
+  /** Why verification is performed, in the organization's own words. */
+  purpose: string;
+  status: 'draft' | 'active' | 'inactive';
+  /** The version verifiers use while the activity is active. */
+  activeVersionId?: string;
+  /** Unpublished changes. Active activities keep using the active version until this is activated. */
+  draftVersionId?: string;
+  createdAt: ISODate;
+  createdBy: string;
+  updatedAt: ISODate;
+  updatedBy: string;
+}
+
+/** An administrator assigned to perform an activity. Assignment grants nothing beyond executing it. */
+export interface VerifierAssignment {
+  organizationId: string;
+  activityId: string;
+  administratorId: string;
+  status: 'active' | 'removed';
+  assignedAt: ISODate;
+  assignedBy: string;
+  removedAt?: ISODate;
+  removedBy?: string;
 }

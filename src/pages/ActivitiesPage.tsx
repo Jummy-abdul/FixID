@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Activity, CalendarRange, MapPin, Plus, ScanLine } from 'lucide-react';
-import { Badge, Card, EmptyState, FilterSelect, PageHeader } from '@/components/ui';
+import { Badge, ButtonLink, Card, EmptyState, FilterSelect, PageHeader } from '@/components/ui';
 import { ActivityStatusBadge, AssuranceBadge } from '@/components/domain/StatusBadges';
 import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { PolicyFlow } from '@/components/domain/PolicyFlow';
@@ -26,7 +26,7 @@ export function ActivitiesPage() {
         actions={
           <>
             <PlannedButton icon={<ScanLine className="h-4 w-4" />} info={PLANNED.verifierSimulator}>Test verification</PlannedButton>
-            <PlannedButton variant="primary" icon={<Plus className="h-4 w-4" />} info={PLANNED.activityBuilder}>New activity</PlannedButton>
+            <ButtonLink to="/verification-activities" variant="primary" icon={<Plus className="h-4 w-4" />}>Configure activities</ButtonLink>
           </>
         }
       />
