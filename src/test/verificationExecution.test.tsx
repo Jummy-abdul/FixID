@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -14,6 +14,7 @@ import { applyCompleteAttempt } from '@/store/attemptOps';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService, type VerificationInputs } from '@/verification/engine';
+import { statedDetails } from './helpers/identity';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 let seq = 0;
@@ -62,13 +63,23 @@ const memberFor = (s: AppState) => {
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 describe('Scenario A — identity verification without a credential', () => {
-  it('verifies through the trusted source; optional checks don’t decide; unknown identifiers fail', async () => {
+  it('verifies through the trusted source only when the person’s details match; a lookup alone never verifies', async () => {
     const h = harness(asHalima(base()));
     const m = memberFor(h.state);
-    const ok = await verify(h, activity(h.state, 'Visitor Identity Check').id, { identifier: m.identifier!.value, attributes: { 'Full name': 'Someone Else', 'Date of birth': '1990-01-01' } });
-    expect(ok).toMatchObject({ status: 'completed', outcome: 'verified', simulated: false, subject: { memberId: m.id } });
-    expect(ok.checks.find((c) => c.type === 'attribute-match')).toMatchObject({ status: 'failed', requirement: 'optional' });
+    const id = activity(h.state, 'Visitor Identity Check').id;
+    const ok = await verify(h, id, { identifier: m.identifier!.value, attributes: statedDetails(m) });
+    expect(ok).toMatchObject({ status: 'completed', outcome: 'verified', verificationResult: 'verified', simulated: false, subject: { memberId: m.id } });
+    expect(ok.checks.find((c) => c.type === 'attribute-match')).toMatchObject({ status: 'passed', requirement: 'required' });
     expect(ok.subject!.label).not.toContain(m.identifier!.value);
+    expect(ok.entry).toBeUndefined();
+
+    // Finding the record isn't enough: someone else's details fail, and no details can't be verified.
+    const wrong = await verify(h, id, { identifier: m.identifier!.value, attributes: { 'Full name': 'Someone Else', 'Date of birth': '1990-01-01' } });
+    expect(wrong).toMatchObject({ outcome: 'not-verified', accessDecision: 'not-permitted' });
+    expect(wrong.checks.find((c) => c.type === 'identity-lookup')!.status).toBe('passed');
+    const lookupOnly = await verify(h, id, { identifier: m.identifier!.value });
+    expect(lookupOnly).toMatchObject({ outcome: 'unable-to-verify', accessDecision: 'review-required' });
+    expect(lookupOnly.outcome).not.toBe('verified');
 
     const missing = await verify(h, activity(h.state, 'Visitor Identity Check').id, { identifier: 'NOPE-0000' });
     expect(missing.outcome).toBe('not-verified');
@@ -232,18 +243,18 @@ describe('attempt lifecycle', () => {
     const v1 = h.state.data.activityVersions.find((v) => v.id === act.activeVersionId)!;
     const asAdmin = { ...h.state, data: { ...h.state.data, admin: base().data.admin } };
     const changed = applySaveActivity(asAdmin, { organizationId: ORG, activityId: act.id, ids: { activityId: act.id, versionId: 'vv_new' }, at: new Date().toISOString(),
-      form: { name: act.name, description: act.description, purpose: act.purpose, type: v1.type, outcome: v1.outcome, verifierIds: [halima(h.state).id], checks: v1.checks.map((c) => ({ ...c, requirement: 'required' as const })) } });
+      form: { name: act.name, description: act.description, purpose: act.purpose, type: v1.type, outcome: { ...v1.outcome, onRequiredFailure: 'pending-review' }, verifierIds: [halima(h.state).id], checks: v1.checks } });
     if (!changed.ok) throw new Error();
     const published = applyActivate(changed.state, { organizationId: ORG, activityId: act.id, at: new Date().toISOString() });
     if (!published.ok) throw new Error(JSON.stringify(published));
     h.state = { ...published.state, data: { ...published.state.data, admin: h.state.data.admin } };
 
     const inputs = { identifier: memberFor(h.state).identifier!.value, attributes: { 'Full name': 'Wrong Name', 'Date of birth': '2000-01-01' } };
+    // Version 2 refers failures for review; this attempt keeps version 1, where a failure is Not Verified.
     const r1 = await h.service.submitInputs(started.attempt.id, inputs, { submissionId: 'same' });
     const r2 = await h.service.submitInputs(started.attempt.id, inputs, { submissionId: 'same' });
     if (!r1.ok || !r2.ok) throw new Error();
-    // Evaluated with version 1, where attribute matching is optional.
-    expect(r1.attempt).toMatchObject({ versionNumber: 1, outcome: 'verified' });
+    expect(r1.attempt).toMatchObject({ versionNumber: 1, outcome: 'not-verified' });
     expect(r2.attempt).toEqual(r1.attempt);
     expect(h.state.data.verificationAttempts.filter((a) => a.id === started.attempt.id)).toHaveLength(1);
     expect(await h.service.submitInputs(started.attempt.id, inputs, { submissionId: 'other' })).toMatchObject({ ok: false, code: 'not-in-progress' });
@@ -301,6 +312,8 @@ describe('Verifier Interface', () => {
     await user.click(screen.getByRole('button', { name: 'Run verification' }));
     expect(screen.getByRole('alert')).toHaveTextContent(/Enter the person’s/);
     await user.type(screen.getAllByRole('textbox')[0], m.identifier!.value);
+    await user.type(screen.getByLabelText('Full name'), statedDetails(m)['Full name']);
+    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: statedDetails(m)['Date of birth'] } });
     await user.click(screen.getByRole('button', { name: 'Run verification' }));
     const hero = await screen.findByRole('region', { name: 'Outcome' }, { timeout: 4000 });
     expect(hero).toHaveTextContent('Verified');

@@ -51,7 +51,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
   const eligible = useEligibleCount(activity.participants);
   const attempts = state.data.verificationAttempts.filter((a) => a.activityId === activity.id);
   const canManage = can('verification.activities.manage');
-  const canEdit = canManage || can('verification.rules.manage') || can('verification.verifiers.assign');
+  const canEdit = canManage;
   const usesParticipants = !!current?.checks.some((c) => c.params.useParticipants);
   const tabs = [
     { value: 'overview' as const, label: 'Overview' },
@@ -163,10 +163,10 @@ function Overview({ activity, versions, current, warnings, eligible }: { activit
       <Card>
         <div className="grid gap-8 px-6 py-5 lg:grid-cols-2">
           <section>
-            <h2 className="text-sm font-semibold text-slate-900">Verification requirements</h2>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700" aria-label="Verification requirements">
+            <h2 className="text-sm font-semibold text-slate-900">How people are verified</h2>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700" aria-label="How people are verified">
               {current ? describeRequirements(current, credName).map((l) => <li key={l}>{l}</li>) : <li>Not configured yet.</li>}
-              {activity.entryPolicy && activity.entryPolicy !== 'off' && <li>Multiple entries: {activity.entryPolicy === 'deny' ? 'not permitted' : 'flagged for review'}</li>}
+              {activity.entryPolicy && activity.entryPolicy !== 'off' && <li>Repeat entry: {activity.entryPolicy === 'deny' ? 'not permitted after a recorded entry' : 'flagged for review after a recorded entry'}</li>}
             </ul>
             {current && <><h3 className="mt-5 text-sm font-semibold text-slate-900">How the result is decided</h3><div className="mt-2"><RulesList version={current} /></div></>}
           </section>
@@ -186,7 +186,7 @@ function Overview({ activity, versions, current, warnings, eligible }: { activit
 
       <Card>
         <button type="button" onClick={() => setAdvanced((a) => !a)} aria-expanded={advanced} className="flex w-full items-center gap-2 px-6 py-4 text-left text-sm font-semibold text-slate-800">
-          <Wrench className="h-4 w-4 text-slate-400" aria-hidden="true" />Advanced: checks, providers and versions
+          <Wrench className="h-4 w-4 text-slate-400" aria-hidden="true" />Technical details: checks, providers and versions
           <ChevronDown className={cn('ml-auto h-4 w-4 transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
         </button>
         {advanced && current && (
@@ -231,8 +231,8 @@ function ParticipantsTab({ activity, uses }: { activity: ActivityConfig; uses: b
     if (!version) return;
     const r = saveActivity(organization.id, activity.id, {
       name: activity.name, description: activity.description, purpose: activity.purpose, type: version.type, checks: version.checks, outcome: version.outcome,
-      requirements: version.requirements, customized: version.customized, verifierIds: state.data.verifierAssignments.filter((x) => x.activityId === activity.id && x.status === 'active').map((x) => x.administratorId),
-      participants: next,
+      verifierIds: state.data.verifierAssignments.filter((x) => x.activityId === activity.id && x.status === 'active').map((x) => x.administratorId),
+      participants: next, keepConfiguration: true,
     });
     setEditing(null);
     if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });

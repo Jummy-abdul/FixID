@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -12,6 +12,7 @@ import { loadState } from '@/store/persistence';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService } from '@/verification/engine';
+import { statedDetails } from './helpers/identity';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
@@ -49,7 +50,7 @@ const people = (s: AppState) => {
 async function verify(h: ReturnType<typeof harness>, m: Member) {
   const started = h.service.startAttempt(ORG, conference(h.state).id);
   if (!started.ok) throw new Error(started.error);
-  const r = await h.service.submitInputs(started.attempt.id, { identifier: m.identifier!.value }, { submissionId: `s${++seq}` });
+  const r = await h.service.submitInputs(started.attempt.id, { identifier: m.identifier!.value, attributes: statedDetails(m) }, { submissionId: `s${++seq}` });
   if (!r.ok) throw new Error(r.error);
   return r.attempt;
 }
@@ -174,7 +175,12 @@ describe('screens', () => {
     const card = within(list).getByRole('heading', { name: 'Annual Staff Conference' }).closest('li')!;
     expect(card).toHaveTextContent('Main Auditorium');
     await user.click(within(card).getByRole('button', { name: 'Start verification: Annual Staff Conference' }));
-    await user.type(await screen.findByLabelText(/identifier|number|ID/i), insider.identifier!.value);
+    await user.click(await screen.findByRole('button', { name: 'Run verification' }));
+    // The identifier alone can't verify anyone: the stated details are needed too.
+    await user.type(screen.getAllByRole('textbox')[0], insider.identifier!.value);
+    const details = statedDetails(insider);
+    await user.type(screen.getByLabelText('Full name'), details['Full name']);
+    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: details['Date of birth'] } });
     await user.click(screen.getByRole('button', { name: 'Run verification' }));
     expect(await screen.findByRole('region', { name: 'Outcome' }, { timeout: 4000 })).toHaveTextContent('Verified');
     const panel = screen.getByRole('region', { name: 'Access and entry' });

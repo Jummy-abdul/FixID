@@ -3,7 +3,7 @@ import type {
   ActivityCheck, ActivityConfig, ActivityVersion, AuditEvent, OutcomePolicy, StandardRequirements, VerificationType, VerifierAssignment,
 } from '@/domain/types';
 import {
-  CHECKS, OUTCOME_LABEL, TYPE_INFO, activeAssignments, buildChecks, checkById, eligibleVerifiers, providersFor, validateConfiguration, withPlatformPolicies,
+  CHECKS, OUTCOME_LABEL, TYPE_INFO, activeAssignments, buildChecks, checkById, eligibleVerifiers, identityUnavailable, lookupOnlyIdentity, providersFor, validateConfiguration, withPlatformPolicies,
   type ValidationContext,
 } from '@/domain/verification';
 import { actorPermissions } from './adminOps';
@@ -32,6 +32,11 @@ export interface ActivityForm {
   participants?: { groupIds: string[]; memberIds: string[] };
   entryPolicy?: ActivityConfig['entryPolicy'];
   restrictVerifiers?: boolean;
+  /**
+   * Editing an existing activity in the simplified editor: keep its verification configuration
+   * (checks, outcome rules, requirements) exactly as saved instead of regenerating it.
+   */
+  keepConfiguration?: boolean;
 }
 
 type Fail = { ok: false; error: string; problems?: string[]; field?: 'name' };
@@ -152,7 +157,8 @@ const adminName = (state: AppState, id: string) => {
 
 /** Create an activity (as Draft) or save changes to one. Config changes on an active activity go to a draft version. */
 export function applySaveActivity(state: AppState, input: { organizationId: string; activityId?: string; ids: { activityId: string; versionId: string }; form: ActivityForm; at: string }): Result {
-  const { organizationId, form, at } = input;
+  const { organizationId, at } = input;
+  let { form } = input;
   const perms = actorPermissions(state, organizationId);
   const need = (p: Permission) => perms.has(p);
   const by = state.data.admin.name;
@@ -231,12 +237,15 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
     ...settingChanges(existing),
   ];
   const versionId = draft?.id ?? input.ids.versionId;
-  const nextChecks = normalizeChecks(form, state, organizationId, versionId);
-  const cfg = configChanges(state, organizationId, base, { type, checks: nextChecks, outcome: form.outcome });
+  if (form.keepConfiguration && base) {
+    form = { ...form, type: base.type, checks: base.checks, outcome: base.outcome, requirements: base.requirements, customized: base.customized };
+  }
+  const nextChecks = form.keepConfiguration && base ? base.checks : normalizeChecks(form, state, organizationId, versionId);
+  const cfg = configChanges(state, organizationId, base, { type: form.keepConfiguration && base ? base.type : type, checks: nextChecks, outcome: form.outcome });
   const sameChecks = (a: ActivityCheck[] = [], b: ActivityCheck[] = []) => JSON.stringify(a.map(({ id: _, ...c }) => c)) === JSON.stringify(b.map(({ id: _, ...c }) => c));
   const configChanged = !!(cfg.added.length || cfg.removed.length || cfg.rules.length || cfg.providerChanges.length)
     || !sameChecks(base?.checks, nextChecks)
-    || (form.requirements !== undefined && JSON.stringify(base?.requirements ?? null) !== JSON.stringify(form.requirements));
+    || (!form.keepConfiguration && form.requirements !== undefined && JSON.stringify(base?.requirements ?? null) !== JSON.stringify(form.requirements));
   if (detailChanges.length && !need('verification.activities.manage')) return { ok: false, error: DENIED };
   if (participantsChanged && !need('verification.activities.manage')) return { ok: false, error: DENIED };
   if (configChanged && !need('verification.rules.manage')) return { ok: false, error: "You don't have permission to configure verification rules." };
@@ -305,7 +314,11 @@ export function activationProblems(state: AppState, organizationId: string, acti
   if (activity.restrictVerifiers && !activeAssignments(state.data, organizationId, activity.id).some((x) => eligible.has(x.administratorId))) {
     blockers.push('This activity is limited to assigned verifiers. Assign at least one, or allow any Verifier.');
   }
+  const org = state.data.organizations.find((o) => o.id === organizationId)!;
+  const identity = identityUnavailable(version, org);
+  if (identity) blockers.unshift(identity);
   const warnings = v.warnings.map((w) => w.message);
+  if (lookupOnlyIdentity(version)) warnings.push('Identity is confirmed only by finding a record from an identifier, which doesn’t prove who is present. Newer activities also require the person’s stated details to match.');
   if (!eligible.size) warnings.push('Nobody in your organization has the Verifier role yet, so nobody can perform this activity. Add one in Settings → Administrators & Roles.');
   return { blockers: [...new Set(blockers)], warnings };
 }

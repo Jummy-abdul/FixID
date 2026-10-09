@@ -57,7 +57,7 @@ export function VerificationActivitiesPage() {
     const { kind, activity } = pending;
     setPending(null);
     if (kind === 'activate' && activationProblems(state, organization.id, activity).blockers.length) {
-      navigate(`${activityPath(activity.id)}/edit?step=participants`);
+      navigate(`${activityPath(activity.id)}/edit?step=review`);
       return;
     }
     const r = kind === 'activate' ? actions.activateActivity(organization.id, activity.id)

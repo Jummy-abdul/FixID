@@ -498,9 +498,9 @@ export const IDENTITY_METHODS: { id: NonNullable<StandardRequirements['identity'
     description: 'The person presents a digital credential and proves, with their wallet, that they are its holder. Needs a credential requirement.',
   },
   {
-    id: 'record', name: 'Identity record lookup', providers: ['identity-service'],
-    description: 'Find the person’s identity record from their identifier. The officer can also record details the person states (name and date of birth) as supporting evidence.',
-    note: 'Lower assurance: this confirms a record exists. It doesn’t prove the person present is its owner; the officer compares the person with the record.',
+    id: 'record', name: 'Identity record with detail confirmation', providers: ['identity-service'],
+    description: 'Find the person’s identity record from their identifier, and confirm the name and date of birth they state match it.',
+    note: 'Lower assurance: the person’s stated details must match their identity record, but no biometric or credential-holder proof is used.',
   },
 ];
 
@@ -513,7 +513,8 @@ export function buildChecks(req: StandardRequirements, org: Organization, makeId
   if (req.identity === 'record' || req.identity === 'face') {
     checks.push(add('identity-lookup', { params: { identifierConfigId } }));
   }
-  if (req.identity === 'record') checks.push(add('attribute-match', { requirement: 'optional', params: { attributes: ['Full name', 'Date of birth'] } }));
+  // Finding a record isn't proof of who is present: the stated details must match it too.
+  if (req.identity === 'record') checks.push(add('attribute-match', { params: { attributes: ['Full name', 'Date of birth'] } }));
   if (req.identity === 'face') checks.push(add('liveness'), add('face-match'));
   if (usesCredential) {
     checks.push(
@@ -527,20 +528,51 @@ export function buildChecks(req: StandardRequirements, org: Organization, makeId
   return { type, checks };
 }
 
-/** Plain-language description of what an activity verifies. */
+/**
+ * How FixID verifies people for a new activity. Administrators don't choose this: FixID uses the
+ * strongest identity method the organization has genuinely available. Simulated (demonstration)
+ * providers are never chosen automatically, and nothing is weakened when a capability is missing:
+ * the activity simply can't be activated until identity verification is available.
+ */
+export function standardRequirementsFor(org: Organization): StandardRequirements {
+  const real = (id: string) => providersFor(org).some((p) => p.id === id && p.status === 'available' && !p.simulated);
+  return { identity: real('identity-service') && real('facial-matching') ? 'face' : 'record', credential: null, eligibility: 'participants' };
+}
+
+/** Why FixID can't verify identity for an activity's configuration right now, if it can't. */
+export function identityUnavailable(version: Pick<ActivityVersion, 'checks'>, org: Organization): string | null {
+  const providers = providersFor(org);
+  const needed = [...new Set(version.checks.filter((c) => c.requirement !== 'optional' && checkById(c.type).category === 'identity').map((c) => c.providerId))];
+  const missing = needed.map((id) => providers.find((p) => p.id === id)).filter((p) => p && p.status !== 'available');
+  if (!missing.length) return null;
+  return `FixID can’t verify people’s identity for this organization yet: ${missing.map((p) => p!.name.toLowerCase()).join(' and ')} ${missing.length === 1 ? 'isn’t' : 'aren’t'} connected. An administrator can connect it in Settings → Integrations.`;
+}
+
+/** An identity check that only finds a record proves nothing about who is present. */
+export function lookupOnlyIdentity(version: Pick<ActivityVersion, 'checks'>): boolean {
+  const required = version.checks.filter((c) => c.requirement !== 'optional');
+  const hasLookup = required.some((c) => c.type === 'identity-lookup');
+  const proof = version.checks.some((c) => c.requirement !== 'optional' && ['attribute-match', 'face-match', 'holder-binding'].includes(c.type));
+  return hasLookup && !proof;
+}
+
+/** Plain-language description of how people are verified for an activity. */
 export function describeRequirements(version: Pick<ActivityVersion, 'requirements' | 'customized' | 'checks'>, credentialName: (id: string) => string): string[] {
   const r = version.requirements;
   if (!r || version.customized) {
     return version.checks.filter((c) => c.requirement !== 'optional').map((c) => `${checkById(c.type).name}${c.requirement === 'alternative' ? ' (approved alternative)' : ''}`);
   }
   const lines: string[] = [];
-  if (r.identity) lines.push(`Verify identity: ${IDENTITY_METHODS.find((m) => m.id === r.identity)!.name.toLowerCase()}`);
+  if (r.identity === 'face') lines.push('Identity: a live facial match against the person’s identity record');
+  if (r.identity === 'holder') lines.push('Identity: the person proves they are the holder of their digital credential');
+  if (r.identity === 'record') lines.push('Identity: their identity record is found from their identifier, and the name and date of birth they give must match it');
   if (r.credential || r.identity === 'holder') {
     const names = (r.credential?.credentialTypeIds ?? []).map(credentialName).filter(Boolean);
-    lines.push(`Verify credential: ${names.length ? names.join(', ') : 'an accepted credential'} (genuine, trusted issuer, valid, not revoked)`);
+    lines.push(`Credential: a presented ${names.length ? names.join(' or ') : 'credential'} must be genuine, from a trusted issuer, valid and not revoked`);
   }
-  if (r.eligibility === 'participants') lines.push('Verify eligibility: on the participant list');
-  if (r.eligibility === 'external') lines.push('Verify eligibility: external eligibility source');
+  if (r.eligibility === 'participants') lines.push('Eligibility: the verified person must be an eligible participant');
+  if (r.eligibility === 'external') lines.push('Eligibility: confirmed by an external eligibility source');
+  if (!r.eligibility) lines.push('Eligibility: anyone whose identity is verified');
   return lines;
 }
 
