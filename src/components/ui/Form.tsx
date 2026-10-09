@@ -1,4 +1,4 @@
-import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -36,6 +36,10 @@ export function Field({ label, hint, error, required, children }: FieldProps) {
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
   return <input ref={ref} className={cn(control, 'h-10 w-full', rest['aria-invalid'] ? bad : ok, className)} {...rest} />;
+});
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...rest }, ref) {
+  return <textarea ref={ref} className={cn(control, 'block min-h-[88px] w-full py-2', rest['aria-invalid'] ? bad : ok, className)} {...rest} />;
 });
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select({ className, children, ...rest }, ref) {

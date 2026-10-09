@@ -276,6 +276,11 @@ export interface VerificationActivity {
     relationships: string[];
     /** Optional explicit roster, e.g. students registered for CSC 401. */
     rosterMemberIds?: string[];
+    /**
+     * Groups whose current members are eligible (by stable group ID, never by name). Reserved for
+     * configurable verification activities; while set, the groups can't be removed.
+     */
+    groupIds?: string[];
     requireActiveMember: boolean;
   };
   primaryMethod: VerificationMethod;
@@ -334,6 +339,11 @@ export type AuditAction =
   | 'admin.invitation-revoked'
   | 'admin.joined'
   | 'admin.role-assigned'
+  | 'group.created'
+  | 'group.updated'
+  | 'group.removed'
+  | 'group.members-added'
+  | 'group.members-removed'
   | 'admin.role-removed'
   | 'admin.roles-changed'
   | 'admin.deactivated'
@@ -348,7 +358,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group';
   resourceId: string;
   result: 'success' | 'failure';
   summary: string;
@@ -357,6 +367,33 @@ export interface AuditEvent {
   href?: string;
   /** The record the event is about, by name, when it isn't obvious from the resource id (e.g. the affected administrator). */
   subject?: { id: string; name: string };
+  /** Other records affected, e.g. the users added to a group. */
+  related?: { id: string; name: string }[];
   /** Previous and new values for changes. */
   changes?: { field: string; from: string; to: string }[];
+}
+
+/**
+ * A reusable, organization-scoped collection of users (e.g. a department, cohort, team or location).
+ * The ID is stable when the name changes. Groups organize managed users only: membership never grants
+ * administrative access, issues credentials or proves identity.
+ */
+export interface Group {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string;
+  createdAt: ISODate;
+  createdBy: string;
+  updatedAt: ISODate;
+  updatedBy: string;
+}
+
+/** One user's membership of one group. Stored once; groups and user profiles both read it. */
+export interface GroupMembership {
+  organizationId: string;
+  groupId: string;
+  memberId: string;
+  addedAt: ISODate;
+  addedBy: string;
 }

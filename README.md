@@ -45,7 +45,7 @@ src/
 | Section | Item | Route |
 |---|---|---|
 | — | Dashboard | `/` |
-| User Management | Users · Groups | `/users` · `/groups` (planned shell) |
+| User Management | Users · Groups | `/users` · `/groups`, `/groups/:id` |
 | Credential Management | Credentials · Templates | `/credentials` · `/templates` (card designs), `/templates/credential-types` |
 | Verification | Activities · Verification History | `/activities` · `/verification-history` |
 | Administration | Audit Log · Settings | `/audit` · `/settings` |
@@ -81,8 +81,8 @@ Settings → **Administrators & Roles** (`/settings?tab=admins`, `&view=roles` f
 | Role | Permissions | Portal |
 | --- | --- | --- |
 | Organization Admin | Every organization permission below except `verification.execute` | Yes |
-| Credential Manager | `users.view`, `credentials.view`, `credentials.manage`, `credentials.issue` | Yes |
-| Verification Manager | `verification.activities.view/create/manage`, `verification.rules.manage`, `verification.verifiers.assign`, `verification.results.view`, `verification.exceptions.review` | Yes |
+| Credential Manager | `users.view`, `groups.view`, `credentials.view`, `credentials.manage`, `credentials.issue` | Yes |
+| Verification Manager | `groups.view`, `verification.activities.view/create/manage`, `verification.rules.manage`, `verification.verifiers.assign`, `verification.results.view`, `verification.exceptions.review` | Yes |
 | Verifier | `verification.execute`, `verification.results.view` — assigned activities only | **No** |
 | Viewer / Auditor | `administrators.view`, `roles.view`, `users.view`, `groups.view`, `credentials.view`, `verification.activities.view`, `verification.results.view`, `audit.view` | Yes |
 
@@ -99,6 +99,21 @@ Other permissions: `administrators.invite` (invite, resend, revoke), `administra
 **Invitations are simulated.** No email provider is connected and no email is sent. The invited person joins by signing up with the invited email address (code `123456`) within 7 days, and lands directly in the inviting organization with the invited roles.
 
 **Enforcement is client-side only.** Permissions are checked in three places — hidden actions, route guards and the store reducer — but all run in the browser and can be bypassed. Production must enforce the same rules on the server for every request.
+
+## Groups
+
+User Management → **Groups** (`/groups`, details at `/groups/:id`). Groups are reusable, organization-scoped collections of users — departments, teams, locations, cohorts. They organize managed users only: membership never grants administrative access, issues credentials or proves identity.
+
+- **Overview:** search by name or description, member counts, dates, and View / Edit / Manage Members / Remove Group. Groups can exist with no members.
+- **Create and edit:** name required and unique in the organization (case-insensitive, 2–80 characters); description optional (up to 300). Editing keeps the group ID and its members.
+- **Details:** group information, and a members table (user name, the organization's configured identifier, email, status, date added) with search, status filter, bulk removal and links to user profiles.
+- **Add members:** pick existing users of the organization, one or many. People already in the group aren't offered; duplicates and users from other organizations are refused in the store too. No user records are created.
+- **Remove members / Remove Group:** confirmed; only the membership relationships go. Users and their credentials are untouched. A group used by a verification activity (`eligibility.groupIds`) can't be removed until it's no longer used.
+- **User profiles:** a **Groups** section lists the user's groups, and administrators who can manage groups can add or remove memberships there. Both screens read the same membership records, so they always agree.
+- **Permissions:** viewing needs `groups.view` (Organization Admin, Credential Manager, Verification Manager, Viewer / Auditor); every change needs `groups.manage` (Organization Admin). Role Preview reflects this and stays read-only.
+- **Audit:** group created, updated (with previous and new values), removed, and members added or removed — with the affected group and users — e.g. "Tobyson TE added 3 users to the Project Alpha group."
+
+**Data model:** `Group` {id, organizationId, name, description, createdAt/By, updatedAt/By} and `GroupMembership` {organizationId, groupId, memberId, addedAt, addedBy} in the prototype store. `src/domain/groups.ts` is the single read path; `isGroupMember(data, organizationId, groupId, memberId)` is the check a future verification eligibility rule can use (by stable ID, within the organization, against current membership). Sample organizations include a few groups; saved data from before Groups is upgraded on load.
 
 ## Add user journey
 

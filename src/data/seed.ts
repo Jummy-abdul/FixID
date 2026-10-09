@@ -9,6 +9,8 @@ import type {
   Decision,
   Member,
   OrgAdministrator,
+  Group,
+  GroupMembership,
   Organization,
   Transaction,
   IdentifierConfig,
@@ -35,6 +37,9 @@ export interface SeedData {
   audit: AuditEvent[];
   /** Administrative users per organization (Settings → Administrators & Roles). */
   administrators: OrgAdministrator[];
+  /** User groups per organization (User Management → Groups) and their memberships. */
+  groups: Group[];
+  groupMemberships: GroupMembership[];
 }
 
 const DAY = 86_400_000;
@@ -65,6 +70,38 @@ export function seedAdministrators(organizations: Pick<Organization, 'id' | 'con
     );
   }
   return out;
+}
+
+/**
+ * Sample groups for established organizations: one per main unit, a volunteers group that overlaps
+ * them (so people belong to several groups), and an empty group. The new organization has none.
+ */
+export function seedGroups(organizations: Pick<Organization, 'id' | 'createdAt'>[], members: Member[], today: Date): { groups: Group[]; groupMemberships: GroupMembership[] } {
+  const iso = (d: Date) => d.toISOString();
+  const ago = (days: number) => iso(new Date(today.getTime() - days * DAY));
+  const groups: Group[] = [];
+  const groupMemberships: GroupMembership[] = [];
+  const by = 'Tobyson TE';
+  for (const org of organizations) {
+    if (org.id === NEW_ORGANIZATION_ID) continue;
+    const people = members.filter((m) => m.organizationId === org.id && m.status !== 'pending').sort((a, b) => a.id.localeCompare(b.id));
+    if (people.length === 0) continue;
+    const counts = new Map<string, number>();
+    for (const m of people) counts.set(m.unit, (counts.get(m.unit) ?? 0) + 1);
+    const units = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([u]) => u);
+    const add = (id: string, name: string, description: string, createdDaysAgo: number, updatedDaysAgo: number, who: typeof people) => {
+      groups.push({ id, organizationId: org.id, name, description, createdAt: ago(createdDaysAgo), createdBy: by, updatedAt: ago(updatedDaysAgo), updatedBy: by });
+      for (const m of who) {
+        const joined = new Date(m.joinedAt).getTime();
+        const created = today.getTime() - createdDaysAgo * DAY;
+        groupMemberships.push({ organizationId: org.id, groupId: id, memberId: m.id, addedAt: iso(new Date(Math.max(joined, created))), addedBy: by });
+      }
+    };
+    units.forEach((unit, i) => add(`${org.id}_grp_${i + 1}`, unit, `Users in ${unit}.`, 120 - i * 10, 20 - i * 5, people.filter((m) => m.unit === unit)));
+    add(`${org.id}_grp_volunteers`, 'Volunteers', 'People who help run organization events.', 60, 6, people.filter((_, i) => i % 7 === 0));
+    add(`${org.id}_grp_onboarding`, 'Onboarding Cohort', 'New users taking part in onboarding. Add members when the cohort is confirmed.', 5, 5, []);
+  }
+  return { groups, groupMemberships };
 }
 
 /** A newly created organization with no users, credentials or activities: the first-time journey starts here. */
@@ -624,6 +661,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     transactions,
     audit,
     administrators: seedAdministrators(organizations, today),
+    ...seedGroups(organizations, members, today),
   };
 }
 

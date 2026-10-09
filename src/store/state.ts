@@ -10,6 +10,7 @@ import { permissionsFor, roleById, type Permission, type RoleId } from '@/domain
 import {
   actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
 } from './adminOps';
+import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup, type GroupInput } from './groupOps';
 
 export const STATE_VERSION = 9;
 export const STORAGE_KEY = 'fixid.prototype.state';
@@ -54,6 +55,11 @@ export type Action =
   | { type: 'admins/roles'; organizationId: string; adminId: string; roleIds: string[]; at: string }
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string }
+  | { type: 'groups/create'; input: GroupInput & { id: string } }
+  | { type: 'groups/update'; input: GroupInput & { groupId: string } }
+  | { type: 'groups/remove'; organizationId: string; groupId: string; at: string }
+  | { type: 'groups/addMembers'; organizationId: string; groupId: string; memberIds: string[]; at: string }
+  | { type: 'groups/removeMembers'; organizationId: string; groupId: string; memberIds: string[]; at: string }
   | { type: 'preview/start'; roleId: RoleId }
   | { type: 'preview/stop' }
   /** Applies the signed-in administrator and their organization to the workspace. */
@@ -82,6 +88,11 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'users/status': ['users.manage'],
   'users/enrollmentInvite': ['users.manage'],
   'issuance/issue': ['credentials.issue'],
+  'groups/create': ['groups.manage'],
+  'groups/update': ['groups.manage'],
+  'groups/remove': ['groups.manage'],
+  'groups/addMembers': ['groups.manage'],
+  'groups/removeMembers': ['groups.manage'],
 };
 
 /** Actions that don't change workspace data, so they remain available during Role Preview. */
@@ -206,6 +217,8 @@ export function reducer(state: AppState, action: Action): AppState {
           transactions: keep(n.transactions, d.transactions),
           audit: keep(n.audit, d.audit),
           administrators: keep(n.administrators, d.administrators),
+          groups: keep(n.groups, d.groups),
+          groupMemberships: keep(n.groupMemberships, d.groupMemberships),
         },
       };
     }
@@ -262,6 +275,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
+    case 'groups/create': return orKeep(state, applyCreateGroup(state, action.input));
+    case 'groups/update': return orKeep(state, applyUpdateGroup(state, action.input));
+    case 'groups/remove': return orKeep(state, applyRemoveGroup(state, action));
+    case 'groups/addMembers': return orKeep(state, applyAddMembers(state, action));
+    case 'groups/removeMembers': return orKeep(state, applyRemoveMembers(state, action));
     default:
       return state;
   }

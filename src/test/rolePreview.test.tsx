@@ -92,7 +92,7 @@ describe('Role Preview', () => {
     const p = reducer(s, { type: 'preview/start', roleId: 'credential-manager' });
     expect(p.session.previewRoleId).toBe('credential-manager');
     expect(p.data).toBe(s.data);
-    expect([...effectivePermissions(p)].sort()).toEqual(['credentials.issue', 'credentials.manage', 'credentials.view', 'users.view']);
+    expect([...effectivePermissions(p)].sort()).toEqual(['credentials.issue', 'credentials.manage', 'credentials.view', 'groups.view', 'users.view']);
     expect(actorPermissions(p, SAMPLE_ORGANIZATION_ID).has('roles.assign')).toBe(true);
     // Even actions the previewed role could take are refused while previewing.
     expect(authorizeAction(p, 'issuance/issue')).toBe(PREVIEW_READ_ONLY);

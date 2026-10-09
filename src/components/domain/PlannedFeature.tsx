@@ -97,10 +97,6 @@ export const PLANNED = {
     title: 'Test verification',
     summary: 'Present a credential at an activity and watch the decision pipeline: credential validation → identity match → authorization → decision → transaction.',
   },
-  groups: {
-    title: 'Groups',
-    summary: 'Organize users into meaningful collections, such as a class, department or event cohort, for issuing credentials and defining verification eligibility in bulk.',
-  },
   profile: {
     title: 'Edit profile',
     summary: 'Update your administrator profile details.',

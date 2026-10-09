@@ -8,7 +8,7 @@ import {
 import { MemberStatusBadge, PortraitEnrollmentBadge } from '@/components/domain/StatusBadges';
 import { bulkEligibility, useUserActions } from '@/components/users/useUserActions';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
-import { useServices } from '@/services/ServicesProvider';
+import { useContacts } from '@/hooks/useContacts';
 import { useOrgData } from '@/store/AppStore';
 
 const PAGE_SIZE = 15;
@@ -178,22 +178,4 @@ function SelectAll({ checked, indeterminate, onChange }: { checked: boolean; ind
     <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label="Select all users on this page"
       className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
   );
-}
-
-type Contacts = { status: 'loading' } | { status: 'ready'; byId: Map<string, { email?: string }> } | { status: 'error' };
-
-/** Email addresses aren't stored in FixID; they're looked up for the visible rows only. */
-function useContacts(idSwitchIds: string[]): Contacts {
-  const { idSwitch } = useServices();
-  const key = idSwitchIds.join(',');
-  const [state, setState] = useState<Contacts>({ status: 'loading' });
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: 'loading' });
-    idSwitch.getContacts(key ? key.split(',') : [])
-      .then((byId) => { if (!cancelled) setState({ status: 'ready', byId }); })
-      .catch(() => { if (!cancelled) setState({ status: 'error' }); });
-    return () => { cancelled = true; };
-  }, [idSwitch, key]);
-  return state;
 }

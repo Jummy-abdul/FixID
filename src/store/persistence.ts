@@ -1,4 +1,4 @@
-import { seedAdministrators } from '@/data/seed';
+import { seedAdministrators, seedGroups } from '@/data/seed';
 import { ensurePrimaryAdmins } from './adminOps';
 import { STATE_VERSION, STORAGE_KEY, type AppState } from './state';
 
@@ -9,7 +9,7 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed?.version !== STATE_VERSION || !parsed.data?.organizations?.length) return null;
-    return ensurePrimaryAdmins(withAdministrators(parsed));
+    return ensurePrimaryAdmins(withGroups(withAdministrators(parsed)));
   } catch {
     return null;
   }
@@ -28,6 +28,13 @@ function withAdministrators(state: AppState): AppState {
     userId: o.ownerAccountId, roleIds: ['organization-admin'], status: 'active' as const, createdAt: o.createdAt,
   }));
   return { ...state, data: { ...state.data, administrators: [...seedAdministrators(demo, now), ...owned] } };
+}
+
+/** Saved data from before Groups: demo organizations get the sample groups; other organizations start with none. */
+function withGroups(state: AppState): AppState {
+  if (Array.isArray(state.data.groups) && Array.isArray(state.data.groupMemberships)) return state;
+  const demo = state.data.organizations.filter((o) => !o.ownerAccountId);
+  return { ...state, data: { ...state.data, ...seedGroups(demo, state.data.members, new Date()) } };
 }
 
 export function saveState(state: AppState): boolean {

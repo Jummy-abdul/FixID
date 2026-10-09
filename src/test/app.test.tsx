@@ -149,15 +149,6 @@ describe('top bar', () => {
   });
 });
 
-describe('groups', () => {
-  it('is a clearly planned shell that fabricates no groups', async () => {
-    const { user } = renderApp('/groups');
-    expect(screen.getByText('Groups are not available yet')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /create group/i }));
-    expect(within(await screen.findByRole('dialog')).getByText(/Nothing has been changed/)).toBeInTheDocument();
-  });
-});
-
 describe('dashboard', () => {
   const previewSelect = () => screen.getByLabelText('Dashboard preview');
 

@@ -14,6 +14,7 @@ import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
 import { NotFoundPage } from './NotFoundPage';
 import { useAuthorization } from '@/auth/authorization';
+import { MemberGroupsCard } from '@/components/groups/MemberGroupsCard';
 
 type TabId = 'profile' | 'credentials' | 'verifications';
 
@@ -32,6 +33,7 @@ function UserDetails({ member }: { member: Member }) {
   const memberTx = transactions.filter((t) => t.memberId === member.id);
   const portrait = usePortrait(member);
   const current = (['profile', 'credentials', 'verifications'] as const).includes(tab as TabId) ? (tab as TabId) : 'profile';
+  const canViewGroups = useAuthorization().can('groups.view');
 
   return (
     <>
@@ -58,7 +60,12 @@ function UserDetails({ member }: { member: Member }) {
         { value: 'verifications', label: 'Recent Verifications' },
       ]} />
       <div className="mt-6" role="tabpanel" aria-label={current === 'profile' ? 'Profile Details' : current === 'credentials' ? 'Credentials' : 'Recent Verifications'}>
-        {current === 'profile' && <ProfileTab member={member} />}
+        {current === 'profile' && (
+          <>
+            <ProfileTab member={member} />
+            {canViewGroups && <MemberGroupsCard member={member} />}
+          </>
+        )}
         {current === 'credentials' && <CredentialsTab member={member} creds={memberCreds} />}
         {current === 'verifications' && <VerificationsTab member={member} rows={memberTx} />}
       </div>

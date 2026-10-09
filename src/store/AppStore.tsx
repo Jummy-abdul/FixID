@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
-  AuditEvent, CardDesign, Credential, CredentialType, IdentifierConfig, Member, Organization, Transaction, VerificationActivity,
+  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, Member, Organization, Transaction, VerificationActivity,
 } from '@/domain/types';
 import {
   applyEnrollmentInvite, applyMemberStatus, type EnrollmentInviteInput, type MemberStatusInput,
   applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
   type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
+import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from './groupOps';
 import { applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, type InviteInput } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
@@ -64,7 +65,10 @@ export interface OrgData {
   activities: VerificationActivity[];
   transactions: Transaction[];
   audit: AuditEvent[];
+  groups: Group[];
+  groupMemberships: GroupMembership[];
   memberById: Map<string, Member>;
+  groupById: Map<string, Group>;
   credentialById: Map<string, Credential>;
   credentialTypeById: Map<string, CredentialType>;
   cardDesignById: Map<string, CardDesign>;
@@ -93,7 +97,10 @@ export function selectOrgData(state: AppState, organizationId?: string): OrgData
     activities,
     transactions: scope(d.transactions),
     audit: scope(d.audit),
+    groups: scope(d.groups),
+    groupMemberships: scope(d.groupMemberships),
     memberById: new Map(members.map((x) => [x.id, x])),
+    groupById: new Map(scope(d.groups).map((x) => [x.id, x])),
     credentialById: new Map(credentials.map((x) => [x.id, x])),
     credentialTypeById: new Map(credentialTypes.map((x) => [x.id, x])),
     cardDesignById: new Map(cardDesigns.map((x) => [x.id, x])),
@@ -110,11 +117,11 @@ export function useOrgData(): OrgData {
 
 export function useActions() {
   const { dispatch, getState } = useStore();
-  const run = useCallback((apply: () => { ok: true; state: AppState } | { ok: false; error: string }, action: Action) => {
+  const run = useCallback((apply: () => { ok: true; state: AppState } | { ok: false; error: string; errors?: Record<string, string | undefined> }, action: Action) => {
     const denied = authorizeAction(getState(), action.type);
     const r = denied ? { ok: false as const, error: denied } : apply();
     if (r.ok) dispatch(action);
-    return r.ok ? { ok: true as const } : { ok: false as const, error: r.error };
+    return r.ok ? { ok: true as const } : { ok: false as const, error: r.error, errors: 'errors' in r ? r.errors : undefined };
   }, [dispatch, getState]);
   return useMemo(
     () => ({
@@ -180,6 +187,29 @@ export function useActions() {
       setAdminStatus: (organizationId: string, adminId: string, status: 'active' | 'deactivated') => {
         const at = new Date().toISOString();
         return run(() => applySetAdminStatus(getState(), { organizationId, adminId, status, at }), { type: 'admins/status', organizationId, adminId, status, at });
+      },
+      /** Group management. Each re-checks groups.manage and validates against current data. */
+      createGroup: (organizationId: string, name: string, description: string) => {
+        const id = `grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        const input = { organizationId, id, name, description, at: new Date().toISOString() };
+        const r = run(() => applyCreateGroup(getState(), input), { type: 'groups/create', input });
+        return r.ok ? { ...r, groupId: id } : r;
+      },
+      updateGroup: (organizationId: string, groupId: string, name: string, description: string) => {
+        const input = { organizationId, groupId, name, description, at: new Date().toISOString() };
+        return run(() => applyUpdateGroup(getState(), input), { type: 'groups/update', input });
+      },
+      removeGroup: (organizationId: string, groupId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyRemoveGroup(getState(), { organizationId, groupId, at }), { type: 'groups/remove', organizationId, groupId, at });
+      },
+      addGroupMembers: (organizationId: string, groupId: string, memberIds: string[]) => {
+        const at = new Date().toISOString();
+        return run(() => applyAddMembers(getState(), { organizationId, groupId, memberIds, at }), { type: 'groups/addMembers', organizationId, groupId, memberIds, at });
+      },
+      removeGroupMembers: (organizationId: string, groupId: string, memberIds: string[]) => {
+        const at = new Date().toISOString();
+        return run(() => applyRemoveMembers(getState(), { organizationId, groupId, memberIds, at }), { type: 'groups/removeMembers', organizationId, groupId, memberIds, at });
       },
       /** Issues a digital ID atomically. Idempotent per requestId; failures change nothing. */
       issueDigitalId: (input: IssuanceInput) => {

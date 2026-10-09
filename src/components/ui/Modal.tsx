@@ -47,7 +47,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
           </button>
         </div>
         {children && <div className="px-6 py-4">{children}</div>}
-        {footer && <div className="flex justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-slate-50 px-6 py-3">{footer}</div>}
+        {footer && <div className="flex items-center justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-slate-50 px-6 py-3">{footer}</div>}
       </div>
     </div>,
     document.body,

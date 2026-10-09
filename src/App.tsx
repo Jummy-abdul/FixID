@@ -21,6 +21,7 @@ import { assignUrl } from './components/issuance/assignment';
 import { IdentifiersPage } from './pages/IdentifiersPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
+import { GroupDetailPage } from './pages/GroupDetailPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PeoplePage } from './pages/PeoplePage';
 import { PersonDetailPage } from './pages/PersonDetailPage';
@@ -79,6 +80,7 @@ export function AppRoutes() {
         <Route path="users/:personId" element={<RequirePermission permission="users.view"><PersonDetailPage /></RequirePermission>} />
         <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
         <Route path="groups" element={<RequirePermission permission="groups.view"><GroupsPage /></RequirePermission>} />
+        <Route path="groups/:groupId" element={<RequirePermission permission="groups.view"><GroupDetailPage /></RequirePermission>} />
         <Route path="credentials" element={<RequirePermission permission="credentials.view"><CredentialsLandingPage /></RequirePermission>} />
         <Route path="credentials/issue" element={<RequirePermission permission="credentials.issue"><AssignCredentialPage /></RequirePermission>} />
         <Route path="credentials/issued" element={<RequirePermission permission="credentials.view"><IssuedCredentialsPage /></RequirePermission>} />

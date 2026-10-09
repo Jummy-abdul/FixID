@@ -91,18 +91,18 @@ export const ROLES: Role[] = [
   {
     id: 'credential-manager', name: 'Credential Manager', builtIn: true, portalAccess: true,
     description: 'Configures credentials and issues them to users.',
-    permissions: ['users.view', 'credentials.view', 'credentials.manage', 'credentials.issue'],
-    highlights: ['Manage credential configurations', 'Issue and manage credentials', 'View relevant user and credential information'],
+    permissions: ['users.view', 'groups.view', 'credentials.view', 'credentials.manage', 'credentials.issue'],
+    highlights: ['Manage credential configurations', 'Issue and manage credentials', 'View relevant user, group and credential information'],
     limits: ['Cannot manage administrators or verification rules'],
   },
   {
     id: 'verification-manager', name: 'Verification Manager', builtIn: true, portalAccess: true,
     description: 'Sets up verification activities and who may verify.',
     permissions: [
-      'verification.activities.view', 'verification.activities.create', 'verification.activities.manage', 'verification.rules.manage',
+      'groups.view', 'verification.activities.view', 'verification.activities.create', 'verification.activities.manage', 'verification.rules.manage',
       'verification.verifiers.assign', 'verification.results.view', 'verification.exceptions.review',
     ],
-    highlights: ['Create and manage verification activities', 'Configure permitted verification checks and rules', 'Assign verifiers to activities', 'Review verification results and exceptions'],
+    highlights: ['Create and manage verification activities', 'Configure permitted verification checks and rules', 'View groups for eligibility', 'Assign verifiers to activities', 'Review verification results and exceptions'],
     limits: ['Cannot change platform rules or requirements set by a governing authority', 'Cannot manage administrators or credentials'],
   },
   {
