@@ -35,7 +35,7 @@ export function RequireOnboarding() {
 /** The application: signed in, onboarding complete, and the workspace switched to this account. */
 export function RequireApp() {
   const { account, isDemo, signOut } = useAuth();
-  const { record, portalAccess } = useAuthorization();
+  const { record, portalAccess, previewRole } = useAuthorization();
   const { state } = useStore();
   const location = useLocation();
   if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
@@ -45,7 +45,7 @@ export function RequireApp() {
   // Access follows the administrator record: deactivated or verifier-only administrators can't use the portal.
   if (!record) return <PortalBlocked reason="no-membership" onSignOut={signOut} />;
   if (record.status === 'deactivated') return <PortalBlocked reason="deactivated" onSignOut={signOut} />;
-  if (!portalAccess) return <PortalBlocked reason="no-portal" onSignOut={signOut} />;
+  if (!portalAccess) return <PortalBlocked reason={previewRole ? 'preview-no-portal' : 'no-portal'} onSignOut={signOut} />;
   return <Outlet />;
 }
 

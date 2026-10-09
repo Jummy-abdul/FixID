@@ -8,6 +8,7 @@ import {
   type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
 import { applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, type InviteInput } from './adminOps';
+import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
 import { authorizeAction, createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
 
@@ -109,10 +110,12 @@ export function useOrgData(): OrgData {
 
 export function useActions() {
   const { dispatch, getState } = useStore();
-  const run = useCallback((r: { ok: true; state: AppState } | { ok: false; error: string }, action: Action) => {
+  const run = useCallback((apply: () => { ok: true; state: AppState } | { ok: false; error: string }, action: Action) => {
+    const denied = authorizeAction(getState(), action.type);
+    const r = denied ? { ok: false as const, error: denied } : apply();
     if (r.ok) dispatch(action);
     return r.ok ? { ok: true as const } : { ok: false as const, error: r.error };
-  }, [dispatch]);
+  }, [dispatch, getState]);
   return useMemo(
     () => ({
       /** Creates or updates a reusable identifier configuration. Returns validation errors without changing state. */
@@ -161,22 +164,22 @@ export function useActions() {
         return result;
       },
       /** Administrator management. Each re-checks the signed-in administrator's permissions. */
-      inviteAdmin: (input: InviteInput) => run(applyInvite(getState(), input), { type: 'admins/invite', input }),
+      inviteAdmin: (input: InviteInput) => run(() => applyInvite(getState(), input), { type: 'admins/invite', input }),
       resendAdminInvite: (organizationId: string, adminId: string) => {
         const at = new Date().toISOString();
-        return run(applyResendInvite(getState(), { organizationId, adminId, at }), { type: 'admins/resend', organizationId, adminId, at });
+        return run(() => applyResendInvite(getState(), { organizationId, adminId, at }), { type: 'admins/resend', organizationId, adminId, at });
       },
       revokeAdminInvite: (organizationId: string, adminId: string) => {
         const at = new Date().toISOString();
-        return run(applyRevokeInvite(getState(), { organizationId, adminId, at }), { type: 'admins/revoke', organizationId, adminId, at });
+        return run(() => applyRevokeInvite(getState(), { organizationId, adminId, at }), { type: 'admins/revoke', organizationId, adminId, at });
       },
       setAdminRoles: (organizationId: string, adminId: string, roleIds: string[]) => {
         const at = new Date().toISOString();
-        return run(applySetRoles(getState(), { organizationId, adminId, roleIds, at }), { type: 'admins/roles', organizationId, adminId, roleIds, at });
+        return run(() => applySetRoles(getState(), { organizationId, adminId, roleIds, at }), { type: 'admins/roles', organizationId, adminId, roleIds, at });
       },
       setAdminStatus: (organizationId: string, adminId: string, status: 'active' | 'deactivated') => {
         const at = new Date().toISOString();
-        return run(applySetAdminStatus(getState(), { organizationId, adminId, status, at }), { type: 'admins/status', organizationId, adminId, status, at });
+        return run(() => applySetAdminStatus(getState(), { organizationId, adminId, status, at }), { type: 'admins/status', organizationId, adminId, status, at });
       },
       /** Issues a digital ID atomically. Idempotent per requestId; failures change nothing. */
       issueDigitalId: (input: IssuanceInput) => {
@@ -188,9 +191,20 @@ export function useActions() {
       },
       updateWalletStatus: (credentialId: string, status: Credential['wallet']['status']) =>
         dispatch({ type: 'wallet/update', credentialId, status, at: new Date().toISOString() }),
-      updateOrganizationProfile: (organizationId: string, changes: OrganizationProfileUpdate) =>
-        dispatch({ type: 'organization/updateProfile', organizationId, changes, at: new Date().toISOString() }),
-      resetDemoData: () => dispatch({ type: 'demo/reset', state: createInitialState() }),
+      /** Returns the reason when the change isn't allowed (for example during Role Preview). */
+      updateOrganizationProfile: (organizationId: string, changes: OrganizationProfileUpdate) => {
+        const denied = authorizeAction(getState(), 'organization/updateProfile');
+        if (!denied) dispatch({ type: 'organization/updateProfile', organizationId, changes, at: new Date().toISOString() });
+        return denied ? { ok: false as const, error: denied } : { ok: true as const };
+      },
+      resetDemoData: () => {
+        const denied = authorizeAction(getState(), 'demo/reset');
+        if (!denied) dispatch({ type: 'demo/reset', state: createInitialState() });
+        return denied ? { ok: false as const, error: denied } : { ok: true as const };
+      },
+      /** Role Preview never changes stored roles or the sign-in; see Session.previewRoleId. */
+      startRolePreview: (roleId: RoleId) => dispatch({ type: 'preview/start', roleId }),
+      stopRolePreview: () => dispatch({ type: 'preview/stop' }),
     }),
     [dispatch, getState, run],
   );

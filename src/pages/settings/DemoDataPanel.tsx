@@ -57,7 +57,12 @@ export function DemoDataPanel() {
         onCancel={() => setConfirming(false)}
         onConfirm={async () => {
           await new Promise((r) => setTimeout(r, 400));
-          resetDemoData();
+          const r = resetDemoData();
+          if (!r.ok) {
+            setConfirming(false);
+            toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
+            return;
+          }
           idSwitch.simulation.reset();
           setOutage(false);
           try {

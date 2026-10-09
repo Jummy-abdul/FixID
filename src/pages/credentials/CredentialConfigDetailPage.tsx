@@ -41,7 +41,7 @@ export function CredentialConfigDetailPage() {
         breadcrumbs={[{ label: 'Credentials', to: '/credentials' }, { label: type.name }]}
         title={type.name}
         meta={<span className="text-sm text-slate-500">{identifierName} · Created {formatDate(type.createdAt)}</span>}
-        actions={can('credentials.configure') ? <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit</Button> : undefined}
+        actions={can('credentials.manage') ? <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit</Button> : undefined}
       />
       <Tabs<TabId> value={current} onChange={setTab} tabs={[
         { value: 'configuration', label: 'Configuration' },

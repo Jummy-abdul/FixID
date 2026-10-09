@@ -22,7 +22,7 @@ export const NAVIGATION: NavGroup[] = [
     label: 'User Management',
     items: [
       { label: 'Users', to: '/users', icon: Users, description: 'Identities and their organization-specific information', permission: 'users.view' },
-      { label: 'Groups', to: '/groups', icon: Layers, description: 'Collections of users', permission: 'users.view' },
+      { label: 'Groups', to: '/groups', icon: Layers, description: 'Collections of users', permission: 'groups.view' },
     ],
   },
   {
@@ -34,8 +34,8 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Verification',
     items: [
-      { label: 'Verification Events', to: '/activities', icon: Activity, description: 'Where and how credentials are verified', permission: 'verification.view' },
-      { label: 'Verification History', to: '/verification-history', icon: History, description: 'Verification attempts and decisions', permission: 'verification.view' },
+      { label: 'Verification Events', to: '/activities', icon: Activity, description: 'Where and how credentials are verified', permission: 'verification.activities.view' },
+      { label: 'Verification History', to: '/verification-history', icon: History, description: 'Verification attempts and decisions', permission: 'verification.results.view' },
     ],
   },
   {

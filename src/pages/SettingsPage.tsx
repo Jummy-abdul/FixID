@@ -23,15 +23,15 @@ export function SettingsPage() {
       <div className="mb-6">
         <Tabs<Tab> value={tab as Tab} onChange={setTab} tabs={[
           { value: 'organization', label: 'Organization' },
-          ...(can('admins.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
+          ...(can('administrators.view') || can('roles.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
           { value: 'integrations', label: 'Integrations' },
-          ...(isDemo ? [{ value: 'demo' as const, label: 'Demo data' }] : []),
+          ...(isDemo && can('settings.manage') ? [{ value: 'demo' as const, label: 'Demo data' }] : []),
         ]} />
       </div>
       {tab === 'organization' && <OrganizationForm key={organization.id} organization={organization} />}
-      {tab === 'admins' && (can('admins.view') ? <AdministratorsPanel /> : <NoAccess />)}
+      {tab === 'admins' && (can('administrators.view') || can('roles.view') ? <AdministratorsPanel /> : <NoAccess />)}
       {tab === 'integrations' && <IntegrationsPanel key={organization.id} organization={organization} />}
-      {tab === 'demo' && isDemo && <DemoDataPanel />}
+      {tab === 'demo' && isDemo && can('settings.manage') && <DemoDataPanel />}
     </>
   );
 }

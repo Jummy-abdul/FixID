@@ -1,4 +1,5 @@
 import { seedAdministrators } from '@/data/seed';
+import { ensurePrimaryAdmins } from './adminOps';
 import { STATE_VERSION, STORAGE_KEY, type AppState } from './state';
 
 /** Returns persisted state if present and compatible, otherwise null. Never throws. */
@@ -8,7 +9,7 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed?.version !== STATE_VERSION || !parsed.data?.organizations?.length) return null;
-    return withAdministrators(parsed);
+    return ensurePrimaryAdmins(withAdministrators(parsed));
   } catch {
     return null;
   }

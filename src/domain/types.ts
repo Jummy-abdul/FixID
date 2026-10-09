@@ -333,6 +333,8 @@ export type AuditAction =
   | 'admin.invitation-resent'
   | 'admin.invitation-revoked'
   | 'admin.joined'
+  | 'admin.role-assigned'
+  | 'admin.role-removed'
   | 'admin.roles-changed'
   | 'admin.deactivated'
   | 'admin.reactivated'
@@ -353,4 +355,8 @@ export interface AuditEvent {
   occurredAt: ISODate;
   /** Optional link target inside the app. */
   href?: string;
+  /** The record the event is about, by name, when it isn't obvious from the resource id (e.g. the affected administrator). */
+  subject?: { id: string; name: string };
+  /** Previous and new values for changes. */
+  changes?: { field: string; from: string; to: string }[];
 }

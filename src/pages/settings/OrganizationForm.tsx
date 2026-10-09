@@ -52,9 +52,13 @@ export function OrganizationForm({ organization }: { organization: Organization 
     }
     setSaving(true);
     await new Promise((r) => setTimeout(r, 350));
-    updateOrganizationProfile(organization.id, trimmed);
-    setValues(trimmed);
+    const r = updateOrganizationProfile(organization.id, trimmed);
     setSaving(false);
+    if (!r.ok) {
+      toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
+      return;
+    }
+    setValues(trimmed);
     toast({ tone: 'success', title: 'Organization profile saved', description: 'The change has been recorded in the audit log.' });
   };
 

@@ -78,7 +78,7 @@ export function AppRoutes() {
         <Route path="users/new/manual" element={<RequirePermission permission="users.manage"><ManualAddUserPage /></RequirePermission>} />
         <Route path="users/:personId" element={<RequirePermission permission="users.view"><PersonDetailPage /></RequirePermission>} />
         <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
-        <Route path="groups" element={<RequirePermission permission="users.view"><GroupsPage /></RequirePermission>} />
+        <Route path="groups" element={<RequirePermission permission="groups.view"><GroupsPage /></RequirePermission>} />
         <Route path="credentials" element={<RequirePermission permission="credentials.view"><CredentialsLandingPage /></RequirePermission>} />
         <Route path="credentials/issue" element={<RequirePermission permission="credentials.issue"><AssignCredentialPage /></RequirePermission>} />
         <Route path="credentials/issued" element={<RequirePermission permission="credentials.view"><IssuedCredentialsPage /></RequirePermission>} />
@@ -88,10 +88,10 @@ export function AppRoutes() {
         <Route path="templates/credential-types" element={<RequirePermission permission="credentials.view"><CredentialTypesPage /></RequirePermission>} />
         <Route path="templates/identifiers" element={<RequirePermission permission="credentials.view"><IdentifiersPage /></RequirePermission>} />
         <Route path="templates/credential-types/:typeId" element={<ConfigRedirect />} />
-        <Route path="activities" element={<RequirePermission permission="verification.view"><ActivitiesPage /></RequirePermission>} />
-        <Route path="activities/:activityId" element={<RequirePermission permission="verification.view"><ActivityDetailPage /></RequirePermission>} />
-        <Route path="verification-history" element={<RequirePermission permission="verification.view"><TransactionsPage /></RequirePermission>} />
-        <Route path="verification-history/:transactionId" element={<RequirePermission permission="verification.view"><TransactionDetailPage /></RequirePermission>} />
+        <Route path="activities" element={<RequirePermission permission="verification.activities.view"><ActivitiesPage /></RequirePermission>} />
+        <Route path="activities/:activityId" element={<RequirePermission permission="verification.activities.view"><ActivityDetailPage /></RequirePermission>} />
+        <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><TransactionsPage /></RequirePermission>} />
+        <Route path="verification-history/:transactionId" element={<RequirePermission permission="verification.results.view"><TransactionDetailPage /></RequirePermission>} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="profile" element={<ProfilePage />} />

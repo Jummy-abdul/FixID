@@ -42,7 +42,7 @@ export function CredentialsLandingPage() {
   const navigate = useNavigate();
   const [setup, setSetup] = useState<{ open: boolean; existing?: CredentialType }>({ open: false });
   const [q, setQ] = useState('');
-  const canConfigure = useAuthorization().can('credentials.configure');
+  const canConfigure = useAuthorization().can('credentials.manage');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const configs = useMemo(() => credentialTypes.filter((t) => t.status !== 'retired'), [credentialTypes]);

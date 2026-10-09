@@ -5,7 +5,8 @@ import {
   type OverflowMenuItem,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
-import { PERMISSIONS, ROLES, canGrantRoles, permissionsFor, roleById, type Permission } from '@/domain/roles';
+import { NoAccess } from '@/auth/authorization';
+import { PERMISSIONS, ROLES, canGrantRoles, coversRoles, permissionsFor, roleById, type Permission, type Role } from '@/domain/roles';
 import type { OrgAdministrator } from '@/domain/types';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { newId } from '@/lib/identifiers';
@@ -13,6 +14,7 @@ import { cn } from '@/lib/cn';
 import { useQueryState } from '@/hooks/useQueryState';
 import { adminsOf, invitationExpired, inviteProblem } from '@/store/adminOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
+import { useNavigate } from 'react-router-dom';
 
 type View = 'administrators' | 'roles';
 
@@ -32,7 +34,7 @@ function RoleBadges({ roleIds }: { roleIds: string[] }) {
 }
 
 /** Permissions granted by a set of roles, grouped by area. */
-function PermissionList({ permissions, compact }: { permissions: Set<Permission>; compact?: boolean }) {
+function PermissionList({ permissions, compact, scopes }: { permissions: Set<Permission>; compact?: boolean; scopes?: Role['scopes'] }) {
   const areas = [...new Set(PERMISSIONS.map((p) => p.area))];
   return (
     <div className={cn('grid gap-4', compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-4')}>
@@ -45,7 +47,10 @@ function PermissionList({ permissions, compact }: { permissions: Set<Permission>
               return (
                 <li key={p.id} className={cn('flex items-start gap-1.5 text-sm', on ? 'text-slate-800' : 'text-slate-400')}>
                   {on ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" /> : <span className="mt-2 h-px w-3.5 shrink-0 bg-slate-300" aria-hidden="true" />}
-                  {p.label}<span className="sr-only">{on ? ' (allowed)' : ' (not allowed)'}</span>
+                  <span>
+                    {p.label}<span className="sr-only">{on ? ' (allowed)' : ' (not allowed)'}</span>
+                    {on && scopes?.[p.id] === 'assigned-activities' && <span className="block text-xs text-slate-500">Assigned activities only</span>}
+                  </span>
                 </li>
               );
             })}
@@ -86,12 +91,16 @@ function RolePicker({ value, onChange, grantable }: { value: string[]; onChange:
 }
 
 export function AdministratorsPanel() {
+  const { can } = useAuthorization();
   const [view, setView] = useQueryState('view', 'administrators');
-  const current: View = view === 'roles' ? 'roles' : 'administrators';
+  const tabs = ([['administrators', 'Administrators'], ['roles', 'Roles & Permissions']] as const)
+    .filter(([id]) => can(id === 'roles' ? 'roles.view' : 'administrators.view'));
+  if (tabs.length === 0) return <NoAccess />;
+  const current: View = tabs.some(([id]) => id === view) ? (view as View) : tabs[0][0];
   return (
     <div>
       <div className="mb-5 inline-flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium" role="tablist" aria-label="Administrators and roles">
-        {([['administrators', 'Administrators'], ['roles', 'Roles & Permissions']] as const).map(([id, label]) => (
+        {tabs.map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={current === id} onClick={() => setView(id)}
             className={cn('rounded-md px-4 py-1.5', current === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}>
             {label}
@@ -101,6 +110,18 @@ export function AdministratorsPanel() {
       {current === 'administrators' ? <AdministratorsTab /> : <RolesTab />}
     </div>
   );
+}
+
+/** What the current administrator may do to another administrator. Mirrors the checks in the store. */
+function adminAllowed(can: (p: Permission) => boolean, permissions: Set<Permission>) {
+  return (a: OrgAdministrator) => {
+    const covers = coversRoles(permissions, a.roleIds);
+    return {
+      roles: can('roles.assign') && canGrantRoles(permissions, a.roleIds) && a.status !== 'deactivated',
+      invitation: can('administrators.invite') && covers && a.status === 'invited',
+      access: can('administrators.manage') && covers && a.status !== 'invited',
+    };
+  };
 }
 
 type Pending =
@@ -113,7 +134,7 @@ function AdministratorsTab() {
   const { can, permissions } = useAuthorization();
   const actions = useActions();
   const toast = useToast();
-  const canManage = can('admins.manage');
+  const canInvite = can('administrators.invite') && can('roles.assign');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [role, setRole] = useState('all');
@@ -133,17 +154,17 @@ function AdministratorsTab() {
       .sort((a, b) => (a.status === b.status ? (a.name ?? a.email).localeCompare(b.name ?? b.email) : ['active', 'invited', 'deactivated'].indexOf(a.status) - ['active', 'invited', 'deactivated'].indexOf(b.status)));
   }, [admins, q, status, role]);
 
-  const canChange = (a: OrgAdministrator) => canManage && canGrantRoles(permissions, a.roleIds);
+  const allowed = adminAllowed(can, permissions);
   const menu = (a: OrgAdministrator): OverflowMenuItem[] => {
     const items: OverflowMenuItem[] = [{ key: 'view', label: 'View Administrator', icon: <Eye className="h-4 w-4" />, onSelect: () => setViewing(a.id) }];
-    if (!canChange(a)) return items;
-    if (a.status !== 'deactivated') items.push({ key: 'roles', label: 'Edit Role Assignment', icon: <Pencil className="h-4 w-4" />, onSelect: () => setViewing(a.id) });
-    if (a.status === 'invited') {
+    const may = allowed(a);
+    if (may.roles) items.push({ key: 'roles', label: 'Edit Role Assignment', icon: <Pencil className="h-4 w-4" />, onSelect: () => setViewing(a.id) });
+    if (may.invitation) {
       items.push({ key: 'resend', label: 'Resend Invitation', icon: <Mail className="h-4 w-4" />, onSelect: () => setPending({ kind: 'resend', admin: a }) });
       items.push({ key: 'revoke', label: 'Revoke Invitation', tone: 'danger', icon: <MailX className="h-4 w-4" />, onSelect: () => setPending({ kind: 'revoke', admin: a }) });
     }
-    if (a.status === 'active' && a.userId !== me.id) items.push({ key: 'deactivate', label: 'Deactivate Access', tone: 'danger', icon: <UserX className="h-4 w-4" />, onSelect: () => setPending({ kind: 'deactivate', admin: a }) });
-    if (a.status === 'deactivated') items.push({ key: 'reactivate', label: 'Reactivate Access', icon: <UserCheck className="h-4 w-4" />, onSelect: () => setPending({ kind: 'reactivate', admin: a }) });
+    if (may.access && a.status === 'active' && a.userId !== me.id) items.push({ key: 'deactivate', label: 'Deactivate Access', tone: 'danger', icon: <UserX className="h-4 w-4" />, onSelect: () => setPending({ kind: 'deactivate', admin: a }) });
+    if (may.access && a.status === 'deactivated') items.push({ key: 'reactivate', label: 'Reactivate Access', icon: <UserCheck className="h-4 w-4" />, onSelect: () => setPending({ kind: 'reactivate', admin: a }) });
     return items;
   };
 
@@ -176,7 +197,7 @@ function AdministratorsTab() {
         <FilterSelect label="Status" value={status} onChange={setStatus}
           options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'invited', label: 'Invited' }, { value: 'deactivated', label: 'Deactivated' }]} />
         <FilterSelect label="Role" value={role} onChange={setRole} options={[{ value: 'all', label: 'All roles' }, ...ROLES.map((r) => ({ value: r.id, label: r.name }))]} />
-        {canManage && <Button className="sm:ml-auto" icon={<UserPlus className="h-4 w-4" />} onClick={() => setInviteOpen(true)}>Invite Administrator</Button>}
+        {canInvite && <Button className="sm:ml-auto" icon={<UserPlus className="h-4 w-4" />} onClick={() => setInviteOpen(true)}>Invite Administrator</Button>}
       </div>
       {loading ? (
         <div className="space-y-3 p-5" aria-label="Loading administrators">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
@@ -306,7 +327,8 @@ function AdminDrawer({ adminId, onClose, onAction }: {
   useEffect(() => { if (a) { setRoleIds(a.roleIds); setError(null); } }, [a?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!a) return null;
-  const editable = can('admins.manage') && canGrantRoles(permissions, a.roleIds) && a.status !== 'deactivated';
+  const may = adminAllowed(can, permissions)(a);
+  const editable = may.roles;
   const dirty = [...roleIds].sort().join() !== [...a.roleIds].sort().join();
   const save = () => {
     const r = setAdminRoles(organization.id, a.id, roleIds);
@@ -319,10 +341,10 @@ function AdminDrawer({ adminId, onClose, onAction }: {
     <Drawer open onClose={onClose} width="xl" title={a.name ?? a.email} description={a.name ? a.email : 'Invitation pending'}
       footer={(
         <>
-          {editable && a.status === 'invited' && <Button variant="ghost" className="mr-auto" icon={<MailX className="h-4 w-4" />} onClick={() => onAction('revoke', a)}>Revoke invitation</Button>}
-          {editable && a.status === 'active' && a.userId !== me.id && <Button variant="ghost" className="mr-auto" icon={<ShieldOff className="h-4 w-4" />} onClick={() => onAction('deactivate', a)}>Deactivate access</Button>}
-          {can('admins.manage') && a.status === 'deactivated' && canGrantRoles(permissions, a.roleIds) && <Button variant="secondary" className="mr-auto" icon={<UserCheck className="h-4 w-4" />} onClick={() => onAction('reactivate', a)}>Reactivate access</Button>}
-          {editable && a.status === 'invited' && <Button variant="secondary" icon={<Mail className="h-4 w-4" />} onClick={() => onAction('resend', a)}>Resend invitation</Button>}
+          {may.invitation && <Button variant="ghost" className="mr-auto" icon={<MailX className="h-4 w-4" />} onClick={() => onAction('revoke', a)}>Revoke invitation</Button>}
+          {may.access && a.status === 'active' && a.userId !== me.id && <Button variant="ghost" className="mr-auto" icon={<ShieldOff className="h-4 w-4" />} onClick={() => onAction('deactivate', a)}>Deactivate access</Button>}
+          {may.access && a.status === 'deactivated' && <Button variant="secondary" className="mr-auto" icon={<UserCheck className="h-4 w-4" />} onClick={() => onAction('reactivate', a)}>Reactivate access</Button>}
+          {may.invitation && <Button variant="secondary" icon={<Mail className="h-4 w-4" />} onClick={() => onAction('resend', a)}>Resend invitation</Button>}
           {editable ? <Button onClick={save} disabled={!dirty || roleIds.length === 0}>Save roles</Button> : <Button variant="secondary" onClick={onClose}>Close</Button>}
         </>
       )}>
@@ -356,6 +378,9 @@ function AdminDrawer({ adminId, onClose, onAction }: {
 
 function RolesTab() {
   const { organization } = useSession();
+  const { canPreview } = useAuthorization();
+  const { startRolePreview } = useActions();
+  const navigate = useNavigate();
   const { state } = useStore();
   const admins = adminsOf(state, organization.id);
   return (
@@ -372,7 +397,13 @@ function RolesTab() {
                 </h3>
                 <p className="mt-0.5 text-sm text-slate-500">{r.description}</p>
               </div>
-              <span className="text-sm text-slate-500">{count} {count === 1 ? 'administrator' : 'administrators'}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-500">{count} {count === 1 ? 'administrator' : 'administrators'}</span>
+                {canPreview && r.id !== 'organization-admin' && (
+                  <Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} aria-label={`Preview as ${r.name}`}
+                    onClick={() => { startRolePreview(r.id); navigate('/'); }}>Preview</Button>
+                )}
+              </div>
             </div>
             <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <div>
@@ -381,12 +412,12 @@ function RolesTab() {
                   {r.limits?.map((h) => <li key={h} className="flex gap-2 text-slate-500"><ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{h}</li>)}
                 </ul>
               </div>
-              <PermissionList permissions={new Set(r.permissions)} compact />
+              <PermissionList permissions={new Set(r.permissions)} scopes={r.scopes} compact />
             </div>
           </Card>
         );
       })}
-      <p className="text-sm text-slate-500">Built-in roles can't be edited. Verifiers work through approved verifier apps and are assigned to specific verification activities.</p>
+      <p className="text-sm text-slate-500">Built-in roles can't be edited. Verifiers work through approved verifier apps and are assigned to specific verification activities by someone who can assign verifiers. Verification rules set by FixID, or by a governing authority in future, can't be changed by any organization role.</p>
     </div>
   );
 }

@@ -74,25 +74,31 @@ Each signed-up organization has its own records (`ownerAccountId` on the organiz
 
 ## Administrators & Roles
 
-Settings → **Administrators & Roles** (`/settings?tab=admins`, `&view=roles` for the role catalogue). Administrators are organization-scoped records (`data.administrators`), separate from the users an organization manages; one person can be both.
+Settings → **Administrators & Roles** (`/settings?tab=admins`, `&view=roles` for the role catalogue). Administrators are organization-scoped records (`data.administrators`), separate from the users an organization manages; one person can be both, but administrative access is always granted explicitly.
 
-| Role | Can do | Portal |
+**Current account.** The demo account (in every sample organization) and the owner of an organization created through sign-up are active **Organization Admins** of that organization only. Saved data where that assignment has drifted is repaired on load and sign-in; no other administrator is changed. Nobody can remove their own Organization Admin role or deactivate themselves.
+
+| Role | Permissions | Portal |
 | --- | --- | --- |
-| Organization Admin | Everything below, plus manage administrators, settings, users, groups and audit log | Yes |
-| Credential Manager | View users; view, configure and issue credentials | Yes |
-| Verification Manager | View outcomes, manage verification activities, assign verifiers | Yes |
-| Verifier | Perform assigned verifications (ready for activity assignment) | **No** |
-| Viewer / Auditor | Read-only: administrators, users, credentials, verification, audit log | Yes |
+| Organization Admin | Every organization permission below except `verification.execute` | Yes |
+| Credential Manager | `users.view`, `credentials.view`, `credentials.manage`, `credentials.issue` | Yes |
+| Verification Manager | `verification.activities.view/create/manage`, `verification.rules.manage`, `verification.verifiers.assign`, `verification.results.view`, `verification.exceptions.review` | Yes |
+| Verifier | `verification.execute`, `verification.results.view` — assigned activities only | **No** |
+| Viewer / Auditor | `administrators.view`, `roles.view`, `users.view`, `groups.view`, `credentials.view`, `verification.activities.view`, `verification.results.view`, `audit.view` | Yes |
 
-Roles are lists of permissions (`src/domain/roles.ts`), so custom roles can be added later without changing the checks.
+Other permissions: `administrators.invite` (invite, resend, revoke), `administrators.manage` (deactivate, reactivate), `roles.assign`, `users.manage`, `groups.manage`, `settings.manage`. Checks always use permissions, never role names (`src/domain/roles.ts`), so custom roles can be added later.
 
-**Rules:** you can only grant roles whose permissions you hold (Verifier can be granted by anyone who can assign verifiers); you can't change or deactivate an administrator with permissions you lack; you can't deactivate yourself; the organization always keeps at least one active Organization Admin. Duplicate, existing, deactivated and pending invitations are refused; an expired invitation can be replaced or resent. Every change is written to the audit log.
+**Rules:** you can only grant roles whose permissions you hold (Verifier can be granted by anyone who can assign verifiers); you can't act on an administrator who has permissions you lack; the organization always keeps at least one active Organization Admin. Duplicate, existing, deactivated and pending invitations are refused; an expired invitation can be replaced or resent.
+
+**Verification governance (prepared, not built).** Rules have three layers — platform, governing authority, organization. `verification.rules.manage` only ever covers the organization layer (`editableRuleLayers`); no organization role can change platform rules, and governing-authority permissions will be added as their own permissions rather than by widening organization roles. `canPerformVerification(admin, activityId)` is the activity-level check the verifier interface will use; verifiers are assigned by someone with `verification.verifiers.assign`, never by themselves.
+
+**Audit.** Invitations (created, resent, revoked), joining, role assigned / removed / changed, and deactivation / reactivation are written to the existing Audit Log with the actor, affected administrator, previous and new values and outcome — e.g. "Tobyson TE changed Kwame Mensah's role from Verification Manager to Credential Manager." Refused changes record nothing. Filter by **Administrators** and open **Details** to see an event.
+
+**Role Preview (demo builds only).** An Organization Admin can choose **Preview as role** in the account menu, or **Preview** on a role card. Navigation, page sections, actions and direct URLs then follow that role (Verifier shows the no-portal screen), with a banner to switch role or **Exit preview**. Preview only ever narrows the real permissions, makes the workspace read-only (every change is refused in the store), and doesn't change stored roles or the sign-in. It is off when `VITE_DEMO_AUTH=off` or `VITE_ROLE_PREVIEW=off`.
 
 **Invitations are simulated.** No email provider is connected and no email is sent. The invited person joins by signing up with the invited email address (code `123456`) within 7 days, and lands directly in the inviting organization with the invited roles.
 
-**Try another role:** sign in as the demo account, invite e.g. `cm@example.org` as Credential Manager, sign out, sign up with that email. Navigation, actions and direct URLs follow the role; a Verifier sees a "no portal access" screen; deactivating an administrator removes their access on their next action. Sessions expire after 12 hours.
-
-**Enforcement is client-side only.** Permissions are checked in three places — hidden/disabled actions, route guards and the store reducer — but all run in the browser and can be bypassed. Production must enforce the same rules on the server for every request.
+**Enforcement is client-side only.** Permissions are checked in three places — hidden actions, route guards and the store reducer — but all run in the browser and can be bypassed. Production must enforce the same rules on the server for every request.
 
 ## Add user journey
 

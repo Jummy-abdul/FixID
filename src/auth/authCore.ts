@@ -7,6 +7,8 @@
 
 /** Demo mode is on unless explicitly disabled at build time (VITE_DEMO_AUTH=off). */
 export const DEMO_AUTH_ENABLED = import.meta.env.VITE_DEMO_AUTH !== 'off';
+/** Role preview is a design and review aid, available only in demo builds and never in production. */
+export const ROLE_PREVIEW_ENABLED = DEMO_AUTH_ENABLED && import.meta.env.VITE_ROLE_PREVIEW !== 'off';
 
 /** Development-only verification code accepted in demo mode (no email provider is connected). */
 export const DEV_VERIFICATION_CODE = '123456';

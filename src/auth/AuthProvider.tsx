@@ -98,6 +98,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
     },
     signOut: () => {
       saveSignup(null);
+      dispatch({ type: 'preview/stop' });
       setStore((s) => ({ ...s, session: null }));
     },
     createAccount: async (email, password) => {

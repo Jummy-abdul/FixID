@@ -42,7 +42,7 @@ describe('administrator rules', () => {
     const cm = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('credential-manager') && a.status === 'active')!;
     const asCm: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: cm.userId! } } };
     expect(applyInvite(asCm, { organizationId: SAMPLE_ORGANIZATION_ID, id: 'a2', email: 'x@example.org', roleIds: ['viewer'], at: AT }))
-      .toMatchObject({ ok: false, error: "You don't have permission to manage administrators." });
+      .toMatchObject({ ok: false, error: "You don't have permission to do this." });
     expect(canGrantRoles(permissionsFor(['credential-manager']), ['credential-manager'])).toBe(false);
     expect(canGrantRoles(permissionsFor(['organization-admin']), ['verifier'])).toBe(true);
     expect(canGrantRoles(permissionsFor(['verification-manager']), ['verifier'])).toBe(false);
@@ -65,7 +65,15 @@ describe('administrator rules', () => {
     const s = createInitialState(new Date());
     const owner = adminsOf(s, NEW_ORGANIZATION_ID)[0];
     expect(applySetRoles(s, { organizationId: NEW_ORGANIZATION_ID, adminId: owner.id, roleIds: ['viewer'], at: AT }))
-      .toMatchObject({ ok: false, error: 'Your organization needs at least one active Organization Admin.' });
+      .toMatchObject({ ok: false, error: expect.stringMatching(/can't remove your own Organization Admin role/) });
+    // A second Organization Admin can't remove the only other one's role either when that would leave none.
+    const second = { ...owner, id: 'adm_2', userId: 'usr_second', email: 'second@example.org', name: 'Second Admin' };
+    const two: AppState = { ...s, data: { ...s.data, administrators: [...s.data.administrators, second] } };
+    const demoted = applySetRoles(two, { organizationId: NEW_ORGANIZATION_ID, adminId: second.id, roleIds: ['viewer'], at: AT });
+    if (!demoted.ok) throw new Error(demoted.error);
+    const asSecondOnly: AppState = { ...two, data: { ...two.data, admin: { ...two.data.admin, id: second.userId }, administrators: two.data.administrators.map((a) => (a.id === owner.id ? { ...a, roleIds: ['credential-manager'] } : a)) } };
+    expect(applySetAdminStatus(asSecondOnly, { organizationId: NEW_ORGANIZATION_ID, adminId: owner.id, status: 'deactivated', at: AT })).toMatchObject({ ok: true });
+    expect(applySetRoles(asSecondOnly, { organizationId: NEW_ORGANIZATION_ID, adminId: second.id, roleIds: ['viewer'], at: AT })).toMatchObject({ ok: false });
     expect(applySetAdminStatus(s, { organizationId: NEW_ORGANIZATION_ID, adminId: owner.id, status: 'deactivated', at: AT }))
       .toMatchObject({ ok: false, error: "You can't deactivate your own access." });
   });
@@ -122,7 +130,7 @@ describe('Administrators & Roles', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Review invitation' }));
     const review = screen.getByRole('dialog', { name: 'Review invitation' });
     expect(review).toHaveTextContent('ops.lead@example.org');
-    expect(review).toHaveTextContent('Issue credentials');
+    expect(review).toHaveTextContent('Issue and manage issued credentials (allowed)');
     await user.click(within(review).getByRole('button', { name: 'Create invitation' }));
     expect(await screen.findByText('Invitation created')).toBeInTheDocument();
     expect(screen.getByText(/can join by signing up with this email address/)).toBeInTheDocument();
@@ -143,7 +151,10 @@ describe('Administrators & Roles', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Save roles' }));
     expect(await screen.findByText('Roles updated')).toBeInTheDocument();
     expect(rowFor('Kwame Mensah')).toHaveTextContent('Viewer / Auditor');
-    expect(loadState()!.data.audit[0]).toMatchObject({ action: 'admin.roles-changed' });
+    expect(loadState()!.data.audit[0]).toMatchObject({
+      action: 'admin.role-assigned', summary: 'Tobyson TE assigned Viewer / Auditor to Kwame Mensah.', subject: { name: 'Kwame Mensah' },
+      changes: [{ field: 'Roles', from: 'Verification Manager', to: 'Verification Manager, Viewer / Auditor' }], result: 'success',
+    });
 
     await user.click(within(rowFor('Kwame Mensah')).getByRole('button', { name: 'Actions for Kwame Mensah' }));
     await user.click(screen.getByRole('menuitem', { name: 'Deactivate Access' }));
@@ -162,7 +173,7 @@ describe('Administrators & Roles', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Revoke Invitation' }));
     await user.click(screen.getByRole('button', { name: 'Revoke Invitation' }));
     await waitFor(() => expect(screen.queryByText(invited)).toBeNull());
-    expect(loadState()!.data.audit.slice(0, 4).map((e) => e.action)).toEqual(['admin.invitation-revoked', 'admin.reactivated', 'admin.deactivated', 'admin.roles-changed']);
+    expect(loadState()!.data.audit.slice(0, 4).map((e) => e.action)).toEqual(['admin.invitation-revoked', 'admin.reactivated', 'admin.deactivated', 'admin.role-assigned']);
   });
 
   it('shows the five roles with structured permissions; the Verifier has no portal access', async () => {
@@ -172,8 +183,8 @@ describe('Administrators & Roles', () => {
     }
     const verifier = screen.getByRole('heading', { level: 3, name: /^Verifier/ }).closest('.rounded-xl')!;
     expect(verifier).toHaveTextContent('No portal access');
-    const allowed = within(verifier as HTMLElement).getAllByRole('listitem').filter((li) => li.textContent?.endsWith('(allowed)')).map((li) => li.textContent);
-    expect(allowed).toEqual(['View verification outcomes (allowed)', 'Perform assigned verifications (allowed)']);
+    const allowed = within(verifier as HTMLElement).getAllByRole('listitem').filter((li) => li.textContent?.includes('(allowed)')).map((li) => li.textContent);
+    expect(allowed).toEqual(['Perform verifications (allowed)Assigned activities only', 'View verification results and history (allowed)Assigned activities only']);
   });
 });
 

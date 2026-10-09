@@ -5,9 +5,10 @@ import {
   applyCreateUser, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
   type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser,
 } from './operations';
-import type { Permission } from '@/domain/roles';
+import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
+import { permissionsFor, roleById, type Permission, type RoleId } from '@/domain/roles';
 import {
-  actorPermissions, applyAcceptInvite, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
+  actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
 } from './adminOps';
 
 export const STATE_VERSION = 9;
@@ -16,6 +17,11 @@ export const STORAGE_KEY = 'fixid.prototype.state';
 export interface Session {
   adminId: string;
   currentOrganizationId: string;
+  /**
+   * Role Preview: shows the portal as another role would see it. It narrows what the screens show
+   * and makes the workspace read-only; it never changes stored role assignments or the sign-in.
+   */
+  previewRoleId?: RoleId;
 }
 
 export interface AppState {
@@ -48,6 +54,8 @@ export type Action =
   | { type: 'admins/roles'; organizationId: string; adminId: string; roleIds: string[]; at: string }
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string }
+  | { type: 'preview/start'; roleId: RoleId }
+  | { type: 'preview/stop' }
   /** Applies the signed-in administrator and their organization to the workspace. */
   | { type: 'session/signIn'; admin: AdminUser; organizationId: string };
 
@@ -68,16 +76,39 @@ export function createInitialState(now: Date = new Date()): AppState {
  */
 const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'organization/updateProfile': ['settings.manage'],
-  'config/identifier': ['users.manage', 'credentials.configure'],
-  'config/credential': ['credentials.configure'],
+  'config/identifier': ['users.manage', 'credentials.manage'],
+  'config/credential': ['credentials.manage'],
   'users/create': ['users.manage'],
   'users/status': ['users.manage'],
   'users/enrollmentInvite': ['users.manage'],
   'issuance/issue': ['credentials.issue'],
 };
 
+/** Actions that don't change workspace data, so they remain available during Role Preview. */
+const PREVIEW_SAFE = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'preview/start', 'preview/stop']);
+export const PREVIEW_READ_ONLY = 'Role preview is read-only. Exit the preview to make changes.';
+
+/** Whether the signed-in administrator may use Role Preview: an active Organization Admin, in a demo build. */
+export function canPreviewRoles(state: AppState): boolean {
+  const rec = actorRecord(state, state.session.currentOrganizationId);
+  return ROLE_PREVIEW_ENABLED && rec?.status === 'active' && rec.roleIds.includes('organization-admin');
+}
+
+/**
+ * Permissions the screens use: the real ones, narrowed to the previewed role while previewing.
+ * Intersecting means a preview can only ever show less than the administrator really has.
+ */
+export function effectivePermissions(state: AppState): Set<Permission> {
+  const real = actorPermissions(state, state.session.currentOrganizationId);
+  const preview = state.session.previewRoleId;
+  if (!preview) return real;
+  const role = permissionsFor([preview]);
+  return new Set([...real].filter((p) => role.has(p)));
+}
+
 /** Null when allowed, otherwise the reason. */
 export function authorizeAction(state: AppState, type: Action['type']): string | null {
+  if (state.session.previewRoleId && !PREVIEW_SAFE.has(type)) return PREVIEW_READ_ONLY;
   const needed = ACTION_PERMISSIONS[type];
   if (!needed) return null;
   const perms = actorPermissions(state, state.session.currentOrganizationId);
@@ -200,15 +231,30 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!state.data.organizations.some((o) => o.id === action.organizationId) || !action.admin.organizationIds.includes(action.organizationId)) return state;
       if (JSON.stringify(state.data.admin) === JSON.stringify(action.admin) && state.session.currentOrganizationId === action.organizationId) return state;
       const at = new Date().toISOString();
-      return {
+      const sameAdmin = state.data.admin.id === action.admin.id;
+      return ensurePrimaryAdmins({
         ...state,
-        session: { adminId: action.admin.id, currentOrganizationId: action.organizationId },
+        session: {
+          adminId: action.admin.id, currentOrganizationId: action.organizationId,
+          ...(sameAdmin && state.session.previewRoleId ? { previewRoleId: state.session.previewRoleId } : {}),
+        },
         data: {
           ...state.data,
           admin: action.admin,
           administrators: state.data.administrators.map((a) => (a.organizationId === action.organizationId && a.userId === action.admin.id ? { ...a, lastActiveAt: at } : a)),
         },
-      };
+      });
+    }
+    case 'preview/start': {
+      if (!roleById(action.roleId) || !canPreviewRoles(state)) return state;
+      // Previewing your own full role is the same as not previewing.
+      if (action.roleId === 'organization-admin') return reducer(state, { type: 'preview/stop' });
+      return { ...state, session: { ...state.session, previewRoleId: action.roleId } };
+    }
+    case 'preview/stop': {
+      if (!state.session.previewRoleId) return state;
+      const { previewRoleId: _, ...session } = state.session;
+      return { ...state, session };
     }
     case 'admins/invite': return orKeep(state, applyInvite(state, action.input));
     case 'admins/resend': return orKeep(state, applyResendInvite(state, action));
