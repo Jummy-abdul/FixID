@@ -51,8 +51,8 @@ export function memberCounts(d: GroupData, organizationId: string): Map<string, 
 }
 
 /**
- * Features that rely on a group: verification activities whose active or draft configuration checks
- * membership of it. Removal is blocked while any do.
+ * Features that rely on a group: verification activities that list it as eligible participants, or whose
+ * active or draft configuration checks membership of it. Removal is blocked while any do.
  */
 export function groupDependencies(d: GroupData, organizationId: string, groupId: string): { kind: 'verification-activity'; id: string; name: string }[] {
   const legacy = (d.activities ?? [])
@@ -60,7 +60,7 @@ export function groupDependencies(d: GroupData, organizationId: string, groupId:
     .map((a) => ({ kind: 'verification-activity' as const, id: a.id, name: a.name }));
   const configured = (d.activityConfigs ?? [])
     .filter((a) => a.organizationId === organizationId)
-    .filter((a) => (d.activityVersions ?? []).some((v) => (v.id === a.activeVersionId || v.id === a.draftVersionId)
+    .filter((a) => a.participants?.groupIds.includes(groupId) || (d.activityVersions ?? []).some((v) => (v.id === a.activeVersionId || v.id === a.draftVersionId)
       && v.checks.some((c) => c.type === 'group-membership' && c.params.groupIds?.includes(groupId))))
     .map((a) => ({ kind: 'verification-activity' as const, id: a.id, name: a.name }));
   return [...legacy, ...configured];

@@ -123,7 +123,7 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
         {showActivities && <Card className="xl:col-span-2">
           <CardHeader title="Live verification activities" description="Today's volume and allow rate by activity"
-            action={<Link to="/activities" className="text-sm font-medium text-brand-600 hover:text-brand-700">All activities</Link>} />
+            action={<Link to="/verification-activities" className="text-sm font-medium text-brand-600 hover:text-brand-700">All activities</Link>} />
           {liveActivities.length === 0 ? (
             <EmptyState title="No active verification activities" description="Activities define why, where and how people are verified." />
           ) : (
@@ -133,7 +133,7 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
                 const week = m.weekTx.filter((t) => t.activityId === a.id);
                 return (
                   <li key={a.id}>
-                    <Link to={`/activities/${a.id}`} className="flex items-center gap-4 px-5 py-3 hover:bg-slate-50">
+                    <Link to={`/verification-history?activity=${a.id}&range=all`} className="flex items-center gap-4 px-5 py-3 hover:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-slate-900">{a.name}</p>
                         <p className="truncate text-xs text-slate-500">{PURPOSE_LABEL[a.purpose]} · {a.location}</p>

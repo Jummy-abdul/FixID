@@ -197,7 +197,7 @@ describe('manual user creation', () => {
     expect(await screen.findByText('1 issued')).toBeInTheDocument();
     await user.click(within(nav).getByRole('link', { name: 'Dashboard' }));
     expect(await screen.findByText('1 of 2 complete')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Set up verification' })).toHaveAttribute('href', '/activities');
+    expect(screen.getByRole('link', { name: 'Set up verification' })).toHaveAttribute('href', '/verification-activities');
   });
 
   it('Scenario C: a subsequent user reuses the identifier and credential configurations', async () => {

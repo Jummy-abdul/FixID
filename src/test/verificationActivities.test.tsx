@@ -98,13 +98,16 @@ describe('lifecycle and versions', () => {
   it('creates a draft, activates only when valid, and audits each step', () => {
     let s = sampleState();
     const id1 = ids();
-    const bad = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [] }), at: AT }));
+    const bad = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { checks: [], verifierIds: [] }), at: AT }));
     expect(bad.state.data.activityConfigs.find((a) => a.id === id1.activityId)).toMatchObject({ status: 'draft', draftVersionId: id1.versionId });
     expect(bad.state.data.audit[0]).toMatchObject({ action: 'verification-activity.created', summary: 'Tobyson TE created the Front Desk Check activity as a draft.' });
-    expect(applyActivate(bad.state, { organizationId: ORG, activityId: id1.activityId, at: AT })).toMatchObject({ ok: false, problems: ['Assign at least one verifier with the Verifier role.'] });
+    expect(applyActivate(bad.state, { organizationId: ORG, activityId: id1.activityId, at: AT })).toMatchObject({ ok: false, problems: ['Add at least one verification check.'] });
+    // Restricting to assigned verifiers (advanced) needs at least one; otherwise no assignment is needed.
+    const restricted = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [], restrictVerifiers: true }), at: AT }));
+    expect(applyActivate(restricted.state, { organizationId: ORG, activityId: id1.activityId, at: AT })).toMatchObject({ ok: false, problems: ['This activity is limited to assigned verifiers. Assign at least one, or allow any Verifier.'] });
 
-    s = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s), at: AT })).state;
-    expect(s.data.audit[0]).toMatchObject({ action: 'verification-activity.verifier-assigned' });
+    s = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [] }), at: AT })).state;
+    expect(s.data.verifierAssignments.some((v) => v.activityId === id1.activityId)).toBe(false);
     expect(applySaveActivity(s, { organizationId: ORG, ids: ids(), form: identityForm(s), at: AT })).toMatchObject({ ok: false, error: 'An activity with this name already exists.' });
     s = ok(applyActivate(s, { organizationId: ORG, activityId: id1.activityId, at: AT })).state;
     const activity = s.data.activityConfigs.find((a) => a.id === id1.activityId)!;
@@ -183,16 +186,24 @@ describe('permissions', () => {
     expect(authorizeAction(preview, 'vactivities/save')).toMatch(/read-only/);
   });
 
-  it('removing a verifier assignment stops them performing the activity', () => {
+  it('authorizes every organization verifier by default; assignments only matter when the activity is restricted', () => {
     let s = sampleState();
     const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'active')!;
-    const vid = s.data.verifierAssignments.find((v) => v.activityId === activity.id && v.status === 'active')!.administratorId;
+    const [vid] = eligibleVerifiers(s.data, ORG).map((a) => a.id);
+    expect(s.data.verifierAssignments.filter((v) => v.activityId === activity.id)).toHaveLength(0);
     expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toEqual({ authorized: true });
     const version = s.data.activityVersions.find((v) => v.id === activity.activeVersionId)!;
-    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { name: activity.name, description: activity.description, purpose: activity.purpose, type: version.type, checks: version.checks, outcome: version.outcome, verifierIds: [] } })).state;
+    const form = { name: activity.name, description: activity.description, purpose: activity.purpose, type: version.type, checks: version.checks, outcome: version.outcome };
+    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [vid], restrictVerifiers: true } })).state;
+    expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toEqual({ authorized: true });
+    expect(s.data.audit.some((e) => e.action === 'verification-activity.updated' && e.changes?.some((c) => c.field === 'Who can verify'))).toBe(true);
+    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [] } })).state;
     expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toMatchObject({ authorized: false });
     expect(s.data.audit[0]).toMatchObject({ action: 'verification-activity.verifier-removed' });
     expect(s.data.activityConfigs.find((a) => a.id === activity.id)!.draftVersionId).toBeUndefined();
+    // Back to any Verifier: the leftover (removed) assignment history blocks nobody.
+    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [], restrictVerifiers: false } })).state;
+    expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toEqual({ authorized: true });
   });
 });
 
@@ -203,7 +214,7 @@ describe('screens', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Verification Activities' })).toBeInTheDocument();
     expect(screen.getByText('Create and manage verification activities for your organization.')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Visitor Identity Check' })).toBeInTheDocument();
-    expect(screen.getAllByRole('columnheader').map((h) => h.textContent?.trim())).toEqual(['Activity Name', 'Verification Type', 'Checks', 'Assigned Verifiers', 'Status', 'Last Updated', 'Actions']);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent?.trim())).toEqual(['Activity Name', 'Requirements', 'Eligible Participants', 'Status', 'Last Updated', 'Actions']);
     await user.selectOptions(screen.getByLabelText('Status'), 'draft');
     expect(screen.queryByRole('link', { name: 'Visitor Identity Check' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Event Access Verification' })).toBeInTheDocument();
@@ -213,47 +224,49 @@ describe('screens', () => {
     expect(dialog).toHaveTextContent(/not configured/);
   });
 
-  it('creates a credential activity through the guided flow and activates it', async () => {
+  it('creates an activity in three steps: details, requirements and eligible participants', async () => {
     const s = sampleState();
     const user = renderApp('/verification-activities/new', s);
-    expect(within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('button')).toHaveLength(6);
-    await user.type(screen.getByLabelText(/Activity name/), 'Membership Card Check');
-    await user.type(screen.getByLabelText(/Purpose/), 'Confirm members at the entrance');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
-    await user.click(screen.getByRole('radio', { name: /^Credential/ }));
-    expect(screen.getByText(/Credential authenticity is added and required automatically/)).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['1Activity Details', '2Verification Requirements', '3Eligible Participants']);
+    await user.type(screen.getByLabelText(/Activity name/), 'Members Evening');
+    await user.type(screen.getByLabelText(/Description \/ Purpose/), 'Verify identity and eligibility before entry');
+    await user.type(screen.getByLabelText(/Location/), 'Hall C');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-    const auth = screen.getByRole('group', { name: 'Credential Authenticity' });
-    expect(within(auth).getByText('Required by platform policy')).toBeInTheDocument();
-    expect(within(auth).getByRole('radio', { name: 'Optional' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: 'Remove Credential Authenticity' })).toBeNull();
-    const type = s.data.credentialTypes.find((t) => t.organizationId === ORG && t.status === 'active')!;
-    await user.click(within(auth).getByRole('checkbox', { name: type.name }));
-    await user.click(screen.getByRole('button', { name: 'Add Credential Status' }));
-    await user.click(screen.getByRole('button', { name: 'Add Holder Binding' }));
-    const binding = screen.getByRole('group', { name: 'Holder Binding' });
-    expect(binding).toHaveTextContent(/isn’t configured|not configured/i);
-    await user.click(screen.getByRole('button', { name: 'Remove Holder Binding' }));
+    // Step 2: plain-language requirements. Identity by record lookup is available without any extra service.
+    expect(screen.getByRole('heading', { name: 'Verification Requirements' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Verify identity' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Identity record lookup/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('checkbox', { name: 'Verify credential' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Verify eligibility' })).toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: /Prevent multiple entries/ }));
+    expect(screen.queryByText('Customize checks')).toBeNull();
+    await user.click(screen.getByRole('button', { name: /Advanced configuration/ }));
+    expect(screen.getByRole('button', { name: 'Customize checks' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Anyone with the Verifier role/ })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-    await user.click(screen.getByRole('radio', { name: /Refer for review.*original failed result/ }));
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
-    const verifier = eligibleVerifiers(s.data, ORG)[0];
-    await user.click(screen.getByRole('checkbox', { name: `Assign ${verifier.name}` }));
-    expect(screen.getByText('1 verifier assigned')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    // Step 3: groups and users, with a unique count, then the review.
+    expect(screen.getByRole('button', { name: 'Create & Activate' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose at least one eligible group or user.');
+    const group = s.data.groups.find((g) => g.id === `${ORG}_grp_volunteers`)!;
+    await user.click(screen.getByRole('checkbox', { name: `Select group ${group.name}` }));
+    const outsider = s.data.members.find((m) => m.organizationId === ORG && m.status === 'active' && !s.data.groupMemberships.some((x) => x.groupId === group.id && x.memberId === m.id))!;
+    await user.type(screen.getByLabelText('Search users to add'), outsider.displayName.slice(0, 5));
+    await user.click(screen.getByRole('button', { name: `Add ${outsider.displayName}` }));
+    const groupSize = new Set(s.data.groupMemberships.filter((x) => x.groupId === group.id).map((x) => x.memberId)).size;
+    expect(screen.getByText(/unique eligible/)).toHaveTextContent(`${groupSize + 1} unique eligible people right now · 1 group · 1 user`);
+    expect(screen.getByRole('heading', { name: 'Review' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create & Activate' }));
 
-    expect(screen.getByText('Ready to activate. All required configuration is complete.')).toBeInTheDocument();
-    expect(screen.getByRole('list', { name: 'Outcome rules' })).toHaveTextContent('If a required check fails, the outcome is Pending Review');
-    await user.click(screen.getByRole('button', { name: 'Activate Activity' }));
-    expect(await screen.findByRole('heading', { level: 1, name: /Membership Card Check/ })).toBeInTheDocument();
-    const saved = loadState()!.data.activityConfigs.find((a) => a.name === 'Membership Card Check')!;
-    expect(saved.status).toBe('active');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', 'Checks & Rules2', 'Verifiers1', 'Activity History']);
-    await user.click(screen.getByRole('tab', { name: /Activity History/ }));
-    expect(screen.getByText('Tobyson TE activated Membership Card Check (version 1).')).toBeInTheDocument();
-    expect(screen.getByText('Tobyson TE created the Membership Card Check activity as a draft.')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Members Evening/ })).toBeInTheDocument();
+    const saved = loadState()!.data.activityConfigs.find((a) => a.name === 'Members Evening')!;
+    expect(saved).toMatchObject({ status: 'active', location: 'Hall C', entryPolicy: 'deny', restrictVerifiers: false, participants: { groupIds: [group.id], memberIds: [outsider.id] } });
+    expect(loadState()!.data.verifierAssignments.some((v) => v.activityId === saved.id)).toBe(false);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', `Participants${groupSize + 1}`, 'Verification History0']);
+    expect(screen.getByRole('list', { name: 'Verification requirements' })).toHaveTextContent('Verify identity: identity record lookup');
+    expect(screen.getByRole('list', { name: 'Verification requirements' })).toHaveTextContent('Multiple entries: not permitted');
+    expect(loadState()!.data.audit.slice(0, 2).map((e) => e.action)).toEqual(['verification-activity.activated', 'verification-activity.created']);
   });
 
   it('saves an incomplete activity as a draft and explains what blocks activation', async () => {
@@ -261,9 +274,9 @@ describe('screens', () => {
     await user.click(screen.getByRole('button', { name: 'Save as Draft' }));
     expect(screen.getByText('Enter an activity name.')).toBeInTheDocument();
     await user.type(screen.getByLabelText(/Activity name/), 'Unfinished Check');
-    await user.click(screen.getByRole('button', { name: /Review & Activate/ }));
-    expect(screen.getByRole('button', { name: 'Activate Activity' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Add at least one verification check.');
+    await user.click(screen.getByRole('button', { name: /Eligible Participants/ }));
+    expect(screen.getByRole('button', { name: 'Create & Activate' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose at least one eligible group or user.');
     await user.click(screen.getByRole('button', { name: 'Save as Draft' }));
     expect(await screen.findByRole('heading', { level: 1, name: /Unfinished Check/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
@@ -283,14 +296,20 @@ describe('screens', () => {
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
   });
 
-  it('lets a manager remove a verifier from the Verifiers tab', async () => {
+  it('updates eligible participants from the Participants tab and audits the change', async () => {
     const s = sampleState();
-    const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'active')!;
-    const user = renderApp(`/verification-activities/${activity.id}?tab=verifiers`, s);
-    const assigned = eligibleVerifiers(s.data, ORG)[0];
-    expect(screen.getByRole('row', { name: new RegExp(assigned.name!) })).toHaveTextContent('Yes');
-    await user.click(screen.getByRole('button', { name: `Remove ${assigned.name}` }));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
-    await waitFor(() => expect(screen.getByText('No verifiers assigned')).toBeInTheDocument());
+    const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.name === 'Annual Staff Conference')!;
+    const user = renderApp(`/verification-activities/${activity.id}?tab=participants`, s);
+    const removed = s.data.members.find((m) => m.id === activity.participants!.memberIds[0])!;
+    expect(screen.getByRole('link', { name: removed.displayName })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit participants' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: `Remove ${removed.displayName}` }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save participants' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const after = loadState()!;
+    expect(after.data.activityConfigs.find((a) => a.id === activity.id)!.participants!.memberIds).not.toContain(removed.id);
+    expect(after.data.audit[0]).toMatchObject({ action: 'verification-activity.participants-changed' });
+    // Participants aren't versioned: no draft version was created.
+    expect(after.data.activityConfigs.find((a) => a.id === activity.id)!.draftVersionId).toBeUndefined();
   });
 });

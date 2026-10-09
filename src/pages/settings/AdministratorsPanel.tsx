@@ -417,7 +417,7 @@ function RolesTab() {
           </Card>
         );
       })}
-      <p className="text-sm text-slate-500">Built-in roles can't be edited. Verifiers work through approved verifier apps and are assigned to specific verification activities by someone who can assign verifiers. Verification rules set by FixID, or by a governing authority in future, can't be changed by any organization role.</p>
+      <p className="text-sm text-slate-500">Built-in roles can't be edited. Verifiers work through approved verifier apps and can perform their organization’s active verification activities; an activity can optionally be limited to specific verifiers. Verification rules set by FixID, or by a governing authority in future, can't be changed by any organization role.</p>
     </div>
   );
 }

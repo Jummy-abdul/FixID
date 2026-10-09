@@ -1,6 +1,6 @@
 import type {
   ActivityCheck, ActivityConfig, ActivityVersion, CheckTypeId, CredentialType, Group, IdentifierConfig, Organization, OrgAdministrator,
-  OutcomePolicy, VerificationOutcome, VerificationType, VerifierAssignment,
+  OutcomePolicy, StandardRequirements, VerificationOutcome, VerificationType, VerifierAssignment,
 } from './types';
 import { permissionsFor } from './roles';
 
@@ -256,6 +256,8 @@ export interface ValidationContext {
   groups: Group[];
   credentialTypes: CredentialType[];
   identifierConfigs: IdentifierConfig[];
+  /** The activity's participant list, for eligibility based on it. */
+  participants?: { groupIds: string[]; memberIds: string[] };
 }
 
 export interface CheckIssue { checkId?: string; message: string }
@@ -336,7 +338,11 @@ export function validateConfiguration(version: Pick<ActivityVersion, 'type' | 'c
       const accepted = (c.params.credentialTypeIds ?? []).filter((id) => ctx.credentialTypes.some((t) => t.id === id && t.status === 'active'));
       if (!accepted.length) blockers.push({ checkId: c.id, message: 'Choose at least one active credential this activity accepts.' });
     }
-    if (f.includes('groups')) {
+    if (f.includes('groups') && c.params.useParticipants) {
+      if (!ctx.participants || (ctx.participants.groupIds.length + ctx.participants.memberIds.length) === 0) {
+        blockers.push({ checkId: c.id, message: 'Choose at least one eligible group or user.' });
+      }
+    } else if (f.includes('groups')) {
       const groups = (c.params.groupIds ?? []).filter((id) => ctx.groups.some((g) => g.id === id));
       if (!groups.length) blockers.push({ checkId: c.id, message: 'Choose at least one permitted group.' });
       else if (groups.length < (c.params.groupIds ?? []).length) warnings.push({ checkId: c.id, message: 'Some permitted groups no longer exist and will be ignored.' });
@@ -402,14 +408,23 @@ export const activeAssignments = (d: Pick<VerificationData, 'verifierAssignments
  * ask FixID: active administrator in the same organization, with the permission, assigned to an active
  * activity. Removing the role, the assignment or the activity stops it immediately.
  */
-export function authorizeVerifier(d: VerificationData, input: { organizationId: string; activityId: string; administratorId: string }): { authorized: true } | { authorized: false; reason: string } {
+export function authorizeVerifier(d: VerificationData, input: { organizationId: string; activityId: string; administratorId: string; now?: Date }): { authorized: true } | { authorized: false; reason: string } {
   const activity = d.activityConfigs.find((a) => a.id === input.activityId && a.organizationId === input.organizationId);
   if (!activity) return { authorized: false, reason: 'Activity not found in this organization.' };
   if (activity.status !== 'active' || !activity.activeVersionId) return { authorized: false, reason: 'The activity isn’t active.' };
   const admin = d.administrators.find((a) => a.id === input.administratorId && a.organizationId === input.organizationId);
   if (!admin || admin.status !== 'active') return { authorized: false, reason: 'Not an active administrator of this organization.' };
   if (!permissionsFor(admin.roleIds).has('verification.execute')) return { authorized: false, reason: 'Their role doesn’t allow performing verifications.' };
-  if (!activeAssignments(d, input.organizationId, activity.id).some((v) => v.administratorId === admin.id)) return { authorized: false, reason: 'Not assigned to this activity.' };
+  // Any Verifier in the organization may perform its active activities, unless the activity is restricted
+  // to assigned verifiers (advanced). Old assignments don't restrict anyone on their own.
+  if (activity.restrictVerifiers && !activeAssignments(d, input.organizationId, activity.id).some((v) => v.administratorId === admin.id)) {
+    return { authorized: false, reason: 'Not assigned to this activity.' };
+  }
+  const now = input.now ?? new Date();
+  const sched = activity.schedule;
+  if (sched?.enforced && ((sched.startsAt && now < new Date(sched.startsAt)) || (sched.endsAt && now > new Date(sched.endsAt)))) {
+    return { authorized: false, reason: 'The activity is outside its verification window.' };
+  }
   return { authorized: true };
 }
 
@@ -467,4 +482,104 @@ export function evaluateOutcome(version: Pick<ActivityVersion, 'outcome' | 'chec
     return { outcome: version.outcome.onInconclusive === 'pending-review' ? 'pending-review' : 'unable-to-verify', reasons };
   }
   return { outcome: 'verified', reasons: [] };
+}
+
+/* ------------------------------------------------------------------ */
+/* Standard requirements (the simplified configuration)                */
+/* ------------------------------------------------------------------ */
+
+export const IDENTITY_METHODS: { id: NonNullable<StandardRequirements['identity']>; name: string; description: string; providers: string[]; note?: string }[] = [
+  {
+    id: 'face', name: 'Facial identity matching', providers: ['identity-service', 'facial-matching'],
+    description: 'Find the person’s identity record, confirm a live person is present, and compare their face with the authorized reference image.',
+  },
+  {
+    id: 'holder', name: 'Credential holder proof', providers: ['credential-service', 'presentation-proof'],
+    description: 'The person presents a digital credential and proves, with their wallet, that they are its holder. Needs a credential requirement.',
+  },
+  {
+    id: 'record', name: 'Identity record lookup', providers: ['identity-service'],
+    description: 'Find the person’s identity record from their identifier. The officer can also record details the person states (name and date of birth) as supporting evidence.',
+    note: 'Lower assurance: this confirms a record exists. It doesn’t prove the person present is its owner; the officer compares the person with the record.',
+  },
+];
+
+/** Generates the checks for the standard requirements, reusing the check catalog and platform policies. */
+export function buildChecks(req: StandardRequirements, org: Organization, makeId: () => string, identifierConfigId?: string): { type: VerificationType; checks: ActivityCheck[] } {
+  const usesCredential = !!req.credential || req.identity === 'holder';
+  const type: VerificationType = req.identity && usesCredential ? 'identity-credential' : usesCredential ? 'credential' : 'identity';
+  const add = (t: CheckTypeId, extra: Partial<ActivityCheck> = {}) => newCheck(t, makeId(), org, extra);
+  const checks: ActivityCheck[] = [];
+  if (req.identity === 'record' || req.identity === 'face') {
+    checks.push(add('identity-lookup', { params: { identifierConfigId } }));
+  }
+  if (req.identity === 'record') checks.push(add('attribute-match', { requirement: 'optional', params: { attributes: ['Full name', 'Date of birth'] } }));
+  if (req.identity === 'face') checks.push(add('liveness'), add('face-match'));
+  if (usesCredential) {
+    checks.push(
+      add('credential-authenticity', { policySource: 'platform', locked: true, params: { credentialTypeIds: req.credential?.credentialTypeIds ?? [] } }),
+      add('issuer-trust'), add('credential-validity'), add('credential-status'),
+    );
+  }
+  if (req.identity === 'holder') checks.push(add('holder-binding'));
+  if (req.eligibility === 'participants') checks.push(add('group-membership', { params: { useParticipants: true } }));
+  if (req.eligibility === 'external') checks.push(add('external-eligibility'));
+  return { type, checks };
+}
+
+/** Plain-language description of what an activity verifies. */
+export function describeRequirements(version: Pick<ActivityVersion, 'requirements' | 'customized' | 'checks'>, credentialName: (id: string) => string): string[] {
+  const r = version.requirements;
+  if (!r || version.customized) {
+    return version.checks.filter((c) => c.requirement !== 'optional').map((c) => `${checkById(c.type).name}${c.requirement === 'alternative' ? ' (approved alternative)' : ''}`);
+  }
+  const lines: string[] = [];
+  if (r.identity) lines.push(`Verify identity: ${IDENTITY_METHODS.find((m) => m.id === r.identity)!.name.toLowerCase()}`);
+  if (r.credential || r.identity === 'holder') {
+    const names = (r.credential?.credentialTypeIds ?? []).map(credentialName).filter(Boolean);
+    lines.push(`Verify credential: ${names.length ? names.join(', ') : 'an accepted credential'} (genuine, trusted issuer, valid, not revoked)`);
+  }
+  if (r.eligibility === 'participants') lines.push('Verify eligibility: on the participant list');
+  if (r.eligibility === 'external') lines.push('Verify eligibility: external eligibility source');
+  return lines;
+}
+
+/** Short requirement labels for lists: Identity, Credential, Eligibility. */
+export function requirementTags(version: Pick<ActivityVersion, 'checks'>): string[] {
+  const cats = new Set(version.checks.filter((c) => c.requirement !== 'optional').map((c) => checkById(c.type).category));
+  return [cats.has('identity') && 'Identity', cats.has('credential') && 'Credential', cats.has('eligibility') && 'Eligibility'].filter(Boolean) as string[];
+}
+
+/** Unique eligible users for a participant list: selected users plus current members of selected groups. */
+export function eligibleParticipants(
+  d: { groupMemberships: { organizationId: string; groupId: string; memberId: string }[]; members: { id: string; organizationId: string }[] },
+  organizationId: string, participants?: { groupIds: string[]; memberIds: string[] },
+): Set<string> {
+  const out = new Set<string>();
+  if (!participants) return out;
+  const valid = new Set(d.members.filter((m) => m.organizationId === organizationId).map((m) => m.id));
+  for (const id of participants.memberIds) if (valid.has(id)) out.add(id);
+  for (const m of d.groupMemberships) if (m.organizationId === organizationId && participants.groupIds.includes(m.groupId) && valid.has(m.memberId)) out.add(m.memberId);
+  return out;
+}
+
+const IDENTITY_CATEGORIES = new Set<CheckCategory>(['identity', 'credential']);
+
+/**
+ * Separates the identity/credential result from the eligibility result, so a person on the participant
+ * list can't make up for a failed identity check, and vice versa.
+ */
+export function splitResults(version: Pick<ActivityVersion, 'outcome' | 'checks'>, runs: Parameters<typeof evaluateOutcome>[1]) {
+  const part = (pred: (c: ActivityCheck) => boolean) => {
+    const checks = version.checks.filter(pred);
+    if (!checks.some((c) => c.requirement !== 'optional')) return null;
+    return evaluateOutcome({ outcome: version.outcome, checks }, runs.filter((r) => checks.some((c) => c.id === r.checkId))).outcome;
+  };
+  const verification = part((c) => IDENTITY_CATEGORIES.has(checkById(c.type).category));
+  const eligibility = part((c) => checkById(c.type).category === 'eligibility');
+  return {
+    verificationResult: verification ?? 'not-required' as const,
+    eligibilityResult: eligibility === null ? 'not-required' as const
+      : eligibility === 'verified' ? 'eligible' as const : eligibility === 'not-verified' ? 'not-eligible' as const : eligibility === 'pending-review' ? 'review' as const : 'unable' as const,
+  };
 }

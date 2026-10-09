@@ -18,7 +18,7 @@ export function TransactionsTable({ rows, hide = [], emptyTitle = 'No transactio
     {
       key: 'activity', header: 'Activity', cell: (t) => {
         const a = activityById.get(t.activityId);
-        return a ? <Link to={`/activities/${a.id}`} onClick={stop} className="text-slate-900 hover:text-brand-700">{a.name}</Link> : '—';
+        return a ? <Link to={`/verification-history?activity=${a.id}&range=all`} onClick={stop} className="text-slate-900 hover:text-brand-700">{a.name}</Link> : '—';
       },
     },
     {

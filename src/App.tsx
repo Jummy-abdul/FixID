@@ -5,8 +5,6 @@ import {
   CreatePasswordPage, ForgotPasswordPage, PublicOnly, RequireApp, RequireVerifierApp, RequireOnboarding, SignInPage, SignUpPage, VerifyEmailPage,
 } from './pages/auth/AuthPages';
 import { OnboardingOrganizationPage, OnboardingPersonalPage } from './pages/auth/OnboardingPages';
-import { ActivitiesPage } from './pages/ActivitiesPage';
-import { ActivityDetailPage } from './pages/ActivityDetailPage';
 import { AuditPage } from './pages/AuditPage';
 import { CardDesignsPage } from './pages/CardDesignsPage';
 import { CredentialConfigDetailPage } from './pages/credentials/CredentialConfigDetailPage';
@@ -33,8 +31,7 @@ import { PeoplePage } from './pages/PeoplePage';
 import { PersonDetailPage } from './pages/PersonDetailPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
-import { TransactionDetailPage } from './pages/TransactionDetailPage';
-import { TransactionsPage } from './pages/TransactionsPage';
+import { VerificationHistoryPage, VerificationRecordPage } from './pages/verification/VerificationHistoryPage';
 
 /** Redirect a renamed route, keeping the `:id` param and query string (e.g. dashboard filters). */
 /** Issuing from a user's page continues in Credential Management with that user preselected. */
@@ -47,6 +44,12 @@ function UserIssueRedirect() {
 function ConfigRedirect() {
   const { typeId = '' } = useParams();
   return <Navigate to={`/credentials/configurations/${typeId}`} replace />;
+}
+
+/** Verification Events are no longer a separate page: their records are in Verification History. */
+function EventRedirect() {
+  const { activityId = '' } = useParams();
+  return <Navigate to={`/verification-history?activity=${encodeURIComponent(activityId)}&range=all`} replace />;
 }
 
 function RenamedRoute({ to }: { to: string }) {
@@ -107,10 +110,10 @@ export function AppRoutes() {
         <Route path="verification-activities/new" element={<RequirePermission permission="verification.activities.create"><ActivityEditorPage /></RequirePermission>} />
         <Route path="verification-activities/:activityId" element={<RequirePermission permission="verification.activities.view"><ActivityDetailsPage /></RequirePermission>} />
         <Route path="verification-activities/:activityId/edit" element={<RequirePermission permission="verification.activities.view"><ActivityEditorPage /></RequirePermission>} />
-        <Route path="activities" element={<RequirePermission permission="verification.activities.view"><ActivitiesPage /></RequirePermission>} />
-        <Route path="activities/:activityId" element={<RequirePermission permission="verification.activities.view"><ActivityDetailPage /></RequirePermission>} />
-        <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><TransactionsPage /></RequirePermission>} />
-        <Route path="verification-history/:transactionId" element={<RequirePermission permission="verification.results.view"><TransactionDetailPage /></RequirePermission>} />
+        <Route path="activities" element={<Navigate to="/verification-activities" replace />} />
+        <Route path="activities/:activityId" element={<EventRedirect />} />
+        <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><VerificationHistoryPage /></RequirePermission>} />
+        <Route path="verification-history/:recordId" element={<RequirePermission permission="verification.results.view"><VerificationRecordPage /></RequirePermission>} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="profile" element={<ProfilePage />} />

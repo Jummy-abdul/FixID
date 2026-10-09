@@ -78,18 +78,21 @@ describe('verification governance and verifiers', () => {
     expect(verifier.permissions).not.toContain('verification.rules.manage');
   });
 
-  it('authorizes verifiers per assigned, active activity', () => {
+  it('authorizes organization verifiers for active activities, and assigned ones only when restricted', () => {
     const s = sampleState();
     const activity = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.status === 'active')!;
-    const assignment = s.data.verifierAssignments.find((v) => v.activityId === activity.id && v.status === 'active')!;
-    const input = { organizationId: SAMPLE_ORGANIZATION_ID, activityId: activity.id, administratorId: assignment.administratorId };
+    const verifier = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('verifier') && a.status === 'active')!;
+    const assignment = { organizationId: SAMPLE_ORGANIZATION_ID, activityId: activity.id, administratorId: verifier.id, status: 'active' as const, assignedAt: AT, assignedBy: 'x' };
+    const input = { organizationId: SAMPLE_ORGANIZATION_ID, activityId: activity.id, administratorId: verifier.id };
     expect(authorizeVerifier(s.data, input)).toEqual({ authorized: true });
     const other = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.id !== activity.id && a.status !== 'active')!;
     expect(authorizeVerifier(s.data, { ...input, activityId: other.id })).toMatchObject({ authorized: false });
-    const demoted = { ...s.data, administrators: s.data.administrators.map((a) => (a.id === assignment.administratorId ? { ...a, roleIds: ['viewer'] } : a)) };
+    const demoted = { ...s.data, administrators: s.data.administrators.map((a) => (a.id === verifier.id ? { ...a, roleIds: ['viewer'] } : a)) };
     expect(authorizeVerifier(demoted, input)).toMatchObject({ authorized: false, reason: expect.stringMatching(/role/) });
-    const unassigned = { ...s.data, verifierAssignments: s.data.verifierAssignments.map((v) => (v === assignment ? { ...v, status: 'removed' as const } : v)) };
-    expect(authorizeVerifier(unassigned, input)).toMatchObject({ authorized: false, reason: 'Not assigned to this activity.' });
+    const restricted = { ...s.data, activityConfigs: s.data.activityConfigs.map((a) => (a.id === activity.id ? { ...a, restrictVerifiers: true } : a)) };
+    expect(authorizeVerifier(restricted, input)).toMatchObject({ authorized: false, reason: 'Not assigned to this activity.' });
+    expect(authorizeVerifier({ ...restricted, verifierAssignments: [assignment] }, input)).toEqual({ authorized: true });
+    expect(authorizeVerifier({ ...restricted, verifierAssignments: [{ ...assignment, status: 'removed' }] }, input)).toMatchObject({ authorized: false });
     // An Organization Admin isn't a verifier unless explicitly authorized.
     const owner = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('organization-admin'))!;
     expect(authorizeVerifier(s.data, { ...input, administratorId: owner.id })).toMatchObject({ authorized: false });

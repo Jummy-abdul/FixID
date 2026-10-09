@@ -4,7 +4,7 @@ import type {
 } from '@/domain/types';
 import { checkById, providersFor } from '@/domain/verification';
 import { actorPermissions, actorRecord } from '@/store/adminOps';
-import { WEB_CLIENT, authorizeExecution, type AttemptError, type CompleteInput } from '@/store/attemptOps';
+import { WEB_CLIENT, authorizeExecution, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
 import type { Action, AppState } from '@/store/state';
 import type { IdSwitchService } from '@/services/types';
 import {
@@ -232,6 +232,16 @@ export async function runChecks(ctx: RunContext, onProgress?: (runs: CheckRun[])
         return { ...r, simulated: true, evidenceRef: r.status === 'passed' || r.status === 'failed' ? `biometric-comparison:${ctx.attempt.id}` : undefined };
       }
       case 'group-membership': {
+        if (c.params.useParticipants) {
+          // The activity's participant list, read now: selected users and current members of selected groups.
+          const activity = state.data.activityConfigs.find((a) => a.id === ctx.attempt.activityId);
+          const p = activity?.participants ?? { groupIds: [], memberIds: [] };
+          const m = resolved!.member;
+          if (p.memberIds.includes(m.id)) return { status: 'passed', explanation: 'On this activity’s participant list.' };
+          const hit = p.groupIds.find((g) => isGroupMember(state.data, org.id, g, m.id));
+          if (hit) return { status: 'passed', explanation: `Eligible as a current member of ${state.data.groups.find((x) => x.id === hit)?.name}.` };
+          return { status: 'failed', explanation: 'Not an eligible participant for this activity.' };
+        }
         const ids = (c.params.groupIds ?? []).filter((g) => state.data.groups.some((x) => x.id === g && x.organizationId === org.id));
         if (!ids.length) return { status: 'inconclusive', explanation: 'None of the permitted groups exist any more.' };
         const hit = ids.find((g) => isGroupMember(state.data, org.id, g, resolved!.member.id));
@@ -292,7 +302,7 @@ export function createVerificationService(deps: ServiceDeps) {
 
   const service = {
     client,
-    /** Active activities the signed-in verifier is assigned to and may perform. */
+    /** Active activities the signed-in verifier may perform: all of the organization’s, unless an activity is restricted. */
     listAuthorizedActivities(organizationId: string): { activity: ActivityConfig; version: ActivityVersion }[] {
       const s = deps.getState();
       return s.data.activityConfigs
@@ -375,6 +385,17 @@ export function createVerificationService(deps: ServiceDeps) {
       const saved = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId)!;
       if (saved.status !== 'completed') return { ok: false, error: 'The result couldn’t be recorded. The verification may have expired or your access changed.', code: 'operational' };
       return { ok: true, attempt: saved };
+    },
+
+    /** Records that the person physically entered, after access was permitted. Never automatic. */
+    recordEntry(attemptId: string): { ok: true } | { ok: false; error: string } {
+      const before = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      if (!before) return { ok: false, error: 'This verification wasn’t found.' };
+      if (before.entry) return { ok: true };
+      deps.dispatch({ type: 'verify/recordEntry', attemptId, at: now().toISOString() });
+      const after = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      if (after?.entry) return { ok: true };
+      return { ok: false, error: entryProblem(deps.getState(), attemptId) ?? 'Entry couldn’t be recorded.' };
     },
 
     cancelAttempt(attemptId: string): { ok: boolean } {

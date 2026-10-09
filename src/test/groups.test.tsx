@@ -5,7 +5,7 @@ import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { DEMO_SESSION } from '@/auth/authCore';
 import { NEW_ORGANIZATION_ID, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
-import { findGroup, groupsForMember, groupsOf, isGroupMember, membershipsOfGroup } from '@/domain/groups';
+import { findGroup, groupDependencies, groupsForMember, groupsOf, isGroupMember, membershipsOfGroup } from '@/domain/groups';
 import { adminsOf } from '@/store/adminOps';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from '@/store/groupOps';
 import { loadState, saveState } from '@/store/persistence';
@@ -112,7 +112,7 @@ describe('group rules', () => {
 
   it('removes memberships and groups without touching users or credentials', () => {
     const s = sampleState();
-    const g = groupsOf(s.data, ORG).find((x) => membershipsOfGroup(s.data, ORG, x.id).length > 2)!;
+    const g = groupsOf(s.data, ORG).find((x) => membershipsOfGroup(s.data, ORG, x.id).length > 2 && groupDependencies(s.data, ORG, x.id).length === 0)!;
     const ids = membershipsOfGroup(s.data, ORG, g.id).map((m) => m.memberId);
     const r = ok(applyRemoveMembers(s, { organizationId: ORG, groupId: g.id, memberIds: ids.slice(0, 2), at: AT }));
     expect(membershipsOfGroup(r.state.data, ORG, g.id)).toHaveLength(ids.length - 2);

@@ -270,7 +270,7 @@ describe('first-time dashboard', () => {
     expect(await screen.findByRole('button', { name: 'Set up verification' })).toBeDisabled();
     expect(screen.queryByText(/Available after your first digital ID/)).toBeNull();
     const nav = screen.getByRole('navigation', { name: 'Primary' });
-    await user.click(within(nav).getByRole('link', { name: 'Verification Events' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Verification Events' })).toBeInTheDocument();
+    await user.click(within(nav).getByRole('link', { name: 'Verification Activities' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Verification Activities' })).toBeInTheDocument();
   });
 });

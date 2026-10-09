@@ -39,7 +39,7 @@ const icon = {
 };
 
 export function TransactionDetailPage() {
-  const { transactionId } = useParams();
+  const { recordId: transactionId } = useParams();
   const { state } = useStore();
   const { organization, activityById, memberById, credentialById, credentialTypeById } = useOrgData();
   const t = state.data.transactions.find((x) => x.id === transactionId && x.organizationId === organization.id);
@@ -79,7 +79,7 @@ export function TransactionDetailPage() {
           <CardHeader title="Record" />
           <CardBody>
             <DescriptionList items={[
-              { label: 'Activity', value: <Link to={`/activities/${activity.id}`} className="text-brand-700 hover:underline">{activity.name}</Link> },
+              { label: 'Activity', value: <Link to={`/verification-history?activity=${activity.id}&range=all`} className="text-brand-700 hover:underline">{activity.name}</Link> },
               { label: 'Person', value: member ? <Link to={`/users/${member.id}`} className="text-brand-700 hover:underline">{member.displayName}</Link> : 'Not identified' },
               { label: 'Credential', value: credential ? <Link to={`/credentials/${credential.id}`} className="font-mono text-xs text-brand-700 hover:underline">{credential.identifier}</Link> : '—', hint: credential ? credentialTypeById.get(credential.credentialTypeId)?.name : undefined },
               { label: 'Method', value: METHOD_LABEL[t.method] },

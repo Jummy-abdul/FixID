@@ -39,7 +39,7 @@ export function FirstTimeDashboard({ data, adminName, headerActions }: { data: D
   const metrics = [
     { label: 'Users', value: data.members.length, to: '/users' },
     { label: 'Active credentials', value: data.credentials.filter((c) => c.status === 'active').length, to: '/credentials' },
-    { label: 'Verification activities', value: data.activities.filter(isConfiguredActivity).length, to: '/activities' },
+    { label: 'Verification activities', value: data.activities.filter(isConfiguredActivity).length, to: '/verification-activities' },
     { label: 'Verifications', value: data.transactions.length, to: '/verification-history' },
   ];
 
@@ -169,7 +169,7 @@ function MilestoneAction({ id, available, resumeMemberId }: { id: SetupMilestone
     );
   }
   if (available) {
-    return <ButtonLink to="/activities" variant="secondary" size="sm" className="mt-4">Set up verification</ButtonLink>;
+    return <ButtonLink to="/verification-activities" variant="secondary" size="sm" className="mt-4">Set up verification</ButtonLink>;
   }
   return (
     // Guided-setup button only; the Verification module itself stays reachable from navigation.

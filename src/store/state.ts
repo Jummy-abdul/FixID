@@ -14,7 +14,7 @@ import {
   applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
 } from './activityOps';
 import {
-  applyCancelAttempt, applyCompleteAttempt, applyDeniedAttempt, applyExpireAttempts, applyFailAttempt, applyReferAttempt, applyStartAttempt,
+  applyCancelAttempt, applyCompleteAttempt, applyDeniedAttempt, applyExpireAttempts, applyFailAttempt, applyRecordEntry, applyReferAttempt, applyStartAttempt,
   type CompleteInput,
 } from './attemptOps';
 import type { VerificationClientRef } from '@/domain/types';
@@ -81,6 +81,7 @@ export type Action =
   | { type: 'verify/cancel'; attemptId: string; at: string }
   | { type: 'verify/fail'; attemptId: string; at: string; reason: string }
   | { type: 'verify/refer'; attemptId: string; at: string; reason: string }
+  | { type: 'verify/recordEntry'; attemptId: string; at: string }
   | { type: 'verify/expire'; organizationId: string; at: string }
   | { type: 'verify/denied'; organizationId: string; activityId: string; reason: string; at: string; client: VerificationClientRef }
   | { type: 'organization/verificationDemo'; organizationId: string; enabled: boolean; at: string }
@@ -118,6 +119,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'verify/cancel': ['verification.execute'],
   'verify/fail': ['verification.execute'],
   'verify/refer': ['verification.execute'],
+  'verify/recordEntry': ['verification.execute'],
   'organization/verificationDemo': ['settings.manage'],
   'vactivities/save': ['verification.activities.create', 'verification.activities.manage', 'verification.rules.manage', 'verification.verifiers.assign'],
   'vactivities/activate': ['verification.activities.manage'],
@@ -322,6 +324,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'verify/cancel': return orKeep(state, applyCancelAttempt(state, action));
     case 'verify/fail': return orKeep(state, applyFailAttempt(state, action));
     case 'verify/refer': return orKeep(state, applyReferAttempt(state, action));
+    case 'verify/recordEntry': return orKeep(state, applyRecordEntry(state, action));
     case 'verify/expire': return applyExpireAttempts(state, action);
     case 'verify/denied': return applyDeniedAttempt(state, action);
     case 'organization/verificationDemo': {

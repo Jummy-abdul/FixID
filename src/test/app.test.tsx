@@ -30,14 +30,14 @@ describe('navigation', () => {
   const items = NAVIGATION.flatMap((g) => g.items);
   const headings: Record<string, RegExp> = {
     '/': /^dashboard$|good (morning|afternoon|evening)/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
-    '/verification-activities': /^verification activities$/i, '/activities': /^verification events$/i, '/verification-history': /^verification history$/i,
+    '/verification-activities': /^verification activities$/i, '/verification-history': /^verification history$/i,
     '/audit': /^audit log$/i, '/settings': /^settings$/i,
   };
 
   it('has the approved sidebar structure and order', () => {
     expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification Events', 'Verification History', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Audit Log', 'Settings',
     ]);
   });
 
@@ -180,7 +180,7 @@ describe('dashboard', () => {
     expect(screen.getByText('1 of 2 complete')).toBeInTheDocument();
     const next = screen.getAllByRole('listitem').find((li) => li.hasAttribute('aria-current'))!;
     expect(next).toHaveTextContent('Set up your first verification activity');
-    expect(within(next).getByRole('link', { name: /set up verification/i })).toHaveAttribute('href', '/activities');
+    expect(within(next).getByRole('link', { name: /set up verification/i })).toHaveAttribute('href', '/verification-activities');
   });
 
   it('switches previews without changing organization data', async () => {
@@ -240,10 +240,10 @@ describe('users', () => {
 
 describe('planned features', () => {
   it('are clearly labelled and do not change data', async () => {
-    const { user } = renderApp('/activities');
+    const { user } = renderApp('/verification-history');
     await waitFor(() => expect(localStorage.getItem('fixid.prototype.state')).not.toBeNull());
     const before = localStorage.getItem('fixid.prototype.state');
-    await user.click(screen.getByRole('button', { name: /test verification/i }));
+    await user.click(screen.getByRole('button', { name: /export csv/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Planned')).toBeInTheDocument();
     expect(within(dialog).getByText(/Nothing has been changed/)).toBeInTheDocument();

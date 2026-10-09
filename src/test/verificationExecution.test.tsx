@@ -56,7 +56,7 @@ async function verify(h: ReturnType<typeof harness>, activityId: string, inputs:
 
 const memberFor = (s: AppState) => {
   const lookup = s.data.activityVersions.find((v) => v.id === activity(s, 'Visitor Identity Check').activeVersionId)!.checks.find((c) => c.type === 'identity-lookup')!;
-  return s.data.members.find((m) => m.organizationId === ORG && m.identifier?.configId === lookup.params.identifierConfigId && m.status === 'active')!;
+  return s.data.members.find((m) => m.organizationId === ORG && !!m.identifier && (!lookup.params.identifierConfigId || m.identifier.configId === lookup.params.identifierConfigId) && m.status === 'active')!;
 };
 
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
@@ -152,7 +152,7 @@ describe('Scenario D — group eligibility', () => {
     const made = addActivity(s, { name: 'Volunteer Check', type: 'identity', checks: [chk(s, 'identity-lookup', { params: lookup.params }), chk(s, 'group-membership', { params: { groupIds: [group.id] } })] });
     s = asHalima(made.state);
     const h = harness(s);
-    const candidates = s.data.members.filter((m) => m.organizationId === ORG && m.identifier?.configId === lookup.params.identifierConfigId);
+    const candidates = s.data.members.filter((m) => m.organizationId === ORG && m.status === 'active' && !!m.identifier && (!lookup.params.identifierConfigId || m.identifier.configId === lookup.params.identifierConfigId));
     const member = candidates.find((m) => isGroupMember(s.data, ORG, group.id, m.id)) as Member;
     const outsider = candidates.find((m) => !isGroupMember(s.data, ORG, group.id, m.id))!;
     if (member) expect((await verify(h, made.id, { identifier: member.identifier!.value })).outcome).toBe('verified');
@@ -185,21 +185,35 @@ describe('alternatives', () => {
 });
 
 describe('Scenario F — authorization', () => {
-  it('refuses unassigned or inactive activities and records the refusal in the Audit Log', () => {
+  it('lets any organization verifier perform active activities, refuses inactive ones and records the refusal', () => {
     const h = harness(asHalima(base()));
-    const notMine = activity(h.state, 'Event Access Verification');
-    expect(h.service.startAttempt(ORG, notMine.id)).toMatchObject({ ok: false });
+    const draft = activity(h.state, 'Event Access Verification');
+    expect(h.service.startAttempt(ORG, draft.id)).toMatchObject({ ok: false });
     expect(h.state.data.audit[0]).toMatchObject({ action: 'verification.denied', result: 'failure' });
     expect(h.state.data.verificationAttempts).toHaveLength(0);
-    expect(h.service.listAuthorizedActivities(ORG).map((x) => x.activity.name).sort()).toEqual(['Membership Verification', 'Visitor Identity Check']);
-    // An Organization Admin isn't a verifier unless explicitly given the role and an assignment.
+    // No per-activity assignment is needed.
+    expect(h.state.data.verifierAssignments.filter((v) => v.organizationId === ORG && v.status === 'active')).toHaveLength(0);
+    expect(h.service.listAuthorizedActivities(ORG).map((x) => x.activity.name).sort()).toEqual(['Annual Staff Conference', 'Membership Verification', 'Visitor Identity Check']);
+    // An Organization Admin isn't a verifier unless explicitly given the role.
     const admin = harness(base());
     expect(admin.service.startAttempt(ORG, activity(admin.state, 'Visitor Identity Check').id)).toMatchObject({ ok: false, code: 'not-authorized' });
   });
 
-  it('stops a verifier whose assignment is removed mid-attempt from recording a result', async () => {
+  it('old assignments to other verifiers don’t block anyone unless the activity is restricted', () => {
+    let s = asHalima(base());
+    const act = activity(s, 'Visitor Identity Check');
+    const other = adminsOf(s, ORG).find((a) => a.id !== halima(s).id)!;
+    s = { ...s, data: { ...s.data, verifierAssignments: [...s.data.verifierAssignments, { organizationId: ORG, activityId: act.id, administratorId: other.id, status: 'active', assignedAt: new Date().toISOString(), assignedBy: 'x' }] } };
+    expect(harness(s).service.startAttempt(ORG, act.id)).toMatchObject({ ok: true });
+    const restricted = { ...s, data: { ...s.data, activityConfigs: s.data.activityConfigs.map((a) => (a.id === act.id ? { ...a, restrictVerifiers: true } : a)) } };
+    expect(harness(restricted).service.startAttempt(ORG, act.id)).toMatchObject({ ok: false });
+  });
+
+  it('stops a verifier whose assignment to a restricted activity is removed mid-attempt from recording a result', async () => {
     const h = harness(asHalima(base()));
     const act = activity(h.state, 'Visitor Identity Check');
+    h.state = { ...h.state, data: { ...h.state.data, activityConfigs: h.state.data.activityConfigs.map((a) => (a.id === act.id ? { ...a, restrictVerifiers: true } : a)),
+      verifierAssignments: [...h.state.data.verifierAssignments, { organizationId: ORG, activityId: act.id, administratorId: halima(h.state).id, status: 'active', assignedAt: new Date().toISOString(), assignedBy: 'x' }] } };
     const started = h.service.startAttempt(ORG, act.id);
     if (!started.ok) throw new Error();
     h.state = { ...h.state, data: { ...h.state.data, verifierAssignments: h.state.data.verifierAssignments.map((v) => (v.activityId === act.id ? { ...v, status: 'removed' as const } : v)) } };
@@ -280,7 +294,7 @@ describe('Verifier Interface', () => {
     await user.click(screen.getByRole('button', { name: 'Set up demo verifier access' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Set up access' }));
     const list = await screen.findByRole('list', { name: 'Your verification activities' });
-    expect(within(list).getAllByRole('heading').map((h) => h.textContent).sort()).toEqual(['Membership Verification', 'Visitor Identity Check']);
+    expect(within(list).getAllByRole('heading').map((h) => h.textContent).sort()).toEqual(['Annual Staff Conference', 'Membership Verification', 'Visitor Identity Check']);
 
     await user.click(within(list).getByRole('button', { name: 'Start verification: Visitor Identity Check' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Visitor Identity Check' })).toBeInTheDocument();
@@ -303,16 +317,18 @@ describe('Verifier Interface', () => {
     expect(await screen.findByRole('heading', { name: 'You can’t perform this verification' })).toBeInTheDocument();
   });
 
-  it('shows a verifier their assigned activities only', async () => {
+  it('hides restricted activities from verifiers who aren’t assigned to them', async () => {
     let s = base();
     const me = adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
+    const other = halima(s);
     s = reducer(s, { type: 'admins/roles', organizationId: ORG, adminId: me.id, roleIds: [...me.roleIds, 'verifier'], at: new Date().toISOString() });
     const visitor = activity(s, 'Visitor Identity Check');
     const v = s.data.activityVersions.find((x) => x.id === visitor.activeVersionId)!;
     s = reducer(s, { type: 'vactivities/save', organizationId: ORG, activityId: visitor.id, ids: { activityId: visitor.id, versionId: 'vv_unused' }, at: new Date().toISOString(),
-      form: { name: visitor.name, description: visitor.description, purpose: visitor.purpose, type: v.type, checks: v.checks, outcome: v.outcome, verifierIds: [halima(s).id, me.id] } });
+      form: { name: visitor.name, description: visitor.description, purpose: visitor.purpose, type: v.type, checks: v.checks, outcome: v.outcome, verifierIds: [other.id], restrictVerifiers: true } });
+    expect(s.data.activityConfigs.find((a) => a.id === visitor.id)!.restrictVerifiers).toBe(true);
     renderApp('/verify', s);
     await waitFor(() => expect(screen.getByRole('list', { name: 'Your verification activities' })).toBeInTheDocument());
-    expect(within(screen.getByRole('list', { name: 'Your verification activities' })).getAllByRole('heading').map((h) => h.textContent)).toEqual(['Visitor Identity Check']);
+    expect(within(screen.getByRole('list', { name: 'Your verification activities' })).getAllByRole('heading').map((h) => h.textContent).sort()).toEqual(['Annual Staff Conference', 'Membership Verification']);
   });
 });

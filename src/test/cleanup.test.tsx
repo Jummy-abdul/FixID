@@ -198,7 +198,7 @@ describe('navigation and content', () => {
       );
       const nav = screen.getByRole('navigation', { name: 'Primary' });
       expect(within(nav).queryByRole('link', { name: 'Templates' })).toBeNull();
-      expect(within(nav).getByRole('link', { name: 'Verification Events' })).toBeInTheDocument();
+      expect(within(nav).queryByRole('link', { name: 'Verification Events' })).toBeNull();
       await waitFor(() => expect(document.querySelector('.animate-pulse')).toBeNull());
       expect(document.body.textContent).not.toMatch(/ID Switch|canonical|simulated|prototype|milestone \d/i);
       unmount();

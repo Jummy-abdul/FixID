@@ -13,6 +13,7 @@ import type { VerificationInputs } from '@/verification/engine';
 import { FACE_SCENARIOS, HOLDER_SCENARIOS, LIVENESS_SCENARIOS } from '@/verification/simulatedProviders';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { AttemptBadge } from './VerifierLayout';
+import { AccessAndEntry, EligibilityBadge, IdentityResultBadge } from '@/components/verification/attemptParts';
 
 /** Starting from a link: the service authorizes it, so an unassigned activity ID is simply refused. */
 export function VerifierStartPage() {
@@ -304,6 +305,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Demonstration result: some checks used simulated providers. This is not real identity or credential assurance.
         </p>
       )}
+      <div className="mt-4"><AccessAndEntry attempt={attempt} /></div>
       {attempt.review && <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">Pending review since {formatDateTime(attempt.review.referredAt)} ({attempt.review.referredBy}): {attempt.review.reason}</p>}
 
       <Card className="mt-6 px-5 py-5">
@@ -312,6 +314,10 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
           <div><dt className="text-slate-500">Verification type</dt><dd className="text-slate-900">{TYPE_INFO[attempt.type].name}</dd></div>
           <div><dt className="text-slate-500">Date and time</dt><dd className="text-slate-900">{formatDateTime(attempt.completedAt ?? attempt.startedAt)}</dd></div>
           <div><dt className="text-slate-500">Reference</dt><dd className="font-mono text-xs text-slate-900">{attempt.id}</dd></div>
+          {attempt.status === 'completed' && <>
+            <div><dt className="text-slate-500">Identity and credential</dt><dd className="mt-0.5"><IdentityResultBadge attempt={attempt} /></dd></div>
+            <div><dt className="text-slate-500">Eligibility</dt><dd className="mt-0.5"><EligibilityBadge attempt={attempt} /></dd></div>
+          </>}
           <div><dt className="text-slate-500">Subject</dt><dd className="text-slate-900">{attempt.subject?.label ?? 'Not identified'}</dd></div>
           <div><dt className="text-slate-500">Verifier</dt><dd className="text-slate-900">{attempt.verifierName}</dd></div>
           <div><dt className="text-slate-500">Organization</dt><dd className="text-slate-900">{organization.name}</dd></div>

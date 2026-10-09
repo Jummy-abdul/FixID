@@ -107,7 +107,7 @@ export const ROLES: Role[] = [
   },
   {
     id: 'verifier', name: 'Verifier', builtIn: true, portalAccess: false,
-    description: 'Performs assigned verifications through an approved verifier application.',
+    description: 'Performs the organization’s verification activities through an approved verifier application.',
     permissions: ['verification.execute', 'verification.results.view'],
     scopes: { 'verification.execute': 'assigned-activities', 'verification.results.view': 'assigned-activities' },
     highlights: ['Perform the verification activities they are assigned to', 'View results within their assigned activities'],

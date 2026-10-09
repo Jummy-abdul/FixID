@@ -363,7 +363,9 @@ export type AuditAction =
   | 'verification-activity.duplicated'
   | 'verification-activity.removed'
   | 'verification-activity.draft-discarded'
+  | 'verification-activity.participants-changed'
   | 'verification.denied'
+  | 'verification.entry-recorded'
   | 'integration.demo-providers'
   | 'admin.role-removed'
   | 'admin.roles-changed'
@@ -486,6 +488,8 @@ export interface CheckParams {
   value?: string;
   mode?: 'prevent-duplicate' | 'require-previous';
   windowDays?: number;
+  /** Eligibility is the activity's participant list (groups and users) at verification time. */
+  useParticipants?: boolean;
 }
 
 /** One configured check in an activity version. Providers and sources are referenced by ID. */
@@ -515,11 +519,26 @@ export type VerificationOutcome = 'verified' | 'not-verified' | 'unable-to-verif
  * An immutable-once-active snapshot of an activity's rules. Future verification events reference the
  * version they were evaluated against, so later edits never change earlier results.
  */
+/**
+ * The standard, plain-language requirements an administrator chooses. They generate the version's checks;
+ * `customized` versions were changed in advanced configuration and are shown from their checks instead.
+ */
+export interface StandardRequirements {
+  /** How the person's identity is established. `record` is lower assurance: it confirms a record and stated details. */
+  identity: 'face' | 'holder' | 'record' | null;
+  /** Accepted credential configurations, when a digital credential must be presented. */
+  credential: { credentialTypeIds: string[] } | null;
+  /** Where eligibility comes from. */
+  eligibility: 'participants' | 'external' | null;
+}
+
 export interface ActivityVersion {
   id: string;
   organizationId: string;
   activityId: string;
   number: number;
+  requirements?: StandardRequirements;
+  customized?: boolean;
   type: VerificationType;
   checks: ActivityCheck[];
   outcome: OutcomePolicy;
@@ -544,6 +563,19 @@ export interface ActivityConfig {
   activeVersionId?: string;
   /** Unpublished changes. Active activities keep using the active version until this is activated. */
   draftVersionId?: string;
+  /** Where the activity takes place. Informational only: never used for tracking or to restrict anyone. */
+  location?: string;
+  /** When it takes place. Informational unless `enforced`, in which case verification is only possible within it. */
+  schedule?: { startsAt?: ISODate; endsAt?: ISODate; enforced?: boolean };
+  /**
+   * Who is eligible: groups (current membership at verification time) and specific users. Being on the
+   * list never proves identity, issues credentials or enrols anyone.
+   */
+  participants?: { groupIds: string[]; memberIds: string[] };
+  /** Physical entry: whether a second recorded entry is flagged for review or refused. */
+  entryPolicy?: 'off' | 'flag' | 'deny';
+  /** Advanced: only assigned verifiers may perform the activity. Off by default (any organization Verifier). */
+  restrictVerifiers?: boolean;
   createdAt: ISODate;
   createdBy: string;
   updatedAt: ISODate;
@@ -617,6 +649,15 @@ export interface VerificationAttempt {
   reasons: string[];
   /** Some checks used demonstration providers, so this isn't real identity assurance. */
   simulated: boolean;
+  /** Result of the identity and credential checks, separate from eligibility. */
+  verificationResult?: VerificationOutcome | 'not-required';
+  /** Result of the eligibility checks. */
+  eligibilityResult?: 'eligible' | 'not-eligible' | 'unable' | 'review' | 'not-required';
+  /** Whether the activity's conditions for access are met. Not the same as entering. */
+  accessDecision?: 'permitted' | 'not-permitted' | 'review-required';
+  accessReasons?: string[];
+  /** Physical entry, recorded separately by an authorized officer. Never set automatically. */
+  entry?: { status: 'entered'; recordedAt: ISODate; recordedBy: string };
   /** Review referral, kept separate from the original outcome. */
   review?: { status: 'pending'; referredAt: ISODate; referredBy: string; reason: string };
   /** Idempotency key of the submission that completed the attempt. */

@@ -12,7 +12,7 @@ import type {
   Group,
   GroupMembership,
   IssuanceBatch,
-  ActivityCheck,
+  StandardRequirements,
   ActivityConfig,
   ActivityVersion,
   VerifierAssignment,
@@ -27,6 +27,7 @@ import type {
 import { addDays, addMonths, startOfDay } from '@/lib/dates';
 import { formatIdentifier } from '@/lib/identifiers';
 import { templateForDesign } from '@/domain/templates';
+import { buildChecks } from '@/domain/verification';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -119,75 +120,73 @@ export function seedGroups(organizations: Pick<Organization, 'id' | 'createdAt'>
 }
 
 /**
- * Sample verification activities for established organizations: an active identity check, an active
- * credential check with two versions, a draft that needs services not configured yet, and an inactive one.
- * These are configurations only; no verification results are created.
+ * Sample verification activities for established organizations, configured with the standard
+ * requirements: an event with a participant list, an identity check, a credential check on its second
+ * version, a draft that needs services not configured yet, and an inactive one. Configuration only:
+ * no verification results are created.
  */
 export function seedVerificationActivities(
   organizations: Pick<Organization, 'id' | 'integrations'>[],
-  d: Pick<SeedData, 'credentialTypes' | 'identifierConfigs' | 'groups' | 'administrators'>,
+  d: Pick<SeedData, 'credentialTypes' | 'identifierConfigs' | 'groups' | 'administrators' | 'members'>,
   today: Date,
 ): Pick<SeedData, 'activityConfigs' | 'activityVersions' | 'verifierAssignments'> {
   const iso = (x: Date) => x.toISOString();
   const ago = (days: number) => iso(new Date(today.getTime() - days * DAY));
+  const ahead = (days: number, hour: number) => { const x = new Date(today.getTime() + days * DAY); x.setHours(hour, 0, 0, 0); return iso(x); };
   const by = 'Tobyson TE';
   const out = { activityConfigs: [] as ActivityConfig[], activityVersions: [] as ActivityVersion[], verifierAssignments: [] as VerifierAssignment[] };
   const outcome = { onRequiredFailure: 'not-verified' as const, onInconclusive: 'unable-to-verify' as const };
   for (const org of organizations) {
     if (org.id === NEW_ORGANIZATION_ID || !org.integrations.idSwitch.connected) continue;
     const types = d.credentialTypes.filter((t) => t.organizationId === org.id && t.status === 'active');
-    const identifier = d.identifierConfigs.find((c) => c.organizationId === org.id);
     const volunteers = d.groups.find((g) => g.id === `${org.id}_grp_volunteers`);
-    const verifier = d.administrators.find((a) => a.id === `${org.id}_adm_4`);
+    const firstGroup = d.groups.find((g) => g.organizationId === org.id && g.id !== volunteers?.id);
+    const someone = d.members.filter((m) => m.organizationId === org.id && m.status === 'active').slice(0, 2).map((m) => m.id);
     if (!types.length) continue;
-    const chk = (vid: string, n: number, c: Omit<ActivityCheck, 'id' | 'policySource' | 'params'> & Partial<ActivityCheck>): ActivityCheck => ({ id: `${vid}_chk_${n}`, policySource: 'organization', params: {}, ...c });
-    const auth = (vid: string, typeIds: string[]): ActivityCheck => chk(vid, 0, { type: 'credential-authenticity', requirement: 'required', providerId: 'credential-service', policySource: 'platform', locked: true, params: { credentialTypeIds: typeIds } });
-    const add = (key: string, a: { name: string; description: string; purpose: string; status: ActivityConfig['status']; createdDaysAgo: number; verifiers: boolean },
-      versions: { type: ActivityVersion['type']; checks: (vid: string) => ActivityCheck[]; status: ActivityVersion['status']; daysAgo: number; outcome?: ActivityVersion['outcome'] }[]) => {
+    const orgLike = org as Organization;
+    const add = (key: string, a: Partial<ActivityConfig> & { name: string; description: string; purpose: string; status: ActivityConfig['status']; createdDaysAgo: number },
+      versions: { requirements: StandardRequirements; status: ActivityVersion['status']; daysAgo: number; outcome?: ActivityVersion['outcome'] }[]) => {
       const id = `${org.id}_va_${key}`;
       const vs: ActivityVersion[] = versions.map((v, i) => {
         const vid = `${id}_v${i + 1}`;
+        let n = 0;
+        const built = buildChecks(v.requirements, orgLike, () => `${vid}_chk_${++n}`);
         return {
-          id: vid, organizationId: org.id, activityId: id, number: i + 1, type: v.type, checks: v.checks(vid), outcome: v.outcome ?? outcome, status: v.status,
-          createdAt: ago(v.daysAgo), createdBy: by, updatedAt: ago(v.daysAgo), ...(v.status !== 'draft' ? { activatedAt: ago(v.daysAgo), activatedBy: by } : {}),
+          id: vid, organizationId: org.id, activityId: id, number: i + 1, type: built.type, checks: built.checks, requirements: v.requirements, customized: false,
+          outcome: v.outcome ?? outcome, status: v.status, createdAt: ago(v.daysAgo), createdBy: by, updatedAt: ago(v.daysAgo),
+          ...(v.status !== 'draft' ? { activatedAt: ago(v.daysAgo), activatedBy: by } : {}),
         };
       });
       const live = vs.find((v) => v.status === 'active') ?? (a.status === 'inactive' ? vs[vs.length - 1] : undefined);
       const draft = vs.find((v) => v.status === 'draft');
+      const { createdDaysAgo, ...rest } = a;
       out.activityConfigs.push({
-        id, organizationId: org.id, name: a.name, description: a.description, purpose: a.purpose, status: a.status,
-        activeVersionId: live?.id, draftVersionId: draft?.id, createdAt: ago(a.createdDaysAgo), createdBy: by,
+        id, organizationId: org.id, entryPolicy: 'off', participants: { groupIds: [], memberIds: [] }, restrictVerifiers: false, ...rest,
+        activeVersionId: live?.id, draftVersionId: draft?.id, createdAt: ago(createdDaysAgo), createdBy: by,
         updatedAt: ago(Math.min(...versions.map((v) => v.daysAgo))), updatedBy: by,
       });
       out.activityVersions.push(...vs);
-      if (a.verifiers && verifier) out.verifierAssignments.push({ organizationId: org.id, activityId: id, administratorId: verifier.id, status: 'active', assignedAt: ago(a.createdDaysAgo - 1), assignedBy: by });
     };
-    add('visitor', { name: 'Visitor Identity Check', description: 'Confirm who a visitor is before they are let in.', purpose: 'Confirm the identity of people visiting our premises.', status: 'active', createdDaysAgo: 90, verifiers: true }, [
-      { type: 'identity', status: 'active', daysAgo: 88, checks: (vid) => [
-        chk(vid, 1, { type: 'identity-lookup', requirement: 'required', providerId: 'identity-service', sourceId: 'identity-service', params: { identifierConfigId: identifier?.id } }),
-        chk(vid, 2, { type: 'attribute-match', requirement: 'optional', providerId: 'identity-service', sourceId: 'identity-service', params: { attributes: ['Full name', 'Date of birth'] } }),
-      ] },
+    add('conference', {
+      name: 'Annual Staff Conference', description: 'Verify the identity and eligibility of participants before granting entry.', purpose: 'Verify the identity and eligibility of participants before granting entry.',
+      status: 'active', createdDaysAgo: 20, location: 'Main Auditorium', schedule: { startsAt: ahead(7, 8), endsAt: ahead(8, 18), enforced: false },
+      participants: { groupIds: [volunteers?.id, firstGroup?.id].filter(Boolean) as string[], memberIds: someone }, entryPolicy: 'deny',
+    }, [{ requirements: { identity: 'record', credential: null, eligibility: 'participants' }, status: 'active', daysAgo: 18 }]);
+    add('visitor', { name: 'Visitor Identity Check', description: 'Confirm who a visitor is before they are let in.', purpose: 'Confirm the identity of people visiting our premises.', status: 'active', createdDaysAgo: 90 }, [
+      { requirements: { identity: 'record', credential: null, eligibility: null }, status: 'active', daysAgo: 88 },
     ]);
-    add('membership', { name: 'Membership Verification', description: 'Check a member’s credential is genuine and current.', purpose: 'Confirm a person holds a valid membership credential.', status: 'active', createdDaysAgo: 70, verifiers: true }, [
-      { type: 'credential', status: 'superseded', daysAgo: 68, checks: (vid) => [auth(vid, [types[0].id]),
-        chk(vid, 1, { type: 'credential-validity', requirement: 'required', providerId: 'credential-service' })] },
-      { type: 'credential', status: 'active', daysAgo: 14, checks: (vid) => [auth(vid, [types[0].id]),
-        chk(vid, 1, { type: 'credential-validity', requirement: 'required', providerId: 'credential-service' }),
-        chk(vid, 2, { type: 'credential-status', requirement: 'required', providerId: 'credential-service' }),
-        ...(volunteers ? [chk(vid, 3, { type: 'group-membership', requirement: 'optional', providerId: 'fixid-records', params: { groupIds: [volunteers.id] } })] : [])] },
+    add('membership', {
+      name: 'Membership Verification', description: 'Check a member’s credential is genuine and current.', purpose: 'Confirm a person holds a valid membership credential.', status: 'active', createdDaysAgo: 70,
+      participants: { groupIds: volunteers ? [volunteers.id] : [], memberIds: [] },
+    }, [
+      { requirements: { identity: null, credential: { credentialTypeIds: [types[0].id] }, eligibility: null }, status: 'superseded', daysAgo: 68 },
+      { requirements: { identity: null, credential: { credentialTypeIds: [types[0].id] }, eligibility: volunteers ? 'participants' : null }, status: 'active', daysAgo: 14 },
     ]);
-    add('event', { name: 'Event Access Verification', description: 'Verify the credential and that the person presenting it is its holder.', purpose: 'Control access to organization events.', status: 'draft', createdDaysAgo: 6, verifiers: false }, [
-      { type: 'identity-credential', status: 'draft', daysAgo: 5, checks: (vid) => [auth(vid, types.map((t) => t.id)),
-        chk(vid, 1, { type: 'credential-status', requirement: 'required', providerId: 'credential-service' }),
-        chk(vid, 5, { type: 'identity-lookup', requirement: 'required', providerId: 'identity-service', sourceId: 'identity-service', params: { identifierConfigId: identifier?.id } }),
-        chk(vid, 2, { type: 'holder-binding', requirement: 'alternative', providerId: 'presentation-proof' }),
-        chk(vid, 3, { type: 'face-match', requirement: 'alternative', providerId: 'facial-matching', sourceId: 'identity-service' }),
-        chk(vid, 4, { type: 'liveness', requirement: 'alternative', providerId: 'facial-matching' })] },
+    add('event', { name: 'Event Access Verification', description: 'Verify the person is the credential holder before entry.', purpose: 'Control access to organization events.', status: 'draft', createdDaysAgo: 6, location: 'Conference Centre, Hall B' }, [
+      { requirements: { identity: 'face', credential: { credentialTypeIds: types.map((t) => t.id) }, eligibility: null }, status: 'draft', daysAgo: 5 },
     ]);
-    add('employee', { name: 'Employee Credential Validation', description: 'Validate staff credentials at service points.', purpose: 'Check staff credentials before granting access to internal services.', status: 'inactive', createdDaysAgo: 150, verifiers: false }, [
-      { type: 'credential', status: 'active', daysAgo: 148, outcome: { onRequiredFailure: 'pending-review', onInconclusive: 'pending-review' }, checks: (vid) => [auth(vid, [types[types.length - 1].id]),
-        chk(vid, 1, { type: 'issuer-trust', requirement: 'required', providerId: 'credential-service' }),
-        chk(vid, 2, { type: 'credential-validity', requirement: 'required', providerId: 'credential-service' })] },
+    add('employee', { name: 'Employee Credential Validation', description: 'Validate staff credentials at service points.', purpose: 'Check staff credentials before granting access to internal services.', status: 'inactive', createdDaysAgo: 150 }, [
+      { requirements: { identity: null, credential: { credentialTypeIds: [types[types.length - 1].id] }, eligibility: null }, status: 'active', daysAgo: 148, outcome: { onRequiredFailure: 'pending-review', onInconclusive: 'pending-review' } },
     ]);
   }
   return out;
@@ -754,7 +753,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     administrators,
     ...seededGroups,
     issuanceBatches: [],
-    ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators }, today),
+    ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today),
     verificationAttempts: [],
   };
 }
