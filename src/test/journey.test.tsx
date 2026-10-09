@@ -98,6 +98,13 @@ async function createStudentIdAndAssign(user: UserEvent) {
   await reviewAndIssue(user);
 }
 
+/** On a user's page: open the Credentials tab and preview a credential's digital card. */
+async function previewCredential(user: UserEvent, identifier: string) {
+  await user.click(await screen.findByRole('tab', { name: /Credentials/ }));
+  await user.click(screen.getByRole('button', { name: new RegExp(`View .*${identifier.replace(/\//g, '\\/')}`) }));
+  return screen.findByRole('region', { name: 'Digital ID preview' });
+}
+
 async function reviewAndIssue(user: UserEvent) {
   expect(await screen.findByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
   await user.click(button(/issue digital id/i));
@@ -143,7 +150,7 @@ describe('manual user creation', () => {
     const row = (await screen.findByText(`STU/${YEAR}/00001`)).closest('tr')!;
     expect(row).toHaveTextContent('Amara Okonkwo');
     expect(row).toHaveTextContent('Active');
-    expect(row).toHaveTextContent('Not enrolled');
+    expect(row).toHaveTextContent('Not Enrolled');
     expect(await within(row).findByText('amara@crestfield.example')).toBeInTheDocument();
     expect(org().members[0]).toMatchObject({ status: 'active', faceEnrollment: { status: 'not-enrolled' } });
     expect(org().credentials).toHaveLength(0);
@@ -174,7 +181,8 @@ describe('manual user creation', () => {
     expect(o.members[0].identifier?.value).toBe(`STU/${YEAR}/00001`);
 
     await user.click(screen.getByRole('link', { name: 'View user' }));
-    expect(await screen.findByRole('region', { name: 'Digital ID preview' })).toHaveTextContent(`STU/${YEAR}/00001`);
+    expect(await previewCredential(user, `STU/${YEAR}/00001`)).toHaveTextContent(`STU/${YEAR}/00001`);
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     await user.click(within(nav).getByRole('link', { name: 'Credentials' }));
     expect(await screen.findByRole('link', { name: `STU/${YEAR}/00001` }).catch(() => screen.findByText(`STU/${YEAR}/00001`))).toBeInTheDocument();
@@ -251,15 +259,18 @@ describe('manual user creation', () => {
     first.unmount();
 
     const { user } = renderApp(`/users/${tunde.id}`, loadState()!);
-    expect(await screen.findByText('No credentials issued yet')).toBeInTheDocument();
+    // Issue Credential lives in the Credentials tab, not the page header.
+    expect(screen.queryByRole('link', { name: 'Issue Credential' })).toBeNull();
+    await user.click(await screen.findByRole('tab', { name: /Credentials/ }));
+    expect(screen.getByText('No credentials issued yet')).toBeInTheDocument();
     expect(screen.getByText("You can issue a digital ID to this user whenever you're ready.")).toBeInTheDocument();
-    await user.click(screen.getAllByRole('link', { name: 'Issue credential' })[1]);
+    await user.click(screen.getByRole('link', { name: 'Issue Credential' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Issue credential' })).toBeInTheDocument();
     expect(screen.getByLabelText('Recipient')).toHaveTextContent('Issuing to Tunde Bello');
     await user.click(button(/^continue/i));
     await reviewAndIssue(user);
     await user.click(screen.getByRole('link', { name: 'View user' }));
-    expect(await screen.findByRole('region', { name: 'Digital ID preview' })).toHaveTextContent(`STU/${YEAR}/00002`);
+    expect(await previewCredential(user, `STU/${YEAR}/00002`)).toHaveTextContent(`STU/${YEAR}/00002`);
     expect(org().credentialTypes).toHaveLength(1);
   });
 
@@ -394,8 +405,9 @@ describe('persistence and cross-module visibility', () => {
 
     const { user } = renderApp('/users', loadState()!);
     expect(await screen.findByText(`STU/${YEAR}/00001`)).toBeInTheDocument();
-    await user.click(screen.getByText('Amara Okonkwo', { selector: 'span.font-medium' }));
-    expect(await screen.findByRole('region', { name: 'Digital ID preview' })).toHaveTextContent(`STU/${YEAR}/00001`);
+    await user.click(screen.getByRole('link', { name: 'Amara Okonkwo' }));
+    expect(await previewCredential(user, `STU/${YEAR}/00001`)).toHaveTextContent(`STU/${YEAR}/00001`);
+    await user.click(screen.getByRole('button', { name: 'Close' }));
 
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     await user.click(within(nav).getByRole('link', { name: 'Credentials' }));

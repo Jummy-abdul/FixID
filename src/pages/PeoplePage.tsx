@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { UserPlus, Users } from 'lucide-react';
-import { Avatar, ButtonLink, Skeleton, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice } from '@/components/ui';
-import { FaceEnrollmentBadge, MemberStatusBadge } from '@/components/domain/StatusBadges';
+import { ScanFace, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
+import {
+  ButtonLink, Card, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, StatCard, usePageSlice,
+} from '@/components/ui';
+import { MemberStatusBadge, PortraitEnrollmentBadge } from '@/components/domain/StatusBadges';
+import { useUserActions } from '@/components/users/useUserActions';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
@@ -15,6 +18,14 @@ export function PeoplePage() {
   const [status, setStatus] = useQueryState('status', 'all');
   const [relationship, setRelationship] = useQueryState('relationship', 'all');
   const [page, setPage] = usePageParam();
+  const { menuItems, dialogs } = useUserActions();
+
+  const kpis = useMemo(() => ({
+    total: members.length,
+    active: members.filter((m) => m.status === 'active').length,
+    inactive: members.filter((m) => m.status === 'inactive').length,
+    enrolled: members.filter((m) => m.faceEnrollment.status === 'enrolled').length,
+  }), [members]);
 
   const relationships = useMemo(() => [...new Set(members.map((m) => m.relationship).filter(Boolean))].sort(), [members]);
 
@@ -23,21 +34,41 @@ export function PeoplePage() {
     return members
       .filter((m) => status === 'all' || m.status === status)
       .filter((m) => relationship === 'all' || m.relationship === relationship)
-      .filter((m) => !query || m.displayName.toLowerCase().includes(query) || m.idSwitchId.toLowerCase().includes(query) || m.identifier?.value.toLowerCase().includes(query) || m.unit.toLowerCase().includes(query))
+      .filter((m) => !query || m.displayName.toLowerCase().includes(query) || m.identifier?.value.toLowerCase().includes(query) || m.unit.toLowerCase().includes(query))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [members, q, status, relationship]);
 
   const { pageRows, pageCount, current } = usePageSlice(filtered, page, PAGE_SIZE);
   const contacts = useContacts(pageRows.map((m) => m.idSwitchId));
   const hasFilters = q || status !== 'all' || relationship !== 'all';
+  const serial = new Map(pageRows.map((m, i) => [m.id, (current - 1) * PAGE_SIZE + i + 1]));
+
+  // Selection covers the visible page; it resets when the filters or page change, and drops rows that leave the page.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const viewKey = `${q}|${status}|${relationship}|${current}`;
+  useEffect(() => { setSelected(new Set()); }, [viewKey]);
+  const visibleIds = pageRows.map((m) => m.id);
+  const selectedVisible = visibleIds.filter((id) => selected.has(id));
+  const visibleKey = visibleIds.join(',');
+  useEffect(() => {
+    const visible = new Set(visibleKey.split(','));
+    setSelected((s) => ([...s].some((id) => !visible.has(id)) ? new Set([...s].filter((id) => visible.has(id))) : s));
+  }, [visibleKey]);
+  const allSelected = visibleIds.length > 0 && selectedVisible.length === visibleIds.length;
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
     <>
       <PageHeader
         title="Users"
-        description="People linked to your organization. Canonical identity details come from ID Switch; FixID keeps only your organization's context."
         actions={<ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>}
       />
+      <section aria-label="User summary" className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Total Users" value={kpis.total} icon={<Users className="h-4 w-4" />} />
+        <StatCard label="Active Users" value={kpis.active} icon={<UserCheck className="h-4 w-4" />} tone="emerald" />
+        <StatCard label="Inactive Users" value={kpis.inactive} icon={<UserX className="h-4 w-4" />} tone="amber" />
+        <StatCard label="Portrait Enrolled" value={kpis.enrolled} icon={<ScanFace className="h-4 w-4" />} tone="violet" />
+      </section>
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search name or identifier" className="sm:w-80" />
@@ -47,8 +78,14 @@ export function PeoplePage() {
           )}
           <FilterSelect label="Status" value={status} onChange={setStatus}
             options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'pending', label: 'Pending' }, { value: 'inactive', label: 'Inactive' }]} />
+          {selectedVisible.length > 0 && (
+            <span className="text-sm text-slate-600 sm:ml-auto" aria-live="polite">
+              {selectedVisible.length} selected
+              <button type="button" className="ml-2 font-medium text-brand-600 hover:text-brand-700" onClick={() => setSelected(new Set())}>Clear</button>
+            </span>
+          )}
           {hasFilters && (
-            <button type="button" className="text-sm font-medium text-brand-600 hover:text-brand-700 sm:ml-auto"
+            <button type="button" className={`text-sm font-medium text-brand-600 hover:text-brand-700 ${selectedVisible.length ? '' : 'sm:ml-auto'}`}
               onClick={() => { setQ(''); setStatus('all'); setRelationship('all'); }}>
               Clear filters
             </button>
@@ -57,7 +94,6 @@ export function PeoplePage() {
         <DataTable
           rows={pageRows}
           rowKey={(m) => m.id}
-          rowHref={(m) => `/users/${m.id}`}
           empty={
             members.length === 0
               ? <EmptyState icon={<Users className="h-5 w-5" />} title="No users yet" description="Add your first user. You can issue their digital ID right after, or later." />
@@ -65,18 +101,25 @@ export function PeoplePage() {
           }
           columns={[
             {
+              key: 'select', className: 'w-10',
+              header: <SelectAll checked={allSelected} indeterminate={selectedVisible.length > 0 && !allSelected}
+                onChange={() => setSelected(allSelected ? new Set() : new Set(visibleIds))} />,
+              cell: (m) => (
+                <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Select ${m.displayName}`}
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+              ),
+            },
+            { key: 'sn', header: 'SN', className: 'w-12', cell: (m) => <span className="tabular-nums text-slate-500">{serial.get(m.id)}</span> },
+            {
               key: 'name', header: 'Name', cell: (m) => (
-                <span className="flex items-center gap-3">
-                  <Avatar name={m.displayName} photoUrl={m.photoDataUrl} size="sm" />
-                  <span className="font-medium text-slate-900">{m.displayName}</span>
-                </span>
+                <Link to={`/users/${m.id}`} className="font-medium text-slate-900 hover:text-brand-700">{m.displayName}</Link>
               ),
             },
             {
               key: 'identifier', header: 'Identifier', cell: (m) => m.identifier ? (
                 <span>
-                  <span className="block font-mono text-xs text-slate-800">{m.identifier.value}</span>
                   <span className="block text-[11px] text-slate-500">{identifierConfigById.get(m.identifier.configId)?.name}</span>
+                  <span className="block font-mono text-xs text-slate-800">{m.identifier.value}</span>
                 </span>
               ) : <span className="text-slate-400">—</span>,
             },
@@ -86,26 +129,33 @@ export function PeoplePage() {
                 : contacts.status === 'error' ? <span className="text-xs text-slate-400">Unavailable</span>
                   : <Skeleton className="h-4 w-36" />,
             },
-            { key: 'status', header: 'User status', cell: (m) => <MemberStatusBadge status={m.status} /> },
-            { key: 'face', header: 'Face enrollment', cell: (m) => <FaceEnrollmentBadge status={m.faceEnrollment.status} /> },
+            { key: 'status', header: 'User Status', cell: (m) => <MemberStatusBadge status={m.status} /> },
+            { key: 'portrait', header: 'Portrait Enrollment', cell: (m) => <PortraitEnrollmentBadge status={m.faceEnrollment.status} /> },
             {
-              key: 'actions', header: <span className="sr-only">Actions</span>, cell: (m) => (
-                <Link to={`/users/${m.id}`} onClick={(e) => e.stopPropagation()} className="whitespace-nowrap text-sm font-medium text-brand-600 hover:text-brand-700">
-                  View details<span className="sr-only"> for {m.displayName}</span>
-                </Link>
-              ),
+              key: 'actions', header: <span className="sr-only">Actions</span>, className: 'w-12 text-right',
+              cell: (m) => <OverflowMenu label={`Actions for ${m.displayName}`} items={menuItems(m)} />,
             },
           ]}
         />
         <Pagination page={current} pageCount={pageCount} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </Card>
+      {dialogs}
     </>
+  );
+}
+
+function SelectAll({ checked, indeterminate, onChange }: { checked: boolean; indeterminate: boolean; onChange: () => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate; }, [indeterminate]);
+  return (
+    <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label="Select all users on this page"
+      className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
   );
 }
 
 type Contacts = { status: 'loading' } | { status: 'ready'; byId: Map<string, { email?: string }> } | { status: 'error' };
 
-/** Email addresses belong to ID Switch; they're read for the visible rows only and never stored in FixID. */
+/** Email addresses aren't stored in FixID; they're looked up for the visible rows only. */
 function useContacts(idSwitchIds: string[]): Contacts {
   const { idSwitch } = useServices();
   const key = idSwitchIds.join(',');

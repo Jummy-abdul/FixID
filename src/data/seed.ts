@@ -292,6 +292,8 @@ const BLUEPRINTS: OrgBlueprint[] = [
 ];
 
 const ADMIN_NAME = 'Tobyson TE';
+/** Optional demo image. Place a licensed photo at public/samples/portrait-sample.jpg; initials show when it's absent. */
+export const SAMPLE_PORTRAIT_URL = '/samples/portrait-sample.jpg';
 
 function range(from: number, to: number) {
   return Array.from({ length: to - from }, (_, i) => from + i);
@@ -402,8 +404,15 @@ export function buildSeed(now: Date = new Date()): SeedData {
         })(),
         factors: { fingerprint: rng.chance(0.3) },
         joinedAt: iso(addDays(today, -(bp.org.industry === 'events' ? rng.int(4, 45) : rng.int(5, 400)))),
+        createdBy: ADMIN_NAME,
       });
     });
+    // One enrolled sample user shows how an approved portrait is presented. Decorative demo image, not a capture.
+    if (orgId === SAMPLE_ORGANIZATION_ID) {
+      const showcase = orgMembers.find((m) => m.status === 'active' && m.faceEnrollment.status === 'enrolled'
+        && registry.find((r) => r.idSwitchId === m.idSwitchId)?.gender === 'Female');
+      if (showcase) showcase.faceEnrollment = { ...showcase.faceEnrollment, portraitUrl: SAMPLE_PORTRAIT_URL, portraitIsSample: true };
+    }
     members.push(...orgMembers);
 
     // Credentials

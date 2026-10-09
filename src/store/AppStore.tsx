@@ -3,6 +3,7 @@ import type {
   AuditEvent, CardDesign, Credential, CredentialType, IdentifierConfig, Member, Organization, Transaction, VerificationActivity,
 } from '@/domain/types';
 import {
+  applyEnrollmentInvite, applyMemberStatus, type EnrollmentInviteInput, type MemberStatusInput,
   applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
   type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
@@ -131,6 +132,18 @@ export function useActions() {
         if (!result.ok) return result;
         dispatch({ type: 'users/create', prepared: prepared.prepared });
         return { ok: true as const, memberId: result.memberId, identifier: prepared.prepared.assigned.value };
+      },
+      /** Activates or deactivates a user. Credentials are not changed. */
+      setMemberStatus: (input: MemberStatusInput) => {
+        const result = applyMemberStatus(getState(), input);
+        if (result.ok && result.changed) dispatch({ type: 'users/status', input });
+        return result;
+      },
+      /** Records a (simulated) portrait enrollment invitation and marks enrollment Pending. */
+      recordEnrollmentInvite: (input: EnrollmentInviteInput) => {
+        const result = applyEnrollmentInvite(getState(), input);
+        if (result.ok) dispatch({ type: 'users/enrollmentInvite', input });
+        return result;
       },
       /** Issues a digital ID atomically. Idempotent per requestId; failures change nothing. */
       issueDigitalId: (input: IssuanceInput) => {

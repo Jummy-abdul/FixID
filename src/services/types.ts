@@ -65,7 +65,13 @@ export interface WalletService {
   getHolderLink(credential: Credential): string;
 }
 
+/** Portrait enrollment invitations (simulated: links are recorded, not emailed). */
+export interface EnrollmentService {
+  sendInvitation(input: { memberId: string; name: string; email: string }): Promise<{ invitationId: string; sentTo: string; simulated: true }>;
+}
+
 export interface Services {
+  enrollment: EnrollmentService;
   idSwitch: IdSwitchService;
   issuance: CredentialIssuanceService;
   wallet: WalletService;

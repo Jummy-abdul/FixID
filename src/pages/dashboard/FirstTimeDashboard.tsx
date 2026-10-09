@@ -172,10 +172,8 @@ function MilestoneAction({ id, available, resumeMemberId }: { id: SetupMilestone
     return <ButtonLink to="/activities" variant="secondary" size="sm" className="mt-4">Set up verification</ButtonLink>;
   }
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-3">
-      <Button variant="secondary" size="sm" disabled aria-describedby="verification-locked">Set up verification</Button>
-      <span id="verification-locked" className="text-xs text-slate-400">Available after your first digital ID is issued</span>
-    </div>
+    // Guided-setup button only; the Verification module itself stays reachable from navigation.
+    <Button variant="secondary" size="sm" className="mt-4" disabled>Set up verification</Button>
   );
 }
 

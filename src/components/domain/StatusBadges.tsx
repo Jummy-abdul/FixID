@@ -16,13 +16,13 @@ export function MemberStatusBadge({ status }: { status: MemberStatus }) {
   return <Badge tone={tone[status]} dot>{cap(status)}</Badge>;
 }
 
-export const FACE_ENROLLMENT_LABEL: Record<FaceEnrollmentStatus, string> = {
-  'not-enrolled': 'Not enrolled', pending: 'Pending', enrolled: 'Enrolled', expired: 'Expired', failed: 'Failed',
+export const PORTRAIT_ENROLLMENT_LABEL: Record<FaceEnrollmentStatus, string> = {
+  'not-enrolled': 'Not Enrolled', pending: 'Pending', enrolled: 'Enrolled', expired: 'Expired', failed: 'Failed',
 };
 
-export function FaceEnrollmentBadge({ status }: { status: FaceEnrollmentStatus }) {
+export function PortraitEnrollmentBadge({ status }: { status: FaceEnrollmentStatus }) {
   const tone: Record<FaceEnrollmentStatus, Tone> = { 'not-enrolled': 'neutral', pending: 'info', enrolled: 'success', expired: 'warning', failed: 'danger' };
-  return <Badge tone={tone[status]}>{FACE_ENROLLMENT_LABEL[status]}</Badge>;
+  return <Badge tone={tone[status]}>{PORTRAIT_ENROLLMENT_LABEL[status]}</Badge>;
 }
 
 export function DecisionBadge({ decision }: { decision: Decision }) {

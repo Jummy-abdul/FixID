@@ -221,15 +221,21 @@ describe('dashboard', () => {
 });
 
 describe('users', () => {
-  it('filters by search and opens a user with their ID Switch identity', async () => {
+  it('filters by search and opens a user with their profile details', async () => {
     const { user, state } = renderApp('/users');
     const member = state.data.members.find((m) => m.organizationId === state.session.currentOrganizationId && m.status === 'active')!;
     await user.type(screen.getByRole('searchbox', { name: /search name/i }), member.displayName);
-    await user.click(await screen.findByText(member.displayName, { selector: 'span.font-medium' }));
+    await user.click(await screen.findByRole('link', { name: member.displayName }));
     expect(await screen.findByRole('heading', { level: 1, name: member.displayName })).toBeInTheDocument();
-    expect(screen.getByText('Organization context')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('Legal name')).toBeInTheDocument());
-    expect(screen.getAllByText(member.idSwitchId).length).toBeGreaterThan(0);
+    expect(screen.getByRole('tab', { name: 'Profile Details' })).toHaveAttribute('aria-selected', 'true');
+    for (const label of ['First Name', 'Last Name', 'Email Address', 'Phone Number', 'Gender', 'Location', 'Identifier Name', 'Identifier Value', 'Date Created', 'Created By']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    // No technical identity details for administrators.
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.querySelector('.animate-pulse')).toBeNull());
+    expect(main.textContent).not.toMatch(/ID Switch|canonical|simulat/i);
+    expect(main.textContent).not.toContain(member.idSwitchId);
   });
 
   it('shows an empty state when nothing matches', async () => {

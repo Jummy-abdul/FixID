@@ -162,6 +162,7 @@ export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memb
     faceEnrollment: { status: 'not-enrolled' },
     factors: { fingerprint: false },
     joinedAt: p.at,
+    createdBy: state.data.admin.name,
     creationRequestId: p.requestId,
   };
   return {
@@ -180,6 +181,92 @@ export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memb
           resourceType: 'member', resourceId: member.id, result: 'success', occurredAt: p.at, href: `/users/${member.id}`,
           summary: `Added ${member.displayName} (${config.name} ${member.identifier!.value}), ${p.identity.resolution === 'created-new'
             ? `new ID Switch identity ${member.idSwitchId}` : `reusing ID Switch identity ${member.idSwitchId}`}`,
+        }]),
+      },
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* User lifecycle                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface MemberStatusInput { organizationId: string; memberId: string; status: 'active' | 'inactive'; at: string }
+
+/**
+ * Activates or deactivates a user. Only Active ↔ Inactive; pending onboarding is unaffected.
+ * Credential statuses are deliberately left unchanged: credential lifecycle is handled separately.
+ */
+export function applyMemberStatus(state: AppState, input: MemberStatusInput): Result<{ changed: boolean }> {
+  const m = state.data.members.find((x) => x.id === input.memberId && x.organizationId === input.organizationId);
+  if (!m) return { ok: false, errors: { form: 'This user no longer exists.' } };
+  if (m.status === input.status) return { ok: true, state, changed: false };
+  if (m.status === 'pending') return { ok: false, errors: { form: `${m.displayName} hasn't finished onboarding yet.` } };
+  return {
+    ok: true,
+    changed: true,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        members: state.data.members.map((x) => (x.id === m.id ? { ...x, status: input.status } : x)),
+        audit: withAudit(state, [{
+          organizationId: m.organizationId, action: input.status === 'active' ? 'user.activated' : 'user.deactivated',
+          actor: state.data.admin.name, actorType: 'admin', resourceType: 'member', resourceId: m.id, result: 'success',
+          occurredAt: input.at, href: `/users/${m.id}`,
+          summary: `${input.status === 'active' ? 'Activated' : 'Deactivated'} ${m.displayName}`,
+        }]),
+      },
+    },
+  };
+}
+
+/** Minimum time between sends of the same enrollment link. */
+export const RESEND_COOLDOWN_MS = 60_000;
+
+export interface EnrollmentInviteInput { organizationId: string; memberId: string; invitationId: string; sentTo: string; at: string }
+
+/** Whether a portrait enrollment link can be sent to this user, and why not. */
+export function enrollmentInviteEligibility(m: Member, now: Date = new Date()): { ok: true; resend: boolean } | { ok: false; reason: string } {
+  if (m.faceEnrollment.status === 'enrolled') return { ok: false, reason: `${m.displayName} has already completed portrait enrollment.` };
+  if (m.status !== 'active') return { ok: false, reason: 'Only active users can be invited to enroll.' };
+  const inv = m.faceEnrollment.invitation;
+  if (inv && m.faceEnrollment.status === 'pending' && now.getTime() - new Date(inv.sentAt).getTime() < RESEND_COOLDOWN_MS) {
+    return { ok: false, reason: 'An enrollment link was sent less than a minute ago. Please wait before resending.' };
+  }
+  return { ok: true, resend: !!inv && m.faceEnrollment.status === 'pending' };
+}
+
+/**
+ * Records a portrait enrollment invitation and marks enrollment Pending. A user has at most one open
+ * invitation: resending refreshes it rather than creating another. Delivery is simulated.
+ */
+export function applyEnrollmentInvite(state: AppState, input: EnrollmentInviteInput): Result<{ resend: boolean }> {
+  const m = state.data.members.find((x) => x.id === input.memberId && x.organizationId === input.organizationId);
+  if (!m) return { ok: false, errors: { form: 'This user no longer exists.' } };
+  if (!input.sentTo.trim()) return { ok: false, errors: { form: `${m.displayName} has no email address on record.` } };
+  const prior = m.faceEnrollment.invitation;
+  if (prior?.id === input.invitationId) return { ok: true, state, resend: prior.sendCount > 1 };
+  const eligible = enrollmentInviteEligibility(m, new Date(input.at));
+  if (!eligible.ok) return { ok: false, errors: { form: eligible.reason } };
+  const invitation = {
+    id: input.invitationId, sentTo: input.sentTo, sentAt: input.at, simulated: true as const,
+    firstSentAt: eligible.resend && prior ? prior.firstSentAt : input.at,
+    sendCount: eligible.resend && prior ? prior.sendCount + 1 : 1,
+  };
+  return {
+    ok: true,
+    resend: eligible.resend,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        members: state.data.members.map((x) => (x.id === m.id
+          ? { ...x, faceEnrollment: { ...x.faceEnrollment, status: 'pending' as const, updatedAt: input.at, invitation } } : x)),
+        audit: withAudit(state, [{
+          organizationId: m.organizationId, action: 'enrollment.invited', actor: state.data.admin.name, actorType: 'admin',
+          resourceType: 'member', resourceId: m.id, result: 'success', occurredAt: input.at, href: `/users/${m.id}`,
+          summary: `${eligible.resend ? 'Resent' : 'Sent'} portrait enrollment link to ${m.displayName} at ${input.sentTo} (simulated)`,
         }]),
       },
     },

@@ -2,11 +2,11 @@ import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
 import type { AuditEvent, Credential, Organization } from '@/domain/types';
 import {
-  applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, applyWalletUpdate,
-  type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput, type PreparedUser,
+  applyCreateUser, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
+  type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser,
 } from './operations';
 
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 export const STORAGE_KEY = 'fixid.prototype.state';
 
 export interface Session {
@@ -33,6 +33,8 @@ export type Action =
   | { type: 'config/credential'; input: CredentialConfigInput }
   | { type: 'users/create'; prepared: PreparedUser }
   | { type: 'issuance/issue'; input: IssuanceInput }
+  | { type: 'users/status'; input: MemberStatusInput }
+  | { type: 'users/enrollmentInvite'; input: EnrollmentInviteInput }
   | { type: 'wallet/update'; credentialId: string; status: Credential['wallet']['status']; at: string }
   | { type: 'demo/reset'; state: AppState };
 
@@ -97,6 +99,14 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case 'users/create': {
       const r = applyCreateUser(state, action.prepared);
+      return r.ok ? r.state : state;
+    }
+    case 'users/status': {
+      const r = applyMemberStatus(state, action.input);
+      return r.ok ? r.state : state;
+    }
+    case 'users/enrollmentInvite': {
+      const r = applyEnrollmentInvite(state, action.input);
       return r.ok ? r.state : state;
     }
     case 'issuance/issue': {

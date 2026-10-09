@@ -54,6 +54,9 @@ export interface CanonicalIdentity {
   email: string;
   phone: string;
   dateOfBirth: ISODate;
+  /** Optional profile attributes held in the canonical record. */
+  gender?: 'Female' | 'Male';
+  location?: string;
   nationality: string;
   verificationLevel: 'basic' | 'verified' | 'high-assurance';
   /** Other Seamfix products that reference this canonical identity, e.g. Fixiam. */
@@ -84,14 +87,34 @@ export interface Member {
   /** How the ID Switch identity was obtained when the person was onboarded (PRD §15.4). */
   resolution: 'linked-existing' | 'created-new';
   /** Facial enrollment, tracked separately from user status. Raw biometric data is never exposed (PRD §18.6). */
-  faceEnrollment: { status: FaceEnrollmentStatus; updatedAt?: ISODate };
+  faceEnrollment: {
+    status: FaceEnrollmentStatus;
+    updatedAt?: ISODate;
+    /** The current enrollment invitation. Resending refreshes it; there is never more than one open link. */
+    invitation?: EnrollmentInvitation;
+    /** Approved display portrait, available only after successful enrollment. */
+    portraitUrl?: string;
+    /** True when the portrait is a decorative demo image rather than an enrollment capture. */
+    portraitIsSample?: boolean;
+  };
   /** Other biometric factors (status only). */
   factors: { fingerprint: boolean };
-  /** Legacy profile photo on sample data. Admin-uploaded photos are not collected and never count as enrollment. */
-  photoDataUrl?: string;
   joinedAt: ISODate;
+  /** Administrator who added the user, when known. */
+  createdBy?: string;
   /** Idempotency key of the request that created this user. */
   creationRequestId?: string;
+}
+
+export interface EnrollmentInvitation {
+  id: string;
+  /** Masked address the link was sent to. */
+  sentTo: string;
+  firstSentAt: ISODate;
+  sentAt: ISODate;
+  sendCount: number;
+  /** No email integration exists in the prototype; invitations are recorded, not delivered. */
+  simulated: true;
 }
 
 export type DateFormat = 'YYYY' | 'YY' | 'MM' | 'DD' | 'YYYYMM' | 'YYYYMMDD';
@@ -248,6 +271,9 @@ export type AuditAction =
   | 'identity.linked'
   | 'identity.created'
   | 'user.created'
+  | 'user.activated'
+  | 'user.deactivated'
+  | 'enrollment.invited'
   | 'identifier.created'
   | 'identifier.updated'
   | 'credential-type.created'

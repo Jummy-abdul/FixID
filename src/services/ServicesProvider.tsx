@@ -1,11 +1,12 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { createIssuanceService } from './issuance';
+import { createMockEnrollment } from './mockEnrollment';
 import { createMockIdSwitch } from './mockIdSwitch';
 import { createMockWallet } from './mockWallet';
 import type { Services } from './types';
 
 export function createDefaultServices(): Services {
-  return { idSwitch: createMockIdSwitch(), issuance: createIssuanceService(), wallet: createMockWallet() };
+  return { enrollment: createMockEnrollment(), idSwitch: createMockIdSwitch(), issuance: createIssuanceService(), wallet: createMockWallet() };
 }
 
 const ServicesContext = createContext<Services | null>(null);

@@ -13,6 +13,10 @@ const FAMILY = [
   'Oyelaran', 'Mensah', 'Asante', 'Okoro', 'Fashola', 'Iheanacho', 'Garba', 'Olatunji', 'Ekwueme', 'Salami',
 ];
 
+const FEMALE = new Set(['Adaeze', 'Chiamaka', 'Funmilayo', 'Zainab', 'Ngozi', 'Aisha', 'Halima', 'Folake', 'Ifeoma', 'Amara', 'Grace', 'Esther', 'Ruth', 'Kemi', 'Nkechi', 'Bisi', 'Hauwa', 'Sade']);
+const MALE = new Set(['Tunde', 'Ibrahim', 'Emeka', 'Babajide', 'Chukwudi', 'Musa', 'Segun', 'Daniel', 'Samuel', 'David', 'Michael', 'Yusuf', 'Kunle', 'Obinna', 'Femi']);
+const LOCATIONS = ['Lagos', 'Abuja', 'Ibadan', 'Port Harcourt', 'Enugu', 'Kano', 'Benin City', 'Abeokuta', 'Owerri', 'Kaduna', 'Jos', 'Ilorin'];
+
 export const REGISTRY_SIZE = 140;
 
 /**
@@ -40,6 +44,9 @@ export function buildIdSwitchRegistry(): CanonicalIdentity[] {
       email: `${givenName}.${familyName}${n % 7 === 0 ? n : ''}@mail.example`.toLowerCase(),
       phone: `+234 80${rng.int(1, 9)} ${rng.int(100, 999)} ${rng.int(1000, 9999)}`,
       dateOfBirth: `${year}-${month}-${day}`,
+      // Derived without extra random draws so existing sample data stays stable. Unisex names stay unknown.
+      gender: FEMALE.has(givenName) ? 'Female' : MALE.has(givenName) ? 'Male' : undefined,
+      location: n % 9 === 4 ? undefined : LOCATIONS[(n * 7) % LOCATIONS.length],
       nationality: rng.chance(0.9) ? 'Nigeria' : rng.pick(['Ghana', 'Kenya', 'United Kingdom']),
       verificationLevel: rng.chance(0.15) ? 'basic' : rng.chance(0.3) ? 'high-assurance' : 'verified',
       linkedProducts: rng.chance(0.25) ? ['Fixiam'] : [],

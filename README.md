@@ -70,6 +70,14 @@ The app opens in **Crestfield Academy**, a brand-new organization with no users,
 2. **User information**: name, email/phone, and the identifier value (manual) or a generated preview. No photo upload: facial enrollment is a separate, user-initiated live capture (planned), tracked as its own status (not enrolled, pending, enrolled, expired, failed). **Create user** runs a simulated ID Switch check: new or confidently matched people are created immediately; existing members, conflicts and name-only matches need attention first.
 3. **Create user** saves the user, then a **User created successfully** modal shows the assigned identifier and asks whether to issue a digital ID: **Yes, issue ID** continues in Credential Management; **Not now** returns to Users.
 
+## Users
+
+`/users` shows four KPI cards (Total, Active, Inactive, Portrait Enrolled) and a table with selection, serial numbers, identifier (name and value), email, user status and portrait enrollment. Each row's ⋯ menu offers **View Details**, **Deactivate/Activate User** (confirmed, audited, credentials untouched) and **Send/Resend Enrollment Link** for active users who aren't enrolled. Enrollment links are simulated: no email is sent; the invitation is recorded (one open link per user, resend allowed after a minute) and enrollment becomes Pending.
+
+`/users/:id` has a profile header (portrait or initials, name, status) and three tabs: **Profile Details** (with Record Information), **Credentials** (every issued credential, card preview, and Issue Credential), and **Recent Verifications**. The active tab is kept in the URL (`?tab=`).
+
+The sample organization has one enrolled user set up to show a portrait. Put a licensed demo photo at `public/samples/portrait-sample.jpg` to display it; without the file, initials are shown. It's labelled as a sample image, not an enrollment capture.
+
 ## Credential Management
 
 `/credentials/issue` is the one assignment flow: select a credential configuration (or **Create credential** in the credential drawer) → select recipients when none were carried in → review → issue. The recipient, credential and origin are carried in the URL (`?recipients=…&credential=…&from=new-user|user`), so the context survives navigation and refresh. Recipients are a list so one configuration can later be assigned to many users; selection is single for now.
