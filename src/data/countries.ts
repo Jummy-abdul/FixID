@@ -1,5 +1,5 @@
 /** Countries offered in forms, with calling codes. Nigeria first as the default. */
-export interface Country { code: string; name: string; dial: string; regions?: string[] }
+export interface Country { code: string; name: string; dial: string; regions?: string[]; timezone?: string }
 
 const NIGERIA_STATES = [
   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu',
@@ -13,10 +13,10 @@ const GHANA_REGIONS = [
 const KENYA_COUNTIES = ['Mombasa', 'Kisumu', 'Nairobi', 'Nakuru', 'Uasin Gishu', 'Kiambu', 'Machakos', 'Kakamega', 'Meru', 'Nyeri'];
 
 export const COUNTRIES: Country[] = [
-  { code: 'NG', name: 'Nigeria', dial: '+234', regions: NIGERIA_STATES },
-  { code: 'GH', name: 'Ghana', dial: '+233', regions: GHANA_REGIONS },
-  { code: 'KE', name: 'Kenya', dial: '+254', regions: KENYA_COUNTIES },
-  { code: 'ZA', name: 'South Africa', dial: '+27' },
+  { code: 'NG', name: 'Nigeria', dial: '+234', regions: NIGERIA_STATES, timezone: 'Africa/Lagos' },
+  { code: 'GH', name: 'Ghana', dial: '+233', regions: GHANA_REGIONS, timezone: 'Africa/Accra' },
+  { code: 'KE', name: 'Kenya', dial: '+254', regions: KENYA_COUNTIES, timezone: 'Africa/Nairobi' },
+  { code: 'ZA', name: 'South Africa', dial: '+27', timezone: 'Africa/Johannesburg' },
   { code: 'EG', name: 'Egypt', dial: '+20' },
   { code: 'ET', name: 'Ethiopia', dial: '+251' },
   { code: 'TZ', name: 'Tanzania', dial: '+255' },
@@ -31,9 +31,9 @@ export const COUNTRIES: Country[] = [
   { code: 'LR', name: 'Liberia', dial: '+231' },
   { code: 'GM', name: 'Gambia', dial: '+220' },
   { code: 'MA', name: 'Morocco', dial: '+212' },
-  { code: 'GB', name: 'United Kingdom', dial: '+44' },
+  { code: 'GB', name: 'United Kingdom', dial: '+44', timezone: 'Europe/London' },
   { code: 'IE', name: 'Ireland', dial: '+353' },
-  { code: 'US', name: 'United States', dial: '+1' },
+  { code: 'US', name: 'United States', dial: '+1', timezone: 'America/New_York' },
   { code: 'CA', name: 'Canada', dial: '+1' },
   { code: 'DE', name: 'Germany', dial: '+49' },
   { code: 'FR', name: 'France', dial: '+33' },

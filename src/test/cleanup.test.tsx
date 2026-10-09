@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
+import { DEMO_SESSION } from '@/auth/authCore';
 import { NEW_ORGANIZATION_ID, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
 import { toE164 } from '@/data/countries';
 import { ID_SWITCH_STORAGE_KEY } from '@/services/mockIdSwitch';
@@ -14,7 +15,7 @@ import { createInitialState, type AppState } from '@/store/state';
 function renderApp(path: string, state: AppState) {
   render(
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AppProviders initialState={state}><AppRoutes /></AppProviders>
+      <AppProviders initialState={state} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
     </MemoryRouter>,
   );
   return userEvent.setup();
@@ -192,7 +193,7 @@ describe('navigation and content', () => {
       localStorage.clear();
       const { unmount } = render(
         <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <AppProviders initialState={sampleState()}><AppRoutes /></AppProviders>
+          <AppProviders initialState={sampleState()} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
         </MemoryRouter>,
       );
       const nav = screen.getByRole('navigation', { name: 'Primary' });

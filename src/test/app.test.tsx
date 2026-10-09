@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
+import { DEMO_SESSION } from '@/auth/authCore';
 import { NEW_ORGANIZATION_ID, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
 import { NAVIGATION } from '@/layout/navigation';
 import { loadState } from '@/store/persistence';
@@ -14,7 +15,7 @@ function renderApp(path = '/', organizationId = SAMPLE_ORGANIZATION_ID) {
   state.session.currentOrganizationId = organizationId;
   render(
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AppProviders initialState={state}><AppRoutes /></AppProviders>
+      <AppProviders initialState={state} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
     </MemoryRouter>,
   );
   return { state, user: userEvent.setup() };
@@ -75,7 +76,7 @@ describe('navigation', () => {
     const member = state.data.members.find((m) => m.organizationId === state.session.currentOrganizationId)!;
     render(
       <MemoryRouter initialEntries={[`/people/${member.id}`]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AppProviders initialState={state}><AppRoutes /></AppProviders>
+        <AppProviders initialState={state} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
       </MemoryRouter>,
     );
     expect(await screen.findByRole('heading', { level: 1, name: member.displayName })).toBeInTheDocument();
@@ -91,7 +92,7 @@ describe('navigation', () => {
     const otherOrgCredential = state.data.credentials.find((c) => c.organizationId !== state.session.currentOrganizationId)!;
     render(
       <MemoryRouter initialEntries={[`/credentials/${otherOrgCredential.id}`]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AppProviders initialState={state}><AppRoutes /></AppProviders>
+        <AppProviders initialState={state} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
       </MemoryRouter>,
     );
     expect(await screen.findByText('This credential was not found')).toBeInTheDocument();
@@ -141,7 +142,7 @@ describe('top bar', () => {
     await user.click(screen.getByRole('button', { name: 'Account menu for Tobyson TE' }));
     const menu = screen.getByRole('menu', { name: 'Account' });
     expect(within(menu).getByText('Tobyson TE')).toBeInTheDocument();
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['My Profile']);
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['My Profile', 'Sign out']);
     await user.click(within(menu).getByRole('menuitem', { name: 'My Profile' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'My Profile' })).toBeInTheDocument();
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();

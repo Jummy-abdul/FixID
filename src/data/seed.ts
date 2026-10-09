@@ -293,6 +293,8 @@ const BLUEPRINTS: OrgBlueprint[] = [
 ];
 
 const ADMIN_NAME = 'Tobyson TE';
+/** The sample organizations' administrator, used by the demo account. */
+export const DEMO_ADMIN = { id: 'usr_tobyson', name: ADMIN_NAME, initials: 'TE', email: 'tobyson.te@fixid.demo', role: 'Owner' as const };
 /** Optional demo image. Place a licensed photo at public/samples/portrait-sample.jpg; initials show when it's absent. */
 export const SAMPLE_PORTRAIT_URL = '/samples/portrait-sample.jpg';
 
@@ -579,10 +581,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
 
   return {
     organizations,
-    admin: {
-      id: 'usr_tobyson', name: ADMIN_NAME, initials: 'TE', email: 'tobyson.te@fixid.demo', role: 'Owner',
-      organizationIds: organizations.map((o) => o.id),
-    },
+    admin: { ...DEMO_ADMIN, organizationIds: organizations.map((o) => o.id) },
     cardDesigns,
     credentialTypes,
     identifierConfigs,

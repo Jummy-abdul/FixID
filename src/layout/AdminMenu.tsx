@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
-import { UserRound } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { LogOut, UserRound } from 'lucide-react';
+import { useAuth } from '@/auth/AuthProvider';
 import { Avatar } from '@/components/ui';
 import { handleMenuKeys, usePopover } from '@/hooks/usePopover';
 import { useSession } from '@/store/AppStore';
 
 export function AdminMenu() {
   const { admin } = useSession();
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
   const { open, toggle, close, containerRef, triggerRef } = usePopover();
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +40,11 @@ export function AdminMenu() {
             <UserRound className="h-4 w-4 text-slate-400" />
             My Profile
           </Link>
+          <button type="button" role="menuitem" onClick={() => { close(); signOut(); navigate('/signin', { replace: true }); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
+            <LogOut className="h-4 w-4 text-slate-400" />
+            Sign out
+          </button>
         </div>
       )}
     </div>

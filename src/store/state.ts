@@ -1,6 +1,6 @@
 import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
-import type { AuditEvent, Credential, Organization } from '@/domain/types';
+import type { AdminUser, AuditEvent, CardDesign, Credential, Organization } from '@/domain/types';
 import {
   applyCreateUser, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
   type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser,
@@ -36,7 +36,10 @@ export type Action =
   | { type: 'users/status'; input: MemberStatusInput }
   | { type: 'users/enrollmentInvite'; input: EnrollmentInviteInput }
   | { type: 'wallet/update'; credentialId: string; status: Credential['wallet']['status']; at: string }
-  | { type: 'demo/reset'; state: AppState };
+  | { type: 'demo/reset'; state: AppState }
+  | { type: 'organization/create'; organization: Organization; cardDesign: CardDesign; at: string; actor: string }
+  /** Applies the signed-in administrator and their organization to the workspace. */
+  | { type: 'session/signIn'; admin: AdminUser; organizationId: string };
 
 export function createInitialState(now: Date = new Date()): AppState {
   const data = buildSeed(now);
@@ -115,8 +118,55 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case 'wallet/update':
       return applyWalletUpdate(state, action.credentialId, action.status, action.at);
-    case 'demo/reset':
-      return action.state;
+    case 'demo/reset': {
+      // Demo data is restored; organizations created through sign-up (and their records) are kept.
+      const owned = new Set(state.data.organizations.filter((o) => o.ownerAccountId).map((o) => o.id));
+      if (owned.size === 0) return action.state;
+      const keep = <T extends { organizationId: string }>(next: T[], prev: T[]) => [...next, ...prev.filter((r) => owned.has(r.organizationId))];
+      const d = state.data;
+      const n = action.state.data;
+      return {
+        ...action.state,
+        data: {
+          ...n,
+          organizations: [...n.organizations, ...d.organizations.filter((o) => owned.has(o.id))],
+          cardDesigns: keep(n.cardDesigns, d.cardDesigns),
+          credentialTypes: keep(n.credentialTypes, d.credentialTypes),
+          identifierConfigs: keep(n.identifierConfigs, d.identifierConfigs),
+          members: keep(n.members, d.members),
+          credentials: keep(n.credentials, d.credentials),
+          activities: keep(n.activities, d.activities),
+          transactions: keep(n.transactions, d.transactions),
+          audit: keep(n.audit, d.audit),
+        },
+      };
+    }
+    case 'organization/create': {
+      if (state.data.organizations.some((o) => o.id === action.organization.id)) return state;
+      const event: AuditEvent = {
+        id: nextAuditId(state.data.audit), organizationId: action.organization.id, action: 'organization.created',
+        actor: action.actor, actorType: 'admin', resourceType: 'organization', resourceId: action.organization.id,
+        result: 'success', occurredAt: action.at, summary: `Created organization ${action.organization.name}`, href: '/settings',
+      };
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          organizations: [...state.data.organizations, action.organization],
+          cardDesigns: [...state.data.cardDesigns, action.cardDesign],
+          audit: [event, ...state.data.audit],
+        },
+      };
+    }
+    case 'session/signIn': {
+      if (!state.data.organizations.some((o) => o.id === action.organizationId) || !action.admin.organizationIds.includes(action.organizationId)) return state;
+      if (JSON.stringify(state.data.admin) === JSON.stringify(action.admin) && state.session.currentOrganizationId === action.organizationId) return state;
+      return {
+        ...state,
+        session: { adminId: action.admin.id, currentOrganizationId: action.organizationId },
+        data: { ...state.data, admin: action.admin },
+      };
+    }
     default:
       return state;
   }

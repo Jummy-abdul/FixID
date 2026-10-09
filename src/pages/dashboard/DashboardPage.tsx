@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Eye } from 'lucide-react';
 import { getSetupProgress } from '@/domain/setupProgress';
 import { SAMPLE_ORGANIZATION_ID } from '@/data/seed';
+import { useAuth } from '@/auth/AuthProvider';
 import { selectOrgData, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { ActiveDashboard } from './ActiveDashboard';
 import { FirstTimeDashboard } from './FirstTimeDashboard';
@@ -28,8 +29,11 @@ export function DashboardPage() {
   const { admin } = useSession();
   const org = useOrgData();
   const { state } = useStore();
-  const [preview, setPreview] = useDashboardPreview();
-  const control = <PreviewControl value={preview} onChange={setPreview} />;
+  const { isDemo } = useAuth();
+  const [storedPreview, setPreview] = useDashboardPreview();
+  // The preview (which can show sample organizations) is available to the demo account only.
+  const preview: DashboardPreview = isDemo ? storedPreview : 'automatic';
+  const control = isDemo ? <PreviewControl value={preview} onChange={setPreview} /> : undefined;
 
   const firstTimeData = useMemo(() => {
     if (preview === 'first-time-new' || preview === 'first-time-issued') return previewData(preview, org);

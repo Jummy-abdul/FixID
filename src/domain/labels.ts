@@ -14,6 +14,7 @@ export const PURPOSE_LABEL: Record<ActivityPurpose, string> = {
 
 export const INDUSTRY_LABEL: Record<Industry, string> = {
   education: 'Education', corporate: 'Corporate', healthcare: 'Healthcare', events: 'Events', membership: 'Membership organization',
+  other: 'Other',
 };
 
 export const EFFECTIVE_DATE_LABEL: Record<CredentialType['effectiveDate'], string> = {

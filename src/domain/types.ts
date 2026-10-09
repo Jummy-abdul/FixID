@@ -11,7 +11,7 @@
 
 export type ISODate = string;
 
-export type Industry = 'education' | 'corporate' | 'healthcare' | 'events' | 'membership';
+export type Industry = 'education' | 'corporate' | 'healthcare' | 'events' | 'membership' | 'other';
 
 export interface Organization {
   id: string;
@@ -26,6 +26,10 @@ export interface Organization {
   defaultCardDesignId: string;
   integrations: OrganizationIntegrations;
   createdAt: ISODate;
+  /** State or region, when given during onboarding. */
+  region?: string;
+  /** Set for organizations created by a signed-up administrator (not demo data). */
+  ownerAccountId?: string;
 }
 
 export interface OrganizationIntegrations {
@@ -300,6 +304,7 @@ export type AuditAction =
   | 'credential.renewed'
   | 'activity.updated'
   | 'organization.updated'
+  | 'organization.created'
   | 'wallet.delivered'
   | 'wallet.failed';
 

@@ -3,6 +3,7 @@ import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
+import { DEMO_SESSION } from '@/auth/authCore';
 import { NEW_ORGANIZATION_ID } from '@/data/seed';
 import type { IdentifierSegment } from '@/domain/types';
 import { selectOrgData } from '@/store/AppStore';
@@ -47,7 +48,7 @@ function withStudentId(s: AppState, over: Partial<Parameters<typeof applyCredent
 function renderApp(path: string, state: AppState) {
   render(
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AppProviders initialState={state}><AppRoutes /></AppProviders>
+      <AppProviders initialState={state} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
     </MemoryRouter>,
   );
   return userEvent.setup();

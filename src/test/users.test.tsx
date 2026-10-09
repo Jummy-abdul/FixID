@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
+import { DEMO_SESSION } from '@/auth/authCore';
 import { buildIdSwitchRegistry } from '@/data/idSwitchRegistry';
 import { NEW_ORGANIZATION_ID, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
 import type { Member } from '@/domain/types';
@@ -23,7 +24,7 @@ function sampleState(): AppState {
 function renderApp(path: string, state: AppState = sampleState()) {
   render(
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AppProviders initialState={state}><AppRoutes /></AppProviders>
+      <AppProviders initialState={state} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
     </MemoryRouter>,
   );
   return { state, user: userEvent.setup() };
