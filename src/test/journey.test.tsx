@@ -127,15 +127,15 @@ beforeEach(() => {
 });
 
 describe('Add users entry', () => {
-  it('offers manual, select existing (planned) and bulk upload (planned)', async () => {
+  it('offers manual, import from CSV, and select existing (planned)', async () => {
     const { user } = renderApp('/');
     await user.click(screen.getByRole('link', { name: /get started/i }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Add users' })).toBeInTheDocument();
     expect(screen.getByText("Choose how you'd like to add people to your organization.")).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /add manually/i })).toHaveAttribute('href', '/users/new/manual');
     expect(screen.getByText('Select existing')).toBeInTheDocument();
-    expect(screen.getByText('Bulk upload')).toBeInTheDocument();
-    expect(screen.getAllByText('Planned')).toHaveLength(2);
+    expect(screen.getByRole('link', { name: /import users/i })).toHaveAttribute('href', '/users/import');
+    expect(screen.getAllByText('Planned')).toHaveLength(1);
   });
 });
 

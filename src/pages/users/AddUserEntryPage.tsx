@@ -37,8 +37,15 @@ export function AddUserEntryPage() {
         </Link>
         <PlannedOption icon={<Search className="h-6 w-6" aria-hidden="true" />} title="Select existing"
           text="Find an existing identity and add them to your organization." />
-        <PlannedOption icon={<FileSpreadsheet className="h-6 w-6" aria-hidden="true" />} title="Bulk upload"
-          text="Import multiple users from a file." />
+        <Link to="/users/import"
+          className="group flex flex-col rounded-2xl border border-slate-200 bg-white p-8 shadow-card transition hover:border-brand-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-white"><FileSpreadsheet className="h-6 w-6" aria-hidden="true" /></span>
+          <span className="mt-6 text-lg font-semibold text-slate-900">Import users</span>
+          <span className="mt-1 text-slate-500">Add many people at once from a CSV file.</span>
+          <span className="mt-auto inline-flex items-center gap-1.5 pt-8 text-sm font-semibold text-brand-600 group-hover:gap-2.5 motion-reduce:transition-none">
+            Start <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </span>
+        </Link>
       </div>
     </>
   );

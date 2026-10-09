@@ -2,8 +2,9 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Fingerprint, UserPlus } from 'lucide-react';
 import { Badge, Button, Field, Input, Select } from '@/components/ui';
-import { COUNTRIES, countryByCode, toE164 } from '@/data/countries';
-import { describePattern, previewIdentifier, validateManualValue } from '@/domain/identifierPattern';
+import { COUNTRIES, countryByCode } from '@/data/countries';
+import { describePattern, previewIdentifier } from '@/domain/identifierPattern';
+import { internationalPhone, validatePerson, type PersonErrors } from '@/domain/userValidation';
 import type { CanonicalIdentity, IdentifierConfig } from '@/domain/types';
 import { maskEmail, maskPhone, newId } from '@/lib/identifiers';
 import { useServices } from '@/services/ServicesProvider';
@@ -13,33 +14,8 @@ import { isIdentifierTaken } from '@/store/operations';
 import { identityKey, type Draft, type PersonForm } from './draft';
 import { Callout, FormSection, StepShell } from './parts';
 
-type Errors = Partial<Record<keyof PersonForm, string>>;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const NAME = /^[\p{L}][\p{L}\p{M}' .-]*$/u;
-
-export function validatePerson(p: PersonForm, config: IdentifierConfig, taken: (v: string) => boolean): Errors {
-  const e: Errors = {};
-  if (!p.givenName.trim()) e.givenName = 'Enter their first name.';
-  else if (!NAME.test(p.givenName.trim())) e.givenName = 'Use letters only.';
-  if (!p.familyName.trim()) e.familyName = 'Enter their last name.';
-  else if (!NAME.test(p.familyName.trim())) e.familyName = 'Use letters only.';
-  if (!p.email.trim()) e.email = 'Enter their email address.';
-  else if (!EMAIL.test(p.email.trim())) e.email = 'Enter a valid email address.';
-  if (p.phone.trim() && (!/^[+\d][\d\s()-]*$/.test(p.phone.trim()) || !internationalPhone(p))) e.phone = 'Enter a valid phone number.';
-  if (config.mode === 'manual') {
-    const v = p.identifierValue.trim();
-    const invalid = v ? validateManualValue(v) : `Enter their ${config.name}.`;
-    if (invalid) e.identifierValue = invalid;
-    else if (taken(v)) e.identifierValue = `${v} is already assigned to another user.`;
-  }
-  return e;
-}
-
-/** The phone number in international format (E.164), or '' when none was entered. */
-export function internationalPhone(p: PersonForm): string | null {
-  if (!p.phone.trim()) return '';
-  return toE164(countryByCode(p.phoneCountry)?.dial ?? '+234', p.phone);
-}
+type Errors = PersonErrors;
+export { internationalPhone, validatePerson };
 
 /** What the identity check means for creating this user. */
 function decision(r: ResolutionResult | null, existingMemberName: string | null, confirmNew: boolean) {

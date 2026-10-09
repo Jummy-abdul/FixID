@@ -114,8 +114,11 @@ export function isIdentifierTaken(state: AppState, configId: string, value: stri
 type PrepareResult = { ok: true; prepared: PreparedUser; duplicateRequest?: { memberId: string } } | { ok: false; errors: Record<string, string> };
 
 /** Validates a new user and assigns the identifier. Generation happens here, once per create request. */
+export const OTHER_ORGANIZATION = 'You can only add users to the organization you’re working in.';
+
 export function prepareCreateUser(state: AppState, input: CreateUserInput, random: () => number = Math.random): PrepareResult {
-  const prior = state.data.members.find((m) => m.creationRequestId === input.requestId);
+  if (input.organizationId !== state.session.currentOrganizationId) return { ok: false, errors: { form: OTHER_ORGANIZATION } };
+  const prior = state.data.members.find((m) => m.creationRequestId === input.requestId && m.organizationId === input.organizationId);
   if (prior) return { ok: true, prepared: { ...input, assigned: { value: prior.identifier?.value ?? '', nextSequence: null } }, duplicateRequest: { memberId: prior.id } };
 
   const org = state.data.organizations.find((o) => o.id === input.organizationId);
@@ -139,7 +142,9 @@ export function prepareCreateUser(state: AppState, input: CreateUserInput, rando
 }
 
 export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memberId: string; duplicateRequest?: boolean }> {
-  const prior = state.data.members.find((m) => m.creationRequestId === p.requestId);
+  // Users are only ever added to the organization the administrator is working in.
+  if (p.organizationId !== state.session.currentOrganizationId) return { ok: false, errors: { form: OTHER_ORGANIZATION } };
+  const prior = state.data.members.find((m) => m.creationRequestId === p.requestId && m.organizationId === p.organizationId);
   if (prior) return { ok: true, state, memberId: prior.id, duplicateRequest: true };
   const config = state.data.identifierConfigs.find((c) => c.id === p.identifierConfigId && c.organizationId === p.organizationId);
   if (!config) return { ok: false, errors: { form: 'The selected identifier is no longer available.' } };
@@ -181,6 +186,32 @@ export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memb
           organizationId: p.organizationId, action: 'user.created', actor: state.data.admin.name, actorType: 'admin',
           resourceType: 'member', resourceId: member.id, result: 'success', occurredAt: p.at, href: `/users/${member.id}`,
           summary: `Added ${member.displayName} (${config.name} ${member.identifier!.value})`,
+        }]),
+      },
+    },
+  };
+}
+
+/** Summary of a bulk import, for the Audit Log. Individual users are audited as they're created. */
+export interface ImportSummaryInput {
+  organizationId: string; importId: string; at: string; fileName: string; identifierName: string;
+  counts: { total: number; created: number; failed: number; skipped: number; notProcessed: number };
+}
+
+export function applyImportSummary(state: AppState, input: ImportSummaryInput): Result<object> {
+  if (input.organizationId !== state.session.currentOrganizationId) return { ok: false, errors: { form: OTHER_ORGANIZATION } };
+  const c = input.counts;
+  const problems = c.failed + c.skipped + c.notProcessed;
+  return {
+    ok: true,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        audit: withAudit(state, [{
+          organizationId: input.organizationId, action: 'user.imported', actor: state.data.admin.name, actorType: 'admin',
+          resourceType: 'member', resourceId: input.importId, result: c.created === 0 && problems > 0 ? 'failure' : 'success', occurredAt: input.at, href: '/users',
+          summary: `Imported ${c.created} of ${c.total} ${c.total === 1 ? 'user' : 'users'} from ${input.fileName} (${input.identifierName})${problems ? `; ${c.failed} failed, ${c.skipped} skipped${c.notProcessed ? `, ${c.notProcessed} not processed` : ''}` : ''}.`,
         }]),
       },
     },

@@ -2,8 +2,8 @@ import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
 import type { AdminUser, AuditEvent, CardDesign, Credential, Organization } from '@/domain/types';
 import {
-  applyCreateUser, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
-  type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser,
+  applyCreateUser, applyImportSummary, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
+  type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser, type ImportSummaryInput,
 } from './operations';
 import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
 import { permissionsFor, roleById, type Permission, type RoleId } from '@/domain/roles';
@@ -52,6 +52,7 @@ export type Action =
   | { type: 'config/identifier'; input: IdentifierConfigInput }
   | { type: 'config/credential'; input: CredentialConfigInput }
   | { type: 'users/create'; prepared: PreparedUser }
+  | { type: 'users/importSummary'; input: ImportSummaryInput }
   | { type: 'issuance/issue'; input: IssuanceInput }
   | { type: 'users/status'; input: MemberStatusInput }
   | { type: 'users/enrollmentInvite'; input: EnrollmentInviteInput }
@@ -110,6 +111,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'config/identifier': ['users.manage', 'credentials.manage'],
   'config/credential': ['credentials.manage'],
   'users/create': ['users.manage'],
+  'users/importSummary': ['users.manage'],
   'users/status': ['users.manage'],
   'users/enrollmentInvite': ['users.manage'],
   'issuance/issue': ['credentials.issue'],
@@ -221,6 +223,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const r = applyCreateUser(state, action.prepared);
       return r.ok ? r.state : state;
     }
+    case 'users/importSummary': return orKeep(state, applyImportSummary(state, action.input));
     case 'users/status': {
       const r = applyMemberStatus(state, action.input);
       return r.ok ? r.state : state;

@@ -4,8 +4,8 @@ import type {
 } from '@/domain/types';
 import {
   applyEnrollmentInvite, applyMemberStatus, type EnrollmentInviteInput, type MemberStatusInput,
-  applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
-  type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
+  applyCreateUser, applyImportSummary, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
+  type CreateUserInput, type ImportSummaryInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
 import {
   applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
@@ -177,6 +177,14 @@ export function useActions() {
         if (!result.ok) return result;
         dispatch({ type: 'users/create', prepared: prepared.prepared });
         return { ok: true as const, memberId: result.memberId, identifier: prepared.prepared.assigned.value };
+      },
+      /** Records a bulk import's outcome in the Audit Log. */
+      recordImportSummary: (input: ImportSummaryInput) => {
+        const denied = authorizeAction(getState(), 'users/importSummary');
+        if (denied) return { ok: false as const, errors: { form: denied } };
+        const result = applyImportSummary(getState(), input);
+        if (result.ok) dispatch({ type: 'users/importSummary', input });
+        return result;
       },
       /** Activates or deactivates a user. Credentials are not changed. */
       setMemberStatus: (input: MemberStatusInput) => {

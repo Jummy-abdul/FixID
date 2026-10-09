@@ -324,6 +324,7 @@ export type AuditAction =
   | 'identity.linked'
   | 'identity.created'
   | 'user.created'
+  | 'user.imported'
   | 'user.activated'
   | 'user.deactivated'
   | 'enrollment.invited'

@@ -14,6 +14,7 @@ import { IssuedCredentialsPage } from './pages/credentials/IssuedCredentialsPage
 import { CredentialTypesPage } from './pages/CredentialTypesPage';
 import { AddUserEntryPage } from './pages/users/AddUserEntryPage';
 import { ManualAddUserPage } from './pages/users/add/ManualAddUserPage';
+import { ImportUsersPage } from './pages/users/ImportUsersPage';
 import { AssignCredentialPage } from './pages/credentials/AssignCredentialPage';
 import { assignUrl } from './components/issuance/assignment';
 import { IdentifiersPage } from './pages/IdentifiersPage';
@@ -93,6 +94,7 @@ export function AppRoutes() {
         <Route path="users" element={<RequirePermission permission="users.view"><PeoplePage /></RequirePermission>} />
         <Route path="users/new" element={<RequirePermission permission="users.manage"><AddUserEntryPage /></RequirePermission>} />
         <Route path="users/new/manual" element={<RequirePermission permission="users.manage"><ManualAddUserPage /></RequirePermission>} />
+        <Route path="users/import" element={<RequirePermission permission="users.manage"><ImportUsersPage /></RequirePermission>} />
         <Route path="users/:personId" element={<RequirePermission permission="users.view"><PersonDetailPage /></RequirePermission>} />
         <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
         <Route path="groups" element={<RequirePermission permission="groups.view"><GroupsPage /></RequirePermission>} />

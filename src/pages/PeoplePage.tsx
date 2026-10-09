@@ -1,7 +1,7 @@
 import { useAuthorization } from '@/auth/authorization';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ScanFace, Send, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
+import { FileSpreadsheet, ScanFace, Send, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
 import {
   Button, ButtonLink, Card, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, StatCard, usePageSlice,
 } from '@/components/ui';
@@ -70,7 +70,12 @@ export function PeoplePage() {
     <>
       <PageHeader
         title="Users"
-        actions={canManage ? <ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink> : undefined}
+        actions={canManage ? (
+          <>
+            <ButtonLink to="/users/import" variant="secondary" icon={<FileSpreadsheet className="h-4 w-4" />}>Import Users</ButtonLink>
+            <ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>
+          </>
+        ) : undefined}
       />
       <section aria-label="User summary" className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Total Users" value={kpis.total} icon={<Users className="h-4 w-4" />} />
