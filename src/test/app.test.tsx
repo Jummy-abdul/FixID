@@ -142,7 +142,7 @@ describe('top bar', () => {
     await user.click(screen.getByRole('button', { name: 'Account menu for Tobyson TE' }));
     const menu = screen.getByRole('menu', { name: 'Account' });
     expect(within(menu).getByText('Tobyson TE')).toBeInTheDocument();
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['My Profile', 'Credential Manager', 'Verification Manager', 'Verifier', 'Viewer / Auditor', 'Sign out']);
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['My Profile', 'Verifier Interface', 'Credential Manager', 'Verification Manager', 'Verifier', 'Viewer / Auditor', 'Sign out']);
     await user.click(within(menu).getByRole('menuitem', { name: 'My Profile' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'My Profile' })).toBeInTheDocument();
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();

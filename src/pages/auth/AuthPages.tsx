@@ -49,6 +49,20 @@ export function RequireApp() {
   return <Outlet />;
 }
 
+/**
+ * Signed-in route guard for the Verifier Interface. Same sign-in and workspace rules as the portal, but
+ * administrators without portal access (Verifiers) may enter; what they can do is decided per activity.
+ */
+export function RequireVerifierApp() {
+  const { account, isDemo } = useAuth();
+  const { state } = useStore();
+  const location = useLocation();
+  if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  if (account.onboarding !== 'complete') return <Navigate to={homeFor(account)} replace />;
+  if (state.data.admin.id !== (isDemo ? DEMO_ADMIN.id : account.id)) return null;
+  return <Outlet />;
+}
+
 /* ------------------------------------------------------------------ */
 /* Sign up                                                             */
 /* ------------------------------------------------------------------ */

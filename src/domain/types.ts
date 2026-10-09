@@ -37,6 +37,11 @@ export interface OrganizationIntegrations {
   seamfixWallet: { connected: boolean; issuerDid: string };
   /** Fixiam is an independent workforce IAM product and is optional for FixID. */
   fixiam: { connected: boolean };
+  /**
+   * Demonstration verification providers (demo builds only): labelled simulated stand-ins for facial
+   * matching, liveness, holder binding and credential presentation. Never real verification.
+   */
+  verificationDemo?: { enabled: boolean };
 }
 
 export interface AdminUser {
@@ -358,6 +363,8 @@ export type AuditAction =
   | 'verification-activity.duplicated'
   | 'verification-activity.removed'
   | 'verification-activity.draft-discarded'
+  | 'verification.denied'
+  | 'integration.demo-providers'
   | 'admin.role-removed'
   | 'admin.roles-changed'
   | 'admin.deactivated'
@@ -553,4 +560,65 @@ export interface VerifierAssignment {
   assignedBy: string;
   removedAt?: ISODate;
   removedBy?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Verification attempts (execution records, not configuration)        */
+/* ------------------------------------------------------------------ */
+
+export type CheckRunStatus = 'pending' | 'in-progress' | 'passed' | 'failed' | 'inconclusive' | 'error' | 'skipped';
+
+/** One check's result within an attempt. Explanations are plain language; no raw provider payloads are kept. */
+export interface CheckRun {
+  checkId: string;
+  type: CheckTypeId;
+  requirement: CheckRequirement;
+  status: CheckRunStatus;
+  explanation: string;
+  /** Provider that ran (or would have run) the check, by ID. */
+  providerId?: string;
+  /** True when the result came from a labelled demonstration provider. */
+  simulated?: boolean;
+  /** Opaque reference to evidence held by the provider or FixID; never the evidence itself. */
+  evidenceRef?: string;
+  completedAt?: ISODate;
+  /** Why a skipped check wasn't run. A check skipped because its prerequisite failed counts as failed, never passed. */
+  skipReason?: 'dependency-failed' | 'dependency-incomplete' | 'not-run';
+}
+
+/** The application that made the request (e.g. the FixID web verifier, or an approved external app). */
+export interface VerificationClientRef { id: string; name: string }
+
+/**
+ * One verification attempt. Records every attempt, not just successful ones, against the activity
+ * version in use when it started. The outcome is derived from the check results by the engine.
+ */
+export interface VerificationAttempt {
+  id: string;
+  organizationId: string;
+  activityId: string;
+  activityName: string;
+  versionId: string;
+  versionNumber: number;
+  type: VerificationType;
+  verifierId: string;
+  verifierName: string;
+  client: VerificationClientRef;
+  status: 'in-progress' | 'completed' | 'cancelled' | 'expired' | 'error';
+  startedAt: ISODate;
+  expiresAt: ISODate;
+  completedAt?: ISODate;
+  /** Privacy-safe subject reference: a FixID user ID when resolved, and a masked label. */
+  subject?: { memberId?: string; credentialId?: string; label: string };
+  /** What kind of input was given, without the values. */
+  inputs?: { identifier?: boolean; credential?: 'reference' | 'simulated-presentation'; attributes?: string[]; biometric?: boolean };
+  checks: CheckRun[];
+  outcome?: VerificationOutcome;
+  reasons: string[];
+  /** Some checks used demonstration providers, so this isn't real identity assurance. */
+  simulated: boolean;
+  /** Review referral, kept separate from the original outcome. */
+  review?: { status: 'pending'; referredAt: ISODate; referredBy: string; reason: string };
+  /** Idempotency key of the submission that completed the attempt. */
+  submissionId?: string;
 }

@@ -72,6 +72,7 @@ export function createMockIdSwitch(): IdSwitchService {
   return {
     async getIdentity(idSwitchId) {
       await simulateLatency();
+      ensureAvailable();
       return all().find((r) => r.idSwitchId === idSwitchId) ?? null;
     },
     async getContacts(idSwitchIds) {

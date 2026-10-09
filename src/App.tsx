@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { AppLayout } from './layout/AppLayout';
 import { RequirePermission } from './auth/authorization';
 import {
-  CreatePasswordPage, ForgotPasswordPage, PublicOnly, RequireApp, RequireOnboarding, SignInPage, SignUpPage, VerifyEmailPage,
+  CreatePasswordPage, ForgotPasswordPage, PublicOnly, RequireApp, RequireVerifierApp, RequireOnboarding, SignInPage, SignUpPage, VerifyEmailPage,
 } from './pages/auth/AuthPages';
 import { OnboardingOrganizationPage, OnboardingPersonalPage } from './pages/auth/OnboardingPages';
 import { ActivitiesPage } from './pages/ActivitiesPage';
@@ -22,6 +22,9 @@ import { IdentifiersPage } from './pages/IdentifiersPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
+import { VerifierLayout } from './pages/verifier/VerifierLayout';
+import { VerifierHome } from './pages/verifier/VerifierHome';
+import { VerifierAttemptPage, VerifierStartPage } from './pages/verifier/VerifierAttemptPage';
 import { VerificationActivitiesPage } from './pages/verification/VerificationActivitiesPage';
 import { ActivityDetailsPage } from './pages/verification/ActivityDetailsPage';
 import { ActivityEditorPage } from './pages/verification/ActivityEditorPage';
@@ -73,6 +76,13 @@ export function AppRoutes() {
       <Route element={<RequireOnboarding />}>
         <Route path="onboarding/personal" element={<OnboardingPersonalPage />} />
         <Route path="onboarding/organization" element={<OnboardingOrganizationPage />} />
+      </Route>
+      <Route element={<RequireVerifierApp />}>
+        <Route element={<VerifierLayout />}>
+          <Route path="verify" element={<VerifierHome />} />
+          <Route path="verify/activities/:activityId" element={<VerifierStartPage />} />
+          <Route path="verify/attempts/:attemptId" element={<VerifierAttemptPage />} />
+        </Route>
       </Route>
       <Route element={<RequireApp />}>
       <Route element={<AppLayout />}>

@@ -1,10 +1,13 @@
 import { useState } from 'react';
-import { Activity, CheckCircle2, Fingerprint, Wallet, XCircle } from 'lucide-react';
+import { Activity, CheckCircle2, Fingerprint, FlaskConical, Wallet, XCircle } from 'lucide-react';
 import { Badge, Button, Card, CardBody, CardHeader } from '@/components/ui';
 import type { Organization } from '@/domain/types';
 import type { ServiceHealth } from '@/services/types';
 import { formatDateTime } from '@/lib/dates';
 import { useServices } from '@/services/ServicesProvider';
+import { useStore } from '@/store/AppStore';
+import { useAuthorization } from '@/auth/authorization';
+import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
 
 function HealthResult({ health }: { health: ServiceHealth }) {
   return (
@@ -61,6 +64,7 @@ export function IntegrationsPanel({ organization }: { organization: Organization
           </CardBody>
         </Card>
       ))}
+      <DemoProvidersCard organization={organization} />
       <Card>
         <CardHeader
           title="Fixiam"
@@ -69,5 +73,35 @@ export function IntegrationsPanel({ organization }: { organization: Organization
         />
       </Card>
     </div>
+  );
+}
+
+/**
+ * Demonstration verification providers (demo builds only). Labelled simulated stand-ins so the
+ * verification flow can be exercised end to end; they never produce real verification results.
+ */
+function DemoProvidersCard({ organization }: { organization: Organization }) {
+  const { dispatch } = useStore();
+  const { can } = useAuthorization();
+  const on = !!organization.integrations.verificationDemo?.enabled;
+  if (!DEMO_AUTH_ENABLED) return null;
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2"><FlaskConical className="h-4 w-4 text-slate-500" />Demonstration verification providers</span>}
+        description="Demonstration stand-ins for facial matching, liveness, holder binding and wallet credential presentation, for trying the verification flow. Their results are labelled as demonstration results and are never real identity or credential assurance."
+        action={<Badge tone={on ? 'warning' : 'neutral'} dot>{on ? 'On (demonstration)' : 'Off'}</Badge>}
+      />
+      <CardBody>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm text-slate-500">No external biometric, wallet or presentation service is connected.</span>
+          {can('settings.manage') && (
+            <Button variant="secondary" size="sm" onClick={() => dispatch({ type: 'organization/verificationDemo', organizationId: organization.id, enabled: !on, at: new Date().toISOString() })}>
+              {on ? 'Turn off' : 'Turn on'}
+            </Button>
+          )}
+        </div>
+      </CardBody>
+    </Card>
   );
 }

@@ -16,6 +16,7 @@ import type {
   ActivityConfig,
   ActivityVersion,
   VerifierAssignment,
+  VerificationAttempt,
   Organization,
   Transaction,
   IdentifierConfig,
@@ -51,6 +52,8 @@ export interface SeedData {
   activityConfigs: ActivityConfig[];
   activityVersions: ActivityVersion[];
   verifierAssignments: VerifierAssignment[];
+  /** Verification attempts performed through the verification service (Verifier Interface or approved apps). */
+  verificationAttempts: VerificationAttempt[];
 }
 
 const DAY = 86_400_000;
@@ -752,6 +755,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     ...seededGroups,
     issuanceBatches: [],
     ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators }, today),
+    verificationAttempts: [],
   };
 }
 

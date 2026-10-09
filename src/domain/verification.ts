@@ -1,6 +1,6 @@
 import type {
   ActivityCheck, ActivityConfig, ActivityVersion, CheckTypeId, CredentialType, Group, IdentifierConfig, Organization, OrgAdministrator,
-  OutcomePolicy, VerificationType, VerifierAssignment,
+  OutcomePolicy, VerificationOutcome, VerificationType, VerifierAssignment,
 } from './types';
 import { permissionsFor } from './roles';
 
@@ -145,6 +145,8 @@ export interface ProviderInfo {
   /** Why it has this status, and how to change it. */
   statusNote: string;
   internal: boolean;
+  /** A labelled demonstration stand-in. Its results are never real verification. */
+  simulated?: boolean;
 }
 
 /**
@@ -154,6 +156,11 @@ export interface ProviderInfo {
 export function providersFor(org: Organization): ProviderInfo[] {
   const ids = org.integrations.idSwitch.connected;
   const fixiam = org.integrations.fixiam.connected;
+  const demo = !!org.integrations.verificationDemo?.enabled;
+  const simulated = (name: string) => ({
+    name: `${name} (simulated)`, status: 'available' as const, simulated: true,
+    statusNote: 'Demonstration provider, turned on in Settings → Integrations. Results are simulated and aren’t real verification.',
+  });
   return [
     {
       id: 'identity-service', name: 'Identity service', role: 'both', internal: true,
@@ -179,11 +186,13 @@ export function providersFor(org: Organization): ProviderInfo[] {
       id: 'facial-matching', name: 'Facial matching service', role: 'provider', internal: false,
       description: 'Compares facial captures with authorized references and checks liveness.',
       status: 'not-configured', statusNote: 'No facial matching service is configured yet.',
+      ...(demo ? simulated('Facial matching service') : {}),
     },
     {
       id: 'presentation-proof', name: 'Credential presentation proof', role: 'provider', internal: false,
       description: 'Validates holder-binding proofs from compatible wallets.',
       status: 'not-configured', statusNote: 'No presentation proof service is configured yet.',
+      ...(demo ? simulated('Credential presentation proof') : {}),
     },
     {
       id: 'external-registry', name: 'External identity registry', role: 'both', internal: false,
@@ -421,4 +430,41 @@ export function executionPlan(d: VerificationData, organizationId: string, activ
 /** The version being edited (draft) or, if none, the one in use. */
 export function currentVersion(d: Pick<VerificationData, 'activityVersions'>, a: ActivityConfig): ActivityVersion | undefined {
   return d.activityVersions.find((v) => v.id === (a.draftVersionId ?? a.activeVersionId));
+}
+
+/* ------------------------------------------------------------------ */
+/* Outcome evaluation (shared by the execution engine and the store)   */
+/* ------------------------------------------------------------------ */
+
+type RunLike = { checkId: string; requirement: ActivityCheck['requirement']; status: string; explanation: string; type: CheckTypeId; skipReason?: string };
+
+/**
+ * Turns check results into an outcome using the activity's rules: every required check must pass, and
+ * at least one approved alternative (when configured). A definite failure takes precedence over an
+ * incomplete check. Optional checks never decide the outcome. A failure can never become Verified.
+ */
+export function evaluateOutcome(version: Pick<ActivityVersion, 'outcome' | 'checks'>, runs: RunLike[]): { outcome: VerificationOutcome; reasons: string[] } {
+  const configured = new Set(version.checks.map((c) => c.id));
+  // A check skipped because its prerequisite failed is a failure for evaluation; any other skip is incomplete.
+  const relevant = runs.filter((r) => configured.has(r.checkId))
+    .map((r) => (r.status === 'skipped' && r.skipReason === 'dependency-failed' ? { ...r, status: 'failed' } : r));
+  const missing = version.checks.filter((c) => c.requirement !== 'optional' && !relevant.some((r) => r.checkId === c.id));
+  const required = relevant.filter((r) => r.requirement === 'required');
+  const alternatives = relevant.filter((r) => r.requirement === 'alternative');
+  const failed = required.filter((r) => r.status === 'failed');
+  const incomplete = [...required.filter((r) => r.status !== 'passed' && r.status !== 'failed'), ...missing.map((c) => ({ explanation: `${checkById(c.type).name} wasn’t run.` }))];
+  const altPassed = alternatives.some((r) => r.status === 'passed');
+  const altIncomplete = alternatives.length > 0 && !altPassed && alternatives.some((r) => r.status !== 'failed');
+  const altFailed = alternatives.length > 0 && !altPassed && !altIncomplete;
+  const name = (r: { type?: CheckTypeId; explanation: string }) => (r.type ? `${checkById(r.type).name}: ${r.explanation}` : r.explanation);
+
+  if (failed.length || altFailed) {
+    const reasons = [...failed.map(name), ...(altFailed ? ['None of the approved alternatives passed.'] : [])];
+    return { outcome: version.outcome.onRequiredFailure === 'pending-review' ? 'pending-review' : 'not-verified', reasons };
+  }
+  if (incomplete.length || altIncomplete) {
+    const reasons = [...incomplete.map(name), ...(altIncomplete ? ['No approved alternative could be completed.'] : [])];
+    return { outcome: version.outcome.onInconclusive === 'pending-review' ? 'pending-review' : 'unable-to-verify', reasons };
+  }
+  return { outcome: 'verified', reasons: [] };
 }

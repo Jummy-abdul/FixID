@@ -33,6 +33,7 @@ function withAdministrators(state: AppState): AppState {
 /** Saved data from before Groups: demo organizations get the sample groups; other organizations start with none. */
 function withGroups(state: AppState): AppState {
   if (!Array.isArray(state.data.issuanceBatches)) state = { ...state, data: { ...state.data, issuanceBatches: [] } };
+  if (!Array.isArray(state.data.verificationAttempts)) state = { ...state, data: { ...state.data, verificationAttempts: [] } };
   if (Array.isArray(state.data.groups) && Array.isArray(state.data.groupMemberships)) return state;
   const demo = state.data.organizations.filter((o) => !o.ownerAccountId);
   return { ...state, data: { ...state.data, ...seedGroups(demo, state.data.members, new Date()) } };

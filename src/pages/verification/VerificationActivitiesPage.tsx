@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Copy, Eye, Pencil, Plus, Power, PowerOff, ShieldCheck, Trash2 } from 'lucide-react';
+import { Copy, Eye, Pencil, Plus, Power, PowerOff, ScanFace, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
   type OverflowMenuItem,
@@ -81,6 +81,12 @@ export function VerificationActivitiesPage() {
   ];
 
   const create = canCreate ? <ButtonLink to="/verification-activities/new" variant="primary" icon={<Plus className="h-4 w-4" />}>Create Activity</ButtonLink> : undefined;
+  const headerActions = (
+    <>
+      <ButtonLink to="/verify" variant="secondary" icon={<ScanFace className="h-4 w-4" />}>Open Verifier Interface</ButtonLink>
+      {create}
+    </>
+  );
   const confirm = pending && {
     activate: (() => {
       const p = activationProblems(state, organization.id, pending.activity);
@@ -94,7 +100,7 @@ export function VerificationActivitiesPage() {
 
   return (
     <>
-      <PageHeader title="Verification Activities" description="Create and manage verification activities for your organization." actions={create} />
+      <PageHeader title="Verification Activities" description="Create and manage verification activities for your organization." actions={headerActions} />
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities by name" className="sm:w-72" />

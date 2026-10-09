@@ -13,6 +13,11 @@ import {
 import {
   applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
 } from './activityOps';
+import {
+  applyCancelAttempt, applyCompleteAttempt, applyDeniedAttempt, applyExpireAttempts, applyFailAttempt, applyReferAttempt, applyStartAttempt,
+  type CompleteInput,
+} from './attemptOps';
+import type { VerificationClientRef } from '@/domain/types';
 import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup, type GroupInput } from './groupOps';
 
@@ -71,6 +76,14 @@ export type Action =
   | { type: 'vactivities/discardDraft'; organizationId: string; activityId: string; at: string }
   | { type: 'vactivities/duplicate'; organizationId: string; activityId: string; ids: { activityId: string; versionId: string }; at: string }
   | { type: 'vactivities/remove'; organizationId: string; activityId: string; at: string }
+  | { type: 'verify/start'; organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef }
+  | { type: 'verify/complete'; input: CompleteInput }
+  | { type: 'verify/cancel'; attemptId: string; at: string }
+  | { type: 'verify/fail'; attemptId: string; at: string; reason: string }
+  | { type: 'verify/refer'; attemptId: string; at: string; reason: string }
+  | { type: 'verify/expire'; organizationId: string; at: string }
+  | { type: 'verify/denied'; organizationId: string; activityId: string; reason: string; at: string; client: VerificationClientRef }
+  | { type: 'organization/verificationDemo'; organizationId: string; enabled: boolean; at: string }
   | { type: 'preview/start'; roleId: RoleId }
   | { type: 'preview/stop' }
   /** Applies the signed-in administrator and their organization to the workspace. */
@@ -100,6 +113,12 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'users/enrollmentInvite': ['users.manage'],
   'issuance/issue': ['credentials.issue'],
   'issuance/group': ['credentials.issue'],
+  'verify/start': ['verification.execute'],
+  'verify/complete': ['verification.execute'],
+  'verify/cancel': ['verification.execute'],
+  'verify/fail': ['verification.execute'],
+  'verify/refer': ['verification.execute'],
+  'organization/verificationDemo': ['settings.manage'],
   'vactivities/save': ['verification.activities.create', 'verification.activities.manage', 'verification.rules.manage', 'verification.verifiers.assign'],
   'vactivities/activate': ['verification.activities.manage'],
   'vactivities/deactivate': ['verification.activities.manage'],
@@ -114,7 +133,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
 };
 
 /** Actions that don't change workspace data, so they remain available during Role Preview. */
-const PREVIEW_SAFE = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'preview/start', 'preview/stop']);
+const PREVIEW_SAFE = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'preview/start', 'preview/stop', 'verify/expire']);
 export const PREVIEW_READ_ONLY = 'Role preview is read-only. Exit the preview to make changes.';
 
 /** Whether the signed-in administrator may use Role Preview: an active Organization Admin, in a demo build. */
@@ -241,6 +260,7 @@ export function reducer(state: AppState, action: Action): AppState {
           activityConfigs: keep(n.activityConfigs, d.activityConfigs),
           activityVersions: keep(n.activityVersions, d.activityVersions),
           verifierAssignments: keep(n.verifierAssignments, d.verifierAssignments),
+          verificationAttempts: keep(n.verificationAttempts, d.verificationAttempts),
         },
       };
     }
@@ -297,6 +317,32 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
+    case 'verify/start': return orKeep(state, applyStartAttempt(state, action));
+    case 'verify/complete': return orKeep(state, applyCompleteAttempt(state, action.input));
+    case 'verify/cancel': return orKeep(state, applyCancelAttempt(state, action));
+    case 'verify/fail': return orKeep(state, applyFailAttempt(state, action));
+    case 'verify/refer': return orKeep(state, applyReferAttempt(state, action));
+    case 'verify/expire': return applyExpireAttempts(state, action);
+    case 'verify/denied': return applyDeniedAttempt(state, action);
+    case 'organization/verificationDemo': {
+      const org = state.data.organizations.find((o) => o.id === action.organizationId);
+      if (!org || !!org.integrations.verificationDemo?.enabled === action.enabled) return state;
+      const max = state.data.audit.reduce((m, x) => Math.max(m, Number(x.id.replace(/\D/g, '')) || 0), 0);
+      const event: AuditEvent = {
+        id: `AUD-${String(max + 1).padStart(5, '0')}`, organizationId: org.id, action: 'integration.demo-providers', actor: state.data.admin.name,
+        actorType: 'admin', resourceType: 'organization', resourceId: org.id, result: 'success', occurredAt: action.at, href: '/settings?tab=integrations',
+        summary: `${state.data.admin.name} turned ${action.enabled ? 'on' : 'off'} demonstration verification providers.`,
+        changes: [{ field: 'Demonstration providers', from: action.enabled ? 'Off' : 'On', to: action.enabled ? 'On' : 'Off' }],
+      };
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          organizations: state.data.organizations.map((o) => (o.id === org.id ? { ...o, integrations: { ...o.integrations, verificationDemo: { enabled: action.enabled } } } : o)),
+          audit: [event, ...state.data.audit],
+        },
+      };
+    }
     case 'vactivities/save': return orKeep(state, applySaveActivity(state, action));
     case 'vactivities/activate': return orKeep(state, applyActivate(state, action));
     case 'vactivities/deactivate': return orKeep(state, applyDeactivate(state, action));

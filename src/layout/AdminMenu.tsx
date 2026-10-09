@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, LogOut, UserRound } from 'lucide-react';
+import { Eye, LogOut, ScanFace, UserRound } from 'lucide-react';
 import { PREVIEWABLE_ROLES, useAuthorization } from '@/auth/authorization';
 import { useAuth } from '@/auth/AuthProvider';
 import { Avatar } from '@/components/ui';
@@ -42,6 +42,11 @@ export function AdminMenu() {
             className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
             <UserRound className="h-4 w-4 text-slate-400" />
             My Profile
+          </Link>
+          <Link to="/verify" role="menuitem" onClick={() => close()}
+            className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
+            <ScanFace className="h-4 w-4 text-slate-400" />
+            Verifier Interface
           </Link>
           {canPreview && (
             <>
