@@ -4,9 +4,10 @@ import { ActivitiesPage } from './pages/ActivitiesPage';
 import { ActivityDetailPage } from './pages/ActivityDetailPage';
 import { AuditPage } from './pages/AuditPage';
 import { CardDesignsPage } from './pages/CardDesignsPage';
-import { CredentialDetailPage } from './pages/CredentialDetailPage';
-import { CredentialsPage } from './pages/CredentialsPage';
-import { CredentialTypeDetailPage } from './pages/CredentialTypeDetailPage';
+import { CredentialConfigDetailPage } from './pages/credentials/CredentialConfigDetailPage';
+import { CredentialsLandingPage } from './pages/credentials/CredentialsLandingPage';
+import { IssuedCredentialDetailPage } from './pages/credentials/IssuedCredentialDetailPage';
+import { IssuedCredentialsPage } from './pages/credentials/IssuedCredentialsPage';
 import { CredentialTypesPage } from './pages/CredentialTypesPage';
 import { AddUserEntryPage } from './pages/users/AddUserEntryPage';
 import { ManualAddUserPage } from './pages/users/add/ManualAddUserPage';
@@ -28,6 +29,12 @@ import { TransactionsPage } from './pages/TransactionsPage';
 function UserIssueRedirect() {
   const { personId = '' } = useParams();
   return <Navigate to={assignUrl({ recipientIds: [personId], from: 'user' })} replace />;
+}
+
+/** Credential configurations moved from Templates to Credentials. */
+function ConfigRedirect() {
+  const { typeId = '' } = useParams();
+  return <Navigate to={`/credentials/configurations/${typeId}`} replace />;
 }
 
 function RenamedRoute({ to }: { to: string }) {
@@ -55,13 +62,15 @@ export function AppRoutes() {
         <Route path="users/:personId" element={<PersonDetailPage />} />
         <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
         <Route path="groups" element={<GroupsPage />} />
-        <Route path="credentials" element={<CredentialsPage />} />
+        <Route path="credentials" element={<CredentialsLandingPage />} />
         <Route path="credentials/issue" element={<AssignCredentialPage />} />
-        <Route path="credentials/:credentialId" element={<CredentialDetailPage />} />
+        <Route path="credentials/issued" element={<IssuedCredentialsPage />} />
+        <Route path="credentials/configurations/:typeId" element={<CredentialConfigDetailPage />} />
+        <Route path="credentials/:credentialId" element={<IssuedCredentialDetailPage />} />
         <Route path="templates" element={<CardDesignsPage />} />
         <Route path="templates/credential-types" element={<CredentialTypesPage />} />
         <Route path="templates/identifiers" element={<IdentifiersPage />} />
-        <Route path="templates/credential-types/:typeId" element={<CredentialTypeDetailPage />} />
+        <Route path="templates/credential-types/:typeId" element={<ConfigRedirect />} />
         <Route path="activities" element={<ActivitiesPage />} />
         <Route path="activities/:activityId" element={<ActivityDetailPage />} />
         <Route path="verification-history" element={<TransactionsPage />} />

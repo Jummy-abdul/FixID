@@ -13,7 +13,7 @@ interface DrawerProps {
   onBack?: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  width?: 'md' | 'lg' | 'xl';
+  width?: 'md' | 'lg' | 'xl' | '2xl';
 }
 
 /** Side drawer: consistent header, scrollable body and sticky footer. One surface at a time; nested views swap its content. */
@@ -40,7 +40,7 @@ export function Drawer({ open, onClose, title, description, onBack, children, fo
   }, [open]);
 
   if (!open) return null;
-  const widths = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-3xl' };
+  const widths = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-3xl', '2xl': 'max-w-5xl' };
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px] motion-safe:animate-[fadeIn_150ms_ease-out]" onClick={onClose} aria-hidden="true" />

@@ -7,11 +7,12 @@ import { assignUrl } from '@/components/issuance/assignment';
 import { TypeStatusBadge } from '@/components/domain/StatusBadges';
 import { TemplatesTabs } from '@/components/domain/TemplatesTabs';
 import { EFFECTIVE_DATE_LABEL, validityLabel } from '@/domain/labels';
+import { templateById } from '@/domain/templates';
 import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
 
 export function CredentialTypesPage() {
-  const { credentialTypes, credentials, cardDesignById, identifierConfigById } = useOrgData();
+  const { credentialTypes, credentials, identifierConfigById } = useOrgData();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const navigate = useNavigate();
   const { issuance } = useServices();
@@ -27,14 +28,14 @@ export function CredentialTypesPage() {
         <DataTable
           rows={credentialTypes}
           rowKey={(t) => t.id}
-          rowHref={(t) => `/templates/credential-types/${t.id}`}
+          rowHref={(t) => `/credentials/configurations/${t.id}`}
           empty={<EmptyState icon={<CreditCard className="h-5 w-5" />} title="No credential types yet" description="Create a credential configuration here or from Credentials." />}
           columns={[
             { key: 'name', header: 'Name', cell: (t) => <span><span className="block font-medium text-slate-900">{t.name}</span><span className="block max-w-xs truncate text-xs text-slate-500">{t.description}</span></span> },
             { key: 'next', header: 'Identifier', cell: (t) => { if (t.identifierConfigId) return <span className="text-sm">{identifierConfigById.get(t.identifierConfigId)?.name}</span>; const next = issuance.previewIdentifier(t); return next ? <span className="font-mono text-xs">{next}</span> : <span className="text-xs text-slate-500">Entered per person</span>; } },
             { key: 'effective', header: 'Effective', cell: (t) => <span className="text-slate-600">{EFFECTIVE_DATE_LABEL[t.effectiveDate]}</span> },
             { key: 'validity', header: 'Validity', cell: (t) => <span className="text-slate-600">{validityLabel(t.validity)}</span> },
-            { key: 'design', header: 'Card design', cell: (t) => <Link to="/templates" onClick={(e) => e.stopPropagation()} className="text-brand-700 hover:underline">{cardDesignById.get(t.cardDesignId)?.name}</Link> },
+            { key: 'design', header: 'Template', cell: (t) => <Link to="/templates" onClick={(e) => e.stopPropagation()} className="text-brand-700 hover:underline">{templateById(t.templateId).name}</Link> },
             { key: 'issued', header: 'Issued', cell: (t) => <span className="tabular-nums">{credentials.filter((c) => c.credentialTypeId === t.id).length}</span> },
             { key: 'status', header: 'Status', cell: (t) => <TypeStatusBadge status={t.status} /> },
           ]}

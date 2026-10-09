@@ -16,7 +16,8 @@ export function previewIdentifier(type: CredentialType): string | null {
   return formatIdentifier(type.identifier.prefix, type.identifier.digits, type.identifier.nextSequence);
 }
 
-export function computeValidity(type: Pick<CredentialType, 'effectiveDate' | 'validity'>, issueDate: Date, effectiveDate?: Date) {
+/** `expiryDate` is only used by rules that collect the expiry date at issuance. */
+export function computeValidity(type: Pick<CredentialType, 'effectiveDate' | 'validity'>, issueDate: Date, effectiveDate?: Date, expiryDate?: Date) {
   const effectiveFrom =
     type.effectiveDate === 'start-of-term' ? nextTermStart(issueDate)
     : type.effectiveDate === 'custom-date' && effectiveDate ? effectiveDate
@@ -24,6 +25,7 @@ export function computeValidity(type: Pick<CredentialType, 'effectiveDate' | 'va
   const v = type.validity;
   const expiresAt = v.kind === 'duration' ? addMonths(effectiveFrom, v.months)
     : v.kind === 'fixed-date' ? new Date(v.date)
+    : v.kind === 'set-at-issuance' ? expiryDate ?? null
     : null;
   return { effectiveFrom, expiresAt };
 }

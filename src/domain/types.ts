@@ -151,7 +151,9 @@ export interface IdentifierConfig {
 export type ValidityRule =
   | { kind: 'duration'; months: number }
   | { kind: 'fixed-date'; date: ISODate }
-  | { kind: 'no-expiry' };
+  | { kind: 'no-expiry' }
+  /** An exact expiry date chosen by the administrator when issuing; required before issuing. */
+  | { kind: 'set-at-issuance' };
 
 export type EffectiveDateRule = 'on-issue' | 'custom-date' | 'start-of-term';
 
@@ -175,9 +177,14 @@ export interface CredentialType {
   renewal: { allowed: boolean; windowDays: number };
   lifecycle: { requiresApproval: boolean; allowSuspension: boolean; autoExpire: boolean };
   cardDesignId: string;
+  /** Starter template used to render credentials of this type. */
+  templateId: TemplateId;
   status: 'active' | 'draft' | 'retired';
   createdAt: ISODate;
+  updatedAt?: ISODate;
 }
+
+export type TemplateId = 'classic-landscape' | 'modern-landscape' | 'classic-portrait' | 'modern-portrait';
 
 export interface CardDesign {
   id: string;
@@ -212,6 +219,11 @@ export interface Credential {
   wallet: { status: WalletDeliveryStatus; updatedAt: ISODate };
   /** Idempotency key of the issuance request that created this credential. */
   issuanceRequestId?: string;
+  /**
+   * What the configuration looked like when this credential was issued. Later edits to the
+   * configuration apply to future issuance only and never rewrite issued credentials.
+   */
+  snapshot?: { credentialName: string; templateId: TemplateId; identifierLabel: string };
 }
 
 export type VerificationMethod = 'qr' | 'nfc' | 'face' | 'fingerprint' | 'manual';
@@ -280,6 +292,7 @@ export type AuditAction =
   | 'identifier.created'
   | 'identifier.updated'
   | 'credential-type.created'
+  | 'credential-type.updated'
   | 'credential.issued'
   | 'credential.activated'
   | 'credential.suspended'

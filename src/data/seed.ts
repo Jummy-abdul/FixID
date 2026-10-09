@@ -17,6 +17,7 @@ import type {
 } from '@/domain/types';
 import { addDays, addMonths, startOfDay } from '@/lib/dates';
 import { formatIdentifier } from '@/lib/identifiers';
+import { templateForDesign } from '@/domain/templates';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -38,7 +39,7 @@ export const NEW_ORGANIZATION_ID = 'org_crestfield';
 /** Established sample organization used by the "Active dashboard" preview. */
 export const SAMPLE_ORGANIZATION_ID = 'org_northbridge';
 
-type TypeBlueprint = Omit<CredentialType, 'id' | 'organizationId' | 'cardDesignId' | 'createdAt' | 'identifier'> & {
+type TypeBlueprint = Omit<CredentialType, 'id' | 'organizationId' | 'cardDesignId' | 'templateId' | 'createdAt' | 'identifier'> & {
   key: string;
   prefix: string;
   digits: number;
@@ -353,6 +354,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
         organizationId: orgId,
         identifier: { label: 'ID number', mode: 'generated', prefix, digits, nextSequence: 1 },
         cardDesignId: bp.extraDesign?.forTypeKey === key && extraDesignId ? extraDesignId : defaultDesignId,
+        templateId: templateForDesign(bp.extraDesign?.forTypeKey === key ? bp.extraDesign : bp.design),
         createdAt: iso(addMonths(today, -12)),
       };
       typeIdByKey.set(key, type.id);
@@ -450,6 +452,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
           effectiveFrom: iso(effective),
           expiresAt: expiresAt ? iso(expiresAt) : null,
           wallet: { status: wallet, updatedAt: iso(new Date(effective.getTime() + rng.int(9 * 60, 17 * 60) * 60_000)) },
+          snapshot: { credentialName: ct.name, templateId: ct.templateId, identifierLabel: ct.identifier.label },
         });
       });
     }

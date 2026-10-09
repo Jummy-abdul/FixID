@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/cn';
 
 const TABS = [
-  { to: '/templates', label: 'Card designs', end: true },
+  { to: '/templates', label: 'Designs', end: true },
   { to: '/templates/credential-types', label: 'Credential types', end: false },
   { to: '/templates/identifiers', label: 'Identifiers', end: false },
 ];

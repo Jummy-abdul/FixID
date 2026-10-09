@@ -82,13 +82,14 @@ The sample organization has one enrolled user set up to show a portrait. Put a l
 
 ## Credential Management
 
-`/credentials/issue` is the one assignment flow: select a credential configuration (or **Create credential** in the credential drawer) → select recipients when none were carried in → review → issue. The recipient, credential and origin are carried in the URL (`?recipients=…&credential=…&from=new-user|user`), so the context survives navigation and refresh. Recipients are a list so one configuration can later be assigned to many users; selection is single for now.
+- **`/credentials`**: a single empty state ("No credentials configured yet" → Create credential) until the first configuration exists; then a table of configurations (SN, name, identifier, issued count, date created, ⋯ View Details / Edit).
+- **Create / Edit** use one drawer with two steps: **Choose template** (four starter templates: Classic/Modern × Landscape/Portrait, each with a front and back) → **Configure credential** (name, identifier, effective date, expiration, renewable) with a live preview of the chosen template. Saving never issues anything; after creating, *Assign now* or *I'll do this later*. Edits apply to future issuance only: each issued credential keeps a snapshot of the name, template and identifier label it was issued with.
+- **`/credentials/configurations/:id`**: Configuration tab (rules + template front/back) and Issued To tab (individual recipients, Issue credential).
+- **`/credentials/issue`**: the one assignment flow: select a configuration (or create one) → select a recipient when none was carried in → review (collects effective/expiry dates when the rule asks for them) → issue. Context is carried in the URL (`?recipients=…&credential=…&from=new-user|user|config`).
+- **`/credentials/:credentialId`**: the one Issued Credential Details page (card front/back, issuance information, activity history), opened from Issued To and from a user's Credentials tab. `?from=user:<id>` or `?from=config:<id>` decides where Back goes.
+- **`/credentials/issued`**: every issued credential with lifecycle filters (used by dashboard shortcuts).
 
-Saving a credential configuration never issues it: a **Credential created successfully** modal offers **Assign now** or **I'll do this later**. The same applies from **Credentials → Create credential** and **Templates → Credential types**. A user's **Issue credential** action (and `/users/:id/issue`) opens this flow with that user preselected.
-
-Identifiers and credentials are reusable, organization-level configurations, managed under **Templates → Identifiers** and **Templates → Credential types** with the same drawers. Generated identifiers come from a segment pattern (static text, separator, sequential number, random digits, random letters and numbers, date in the organization's time zone). Previews never consume a sequence number; the identifier is assigned once, when the user is created, and credentials display it without regenerating it.
-
-Business rules live in `src/store/operations.ts` and `src/domain/identifierPattern.ts`. The draft is kept in `sessionStorage`.
+Templates are rendered by one component (`src/components/credentials/CredentialCard.tsx`) everywhere a card appears.
 
 ## Data model
 

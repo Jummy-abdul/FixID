@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, BadgeCheck, CheckCircle2, CreditCard, LayoutDashboard, Plus, UserRound, Users } from 'lucide-react';
 import { Avatar, Badge, Button, ButtonLink, Field, Input, PageHeader, SearchInput } from '@/components/ui';
 import { CredentialSetup } from '@/components/config/CredentialSetup';
-import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
+import { CredentialCard } from '@/components/credentials/CredentialCard';
+import { issuedLook, templateById } from '@/domain/templates';
+import { issuedCredentialPath } from './IssuedCredentialDetailPage';
 import { CredentialStatusBadge, WalletBadge } from '@/components/domain/StatusBadges';
 import { assignUrl, readList, type AssignContext, type AssignOrigin, type AssignStep } from '@/components/issuance/assignment';
 import { validityLabel } from '@/domain/labels';
@@ -59,6 +61,7 @@ export function AssignCredentialPage() {
 
   const [setupOpen, setSetupOpen] = useState(false);
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expiryDate, setExpiryDate] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
   // One idempotency key per recipient for this page visit; holders of an active credential are also blocked.
@@ -86,6 +89,7 @@ export function AssignCredentialPage() {
       const r = issueDigitalId({
         requestId: requestIds.current.get(m.id)!, organizationId: org.organization.id, at: new Date().toISOString(), memberId: m.id,
         credentialTypeId: type.id, effectiveDate: effectiveInput, credentialId: newId('cr'),
+        expiresAt: type.validity.kind === 'set-at-issuance' && expiryDate ? new Date(`${expiryDate}T23:59:59`).toISOString() : undefined,
       });
       if (!r.ok) { failures.push(Object.values(r.errors)[0] ?? `${m.displayName} could not be issued.`); continue; }
       issued.push(r.credentialId);
@@ -130,8 +134,8 @@ export function AssignCredentialPage() {
     const first = creds[0];
     const holder = org.memberById.get(first.memberId)!;
     const t = org.credentialTypeById.get(first.credentialTypeId)!;
-    const design = org.cardDesignById.get(t.cardDesignId) ?? org.cardDesignById.get(org.organization.defaultCardDesignId)!;
     const hid = identifierOf(org, holder);
+    const look = issuedLook(first, t, hid?.name);
     return (
       <>
         {header}
@@ -162,17 +166,21 @@ export function AssignCredentialPage() {
                 </dl>
               )}
               <div className="mt-10 flex flex-wrap gap-3">
-                {creds.length === 1 && <ButtonLink to={`/users/${holder.id}`} variant="primary" icon={<UserRound className="h-4 w-4" />}>View user</ButtonLink>}
-                <ButtonLink to="/credentials" variant="secondary" icon={<CreditCard className="h-4 w-4" />}>View credentials</ButtonLink>
+                {creds.length === 1 && (
+                  <ButtonLink to={issuedCredentialPath(first.id, from === 'config' ? { kind: 'config', id: t.id } : { kind: 'user', id: holder.id })}
+                    variant="primary" icon={<CreditCard className="h-4 w-4" />}>View credential</ButtonLink>
+                )}
+                {creds.length === 1 && from !== 'config' && <ButtonLink to={`/users/${holder.id}`} variant="secondary" icon={<UserRound className="h-4 w-4" />}>View user</ButtonLink>}
+                {from === 'config' && <ButtonLink to={`/credentials/configurations/${t.id}?tab=issued`} variant="secondary" icon={<Users className="h-4 w-4" />}>Back to {t.name}</ButtonLink>}
                 {from === 'new-user'
                   ? <ButtonLink to="/users/new/manual" variant="ghost" icon={<Users className="h-4 w-4" />}>Add another user</ButtonLink>
                   : <ButtonLink to="/" variant="ghost" icon={<LayoutDashboard className="h-4 w-4" />}>Return to dashboard</ButtonLink>}
               </div>
             </div>
             <div className="flex justify-center">
-              <DigitalIdCard design={design} organization={org.organization} content={{
-                name: holder.displayName, identifier: first.identifier, identifierLabel: hid?.name ?? t.identifier.label, credentialTypeName: t.name,
-                relationship: holder.relationship || undefined, expiresAt: first.expiresAt, issuedAt: first.issuedAt,
+              <CredentialCard templateId={look.templateId} organization={org.organization} content={{
+                credentialName: look.credentialName, holderName: holder.displayName, identifierLabel: look.identifierLabel,
+                identifierValue: first.identifier, expiresAt: first.expiresAt, issuedAt: first.issuedAt,
               }} />
             </div>
           </div>
@@ -215,7 +223,7 @@ export function AssignCredentialPage() {
             description={single ? `Choose which credential to issue to ${single.displayName}.` : 'Choose the credential configuration to assign.'}
             footer={
               <>
-                <Button variant="ghost" onClick={() => navigate(single ? `/users/${single.id}` : '/credentials')}>Cancel</Button>
+                <Button variant="ghost" onClick={() => navigate(from === 'config' && typeId ? `/credentials/configurations/${typeId}?tab=issued` : single ? `/users/${single.id}` : '/credentials')}>Cancel</Button>
                 <Button disabled={!selected} onClick={() => go({ credentialTypeId: selected, step: recipients.length ? 'review' : 'recipients' })}>
                   Continue <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -230,7 +238,6 @@ export function AssignCredentialPage() {
             )}
             <div role="radiogroup" aria-label="Credential" className="grid gap-3 md:grid-cols-2">
               {options.map(({ type: t, ok, reason }) => {
-                const d = org.cardDesignById.get(t.cardDesignId);
                 const idc = t.identifierConfigId ? org.identifierConfigById.get(t.identifierConfigId) : undefined;
                 return (
                   <button key={t.id} type="button" role="radio" aria-checked={selected === t.id} disabled={!ok}
@@ -238,7 +245,7 @@ export function AssignCredentialPage() {
                     className={cn('rounded-xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                       selected === t.id ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500' : 'border-slate-200 hover:border-slate-300')}>
                     <span className="block text-sm font-semibold text-slate-900">{t.name}</span>
-                    <span className="mt-1 block text-sm text-slate-500">{idc?.name ?? t.identifier.label} · {d?.name ?? 'Default digital ID'}</span>
+                    <span className="mt-1 block text-sm text-slate-500">{idc?.name ?? t.identifier.label} · {templateById(t.templateId).name}</span>
                     <span className="block text-sm text-slate-500">{validityLabel(t.validity)}</span>
                     {reason && <span className="mt-1 block text-xs text-amber-700">{reason}</span>}
                   </button>
@@ -270,9 +277,21 @@ export function AssignCredentialPage() {
   if (!type) return null;
   const checks = checksFor(type);
   const blocked = checks.filter((c) => !c.check.ok);
-  const design = org.cardDesignById.get(type.cardDesignId) ?? org.cardDesignById.get(org.organization.defaultCardDesignId)!;
+  const template = templateById(type.templateId);
   const effectiveInput = type.effectiveDate === 'custom-date' && effectiveDate ? new Date(`${effectiveDate}T00:00:00`) : undefined;
-  const validity = computeValidity(type, new Date(), effectiveInput);
+  const expiryInput = type.validity.kind === 'set-at-issuance' && expiryDate ? new Date(`${expiryDate}T23:59:59`) : undefined;
+  const validity = computeValidity(type, new Date(), effectiveInput, expiryInput);
+  const today = new Date().toISOString().slice(0, 10);
+  // Every required date must be present and consistent before anything can be issued.
+  const dateErrors = {
+    effective: type.effectiveDate === 'custom-date' && (!effectiveDate || Number.isNaN(new Date(`${effectiveDate}T00:00:00`).getTime()))
+      ? 'Choose the date this credential becomes effective.' : undefined,
+    expiry: type.validity.kind !== 'set-at-issuance' ? undefined
+      : !expiryDate ? 'Choose an expiration date before issuing.'
+        : expiryDate < today ? 'The expiration date must be in the future.'
+          : validity.expiresAt && validity.expiresAt <= validity.effectiveFrom ? 'The expiration date must be after the effective date.' : undefined,
+  };
+  const dateInvalid = !!dateErrors.effective || !!dateErrors.expiry;
   const idName = type.identifierConfigId ? org.identifierConfigById.get(type.identifierConfigId)?.name : type.identifier.label;
   const valueFor = (m: Member) => (type.identifierConfigId ? m.identifier?.value ?? '' : 'Assigned on issue');
 
@@ -285,7 +304,7 @@ export function AssignCredentialPage() {
           <>
             <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} disabled={issuing}
               onClick={() => go({ step: from ? 'select' : 'recipients' })}>Back</Button>
-            <Button onClick={issue} loading={issuing} disabled={blocked.length > 0} icon={issuing ? undefined : <BadgeCheck className="h-4 w-4" />}>
+            <Button onClick={issue} loading={issuing} disabled={blocked.length > 0 || dateInvalid} icon={issuing ? undefined : <BadgeCheck className="h-4 w-4" />}>
               {issuing ? 'Issuing…' : recipients.length > 1 ? `Issue to ${recipients.length} users` : 'Issue digital ID'}
             </Button>
           </>
@@ -308,15 +327,22 @@ export function AssignCredentialPage() {
               </div>
               <div><dt className="text-slate-500">Credential</dt><dd className="mt-0.5 text-slate-900">{type.name}</dd></div>
               <div><dt className="text-slate-500">Identifier</dt><dd className="mt-0.5 text-slate-900">{idName}</dd></div>
-              <div><dt className="text-slate-500">Template</dt><dd className="mt-0.5 text-slate-900">{design.name}</dd></div>
+              <div><dt className="text-slate-500">Template</dt><dd className="mt-0.5 text-slate-900">{template.name}</dd></div>
               <div><dt className="text-slate-500">Effective from</dt><dd className="mt-0.5 text-slate-900">{type.effectiveDate === 'on-issue' ? 'When issued' : formatDate(validity.effectiveFrom.toISOString())}</dd></div>
-              <div className="col-span-2"><dt className="text-slate-500">Expires</dt><dd className="mt-0.5 text-slate-900">{validity.expiresAt ? formatDate(validity.expiresAt.toISOString()) : 'Never'}<span className="ml-2 text-xs text-slate-500">{validityLabel(type.validity)}</span></dd></div>
+              <div className="col-span-2"><dt className="text-slate-500">Expires</dt><dd className="mt-0.5 text-slate-900">{validity.expiresAt ? formatDate(validity.expiresAt.toISOString()) : type.validity.kind === 'set-at-issuance' ? 'Choose below' : 'Never'}<span className="ml-2 text-xs text-slate-500">{validityLabel(type.validity)}</span></dd></div>
             </dl>
-            {type.effectiveDate === 'custom-date' && (
-              <div className="max-w-xs">
-                <Field label="Effective from" required hint="When this digital ID becomes valid.">
-                  {(p) => <Input {...p} type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />}
-                </Field>
+            {(type.effectiveDate === 'custom-date' || type.validity.kind === 'set-at-issuance') && (
+              <div className="grid max-w-md gap-4 sm:grid-cols-2">
+                {type.effectiveDate === 'custom-date' && (
+                  <Field label="Effective from" required error={dateErrors.effective} hint="When this digital ID becomes valid.">
+                    {(p) => <Input {...p} type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />}
+                  </Field>
+                )}
+                {type.validity.kind === 'set-at-issuance' && (
+                  <Field label="Expiration date" required error={dateErrors.expiry}>
+                    {(p) => <Input {...p} type="date" min={today} value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />}
+                  </Field>
+                )}
               </div>
             )}
             <p className="text-xs text-slate-500">After issuing, FixID makes the digital ID available to Seamfix Wallet. Delivery is tracked separately.</p>
@@ -324,9 +350,9 @@ export function AssignCredentialPage() {
           {recipients[0] && (
             <div className="flex justify-center overflow-hidden">
               <div className="origin-top scale-[0.85] sm:scale-100">
-                <DigitalIdCard design={design} organization={org.organization} content={{
-                  name: recipients[0].displayName, identifier: valueFor(recipients[0]), identifierLabel: idName ?? 'Identifier', credentialTypeName: type.name,
-                  relationship: recipients[0].relationship || undefined, expiresAt: validity.expiresAt ? validity.expiresAt.toISOString() : null,
+                <CredentialCard templateId={type.templateId} organization={org.organization} content={{
+                  credentialName: type.name, holderName: recipients[0].displayName, identifierLabel: idName ?? 'Identifier',
+                  identifierValue: valueFor(recipients[0]), expiresAt: validity.expiresAt ? validity.expiresAt.toISOString() : null,
                 }} />
               </div>
             </div>

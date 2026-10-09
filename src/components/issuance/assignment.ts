@@ -3,7 +3,7 @@
  * so it survives navigation and refresh. Recipients are a list, so the same flow can later
  * assign one configuration to many users.
  */
-export type AssignOrigin = 'new-user' | 'user';
+export type AssignOrigin = 'new-user' | 'user' | 'config';
 export type AssignStep = 'select' | 'recipients' | 'review';
 
 export interface AssignContext {

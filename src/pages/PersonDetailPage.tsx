@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { BadgePlus, ChevronRight, ShieldCheck } from 'lucide-react';
-import { Avatar, Button, ButtonLink, Card, DataTable, EmptyState, Modal, Skeleton, Tabs } from '@/components/ui';
-import { DigitalIdCard } from '@/components/domain/DigitalIdCard';
+import { Avatar, Button, ButtonLink, Card, DataTable, EmptyState, Skeleton, Tabs } from '@/components/ui';
 import { CredentialStatusBadge, MemberStatusBadge, ResultBadge } from '@/components/domain/StatusBadges';
 import { assignUrl } from '@/components/issuance/assignment';
-import { portraitOf } from '@/domain/portrait';
+import { issuedLook } from '@/domain/templates';
+import { issuedCredentialPath } from './credentials/IssuedCredentialDetailPage';
 import type { CanonicalIdentity, Credential, Member } from '@/domain/types';
 import { formatDate, formatDateTime } from '@/lib/dates';
-import { useLoadedImage } from '@/hooks/useLoadedImage';
+import { usePortrait } from '@/hooks/usePortrait';
 import { useQueryState } from '@/hooks/useQueryState';
 import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
@@ -63,13 +63,6 @@ function UserDetails({ member }: { member: Member }) {
       </div>
     </>
   );
-}
-
-/** The enrolled portrait, only once the image is actually available. */
-function usePortrait(member: Member) {
-  const p = portraitOf(member);
-  const url = useLoadedImage(p?.url);
-  return p && url ? { url, isSample: p.isSample } : null;
 }
 
 type LoadState = { status: 'loading' } | { status: 'ready'; identity: CanonicalIdentity | null } | { status: 'error' };
@@ -136,15 +129,10 @@ function ProfileTab({ member }: { member: Member }) {
 }
 
 function CredentialsTab({ member, creds }: { member: Member; creds: Credential[] }) {
-  const { organization, credentialTypeById, cardDesignById, identifierConfigById } = useOrgData();
-  const [viewing, setViewing] = useState<string | null>(null);
+  const { credentialTypeById } = useOrgData();
   const issueHref = assignUrl({ recipientIds: [member.id], from: 'user' });
   const canIssue = member.status === 'active';
   const serial = useMemo(() => new Map(creds.map((c, i) => [c.id, i + 1])), [creds]);
-  const shown = viewing ? creds.find((c) => c.id === viewing) : undefined;
-  const shownType = shown ? credentialTypeById.get(shown.credentialTypeId) : undefined;
-  const shownDesign = shownType ? cardDesignById.get(shownType.cardDesignId) ?? cardDesignById.get(organization.defaultCardDesignId) : undefined;
-  const portrait = usePortrait(member);
   const issueButton = (variant: 'primary' | 'secondary') => canIssue
     ? <ButtonLink to={issueHref} variant={variant} icon={<BadgePlus className="h-4 w-4" />}>Issue Credential</ButtonLink>
     : <Button variant={variant} disabled title="Only active users can be issued credentials">Issue Credential</Button>;
@@ -165,7 +153,7 @@ function CredentialsTab({ member, creds }: { member: Member; creds: Credential[]
           rowKey={(c) => c.id}
           columns={[
             { key: 'sn', header: 'SN', className: 'w-12', cell: (c) => <span className="tabular-nums text-slate-500">{serial.get(c.id)}</span> },
-            { key: 'name', header: 'Credential Name', cell: (c) => <span className="font-medium text-slate-900">{credentialTypeById.get(c.credentialTypeId)?.name ?? '—'}</span> },
+            { key: 'name', header: 'Credential Name', cell: (c) => <span className="font-medium text-slate-900">{issuedLook(c, credentialTypeById.get(c.credentialTypeId)).credentialName}</span> },
             { key: 'identifier', header: 'Identifier', cell: (c) => <span className="font-mono text-xs text-slate-700">{c.identifier}</span> },
             { key: 'issued', header: 'Date Issued', cell: (c) => <span className="text-slate-600">{formatDate(c.issuedAt)}</span> },
             { key: 'expires', header: 'Expiration Date', cell: (c) => <span className="text-slate-600">{c.expiresAt ? formatDate(c.expiresAt) : 'No expiry'}</span> },
@@ -173,35 +161,14 @@ function CredentialsTab({ member, creds }: { member: Member; creds: Credential[]
             {
               key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right',
               cell: (c) => (
-                <button type="button" onClick={() => setViewing(c.id)} className="text-sm font-medium text-brand-600 hover:text-brand-700">
-                  View<span className="sr-only"> {credentialTypeById.get(c.credentialTypeId)?.name} {c.identifier}</span>
-                </button>
+                <Link to={issuedCredentialPath(c.id, { kind: 'user', id: member.id })} className="whitespace-nowrap text-sm font-medium text-brand-600 hover:text-brand-700">
+                  View Details<span className="sr-only"> for {issuedLook(c, credentialTypeById.get(c.credentialTypeId)).credentialName} {c.identifier}</span>
+                </Link>
               ),
             },
           ]}
         />
       )}
-      <Modal open={!!shown} onClose={() => setViewing(null)} size="lg" title={shownType?.name ?? 'Credential'}
-        description={shown && <>Issued {formatDate(shown.issuedAt)} · <CredentialStatusBadge status={shown.status} /></>}
-        footer={
-          <>
-            {shown && <ButtonLink to={`/credentials/${shown.id}`} variant="ghost">Open credential record</ButtonLink>}
-            <Button variant="secondary" onClick={() => setViewing(null)}>Close</Button>
-          </>
-        }>
-        {shown && shownType && shownDesign && (
-          <div className="flex justify-center overflow-hidden py-2" role="region" aria-label="Digital ID preview">
-            <div className="origin-top scale-[0.8] sm:scale-100">
-              <DigitalIdCard design={shownDesign} organization={organization} content={{
-                name: member.displayName, identifier: shown.identifier,
-                identifierLabel: shownType.identifierConfigId ? identifierConfigById.get(shownType.identifierConfigId)?.name : shownType.identifier.label,
-                credentialTypeName: shownType.name, relationship: member.relationship || undefined, unit: member.unit || undefined,
-                expiresAt: shown.expiresAt, issuedAt: shown.issuedAt, photoUrl: portrait?.url,
-              }} />
-            </div>
-          </div>
-        )}
-      </Modal>
     </Card>
   );
 }

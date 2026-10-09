@@ -1,6 +1,7 @@
 import { generateIdentifier, validateManualValue, validatePattern, type PatternErrors } from '@/domain/identifierPattern';
+import { STARTER_TEMPLATES } from '@/domain/templates';
 import type {
-  AuditEvent, Credential, CredentialStatus, CredentialType, EffectiveDateRule, IdentifierConfig, IdentifierSegment, Member, ValidityRule,
+  AuditEvent, Credential, CredentialStatus, CredentialType, EffectiveDateRule, TemplateId, IdentifierConfig, IdentifierSegment, Member, ValidityRule,
 } from '@/domain/types';
 import { formatIdentifier } from '@/lib/identifiers';
 import { computeValidity } from '@/services/issuance';
@@ -279,33 +280,38 @@ export function applyEnrollmentInvite(state: AppState, input: EnrollmentInviteIn
 export interface CredentialConfigInput {
   organizationId: string;
   at: string;
+  /** New id when creating; the configuration's id when editing (see `editing`). */
   id: string;
+  /** True to update an existing configuration in place. */
+  editing?: boolean;
   name: string;
   identifierConfigId: string;
-  cardDesignId: string;
+  templateId: TemplateId;
   effectiveDate: Extract<EffectiveDateRule, 'on-issue' | 'custom-date'>;
   validity: ValidityRule;
-  renewal: { allowed: boolean; windowDays: number };
+  renewable: boolean;
 }
 
-export function validateCredentialConfig(state: AppState, c: Omit<CredentialConfigInput, 'at' | 'id'>, now = new Date()) {
+export function validateCredentialConfig(state: AppState, c: Omit<CredentialConfigInput, 'at'>, now = new Date()) {
   const errors: Record<string, string> = {};
-  const types = state.data.credentialTypes.filter((t) => t.organizationId === c.organizationId);
+  const types = state.data.credentialTypes.filter((t) => t.organizationId === c.organizationId && !(c.editing && t.id === c.id));
+  if (c.editing && !state.data.credentialTypes.some((t) => t.id === c.id && t.organizationId === c.organizationId)) {
+    errors.form = 'This credential no longer exists.';
+  }
   if (c.name.trim().length < 2) errors.name = 'Enter a name for this credential, e.g. Student ID.';
   else if (c.name.trim().length > 60) errors.name = 'Keep the name under 60 characters.';
-  else if (types.some((t) => ci(t.name) === ci(c.name))) errors.name = `A credential called "${c.name.trim()}" already exists. Select it instead, or use a different name.`;
+  else if (types.some((t) => ci(t.name) === ci(c.name))) errors.name = `A credential called "${c.name.trim()}" already exists. Use a different name.`;
   if (!state.data.identifierConfigs.some((i) => i.id === c.identifierConfigId && i.organizationId === c.organizationId)) {
     errors.identifierConfigId = 'Choose the identifier shown on this credential.';
   }
-  if (!state.data.cardDesigns.some((d) => d.id === c.cardDesignId && d.organizationId === c.organizationId)) errors.cardDesignId = 'Choose a template.';
-  if (c.validity.kind === 'duration' && !(c.validity.months >= 1 && c.validity.months <= 120)) errors.validity = 'Choose a validity period.';
+  if (!STARTER_TEMPLATES.some((t) => t.id === c.templateId)) errors.templateId = 'Choose a template.';
+  if (c.validity.kind === 'duration' && !(Number.isInteger(c.validity.months) && c.validity.months >= 1 && c.validity.months <= 600)) {
+    errors.validity = 'Enter a validity period between 1 month and 50 years.';
+  }
   if (c.validity.kind === 'fixed-date') {
     const d = new Date(c.validity.date);
     if (!c.validity.date || Number.isNaN(d.getTime())) errors.validity = 'Choose an expiry date.';
-    else if (d <= now) errors.validity = 'The expiry date must be after today, when credentials can first become effective.';
-  }
-  if (c.renewal.allowed && c.validity.kind !== 'no-expiry' && !(c.renewal.windowDays >= 1 && c.renewal.windowDays <= 180)) {
-    errors.renewal = 'Renewal can open 1 to 180 days before expiry.';
+    else if (d <= now) errors.validity = 'The expiry date must be in the future.';
   }
   return errors;
 }
@@ -314,21 +320,30 @@ export function applyCredentialConfig(state: AppState, input: CredentialConfigIn
   const errors = validateCredentialConfig(state, input, new Date(input.at));
   if (Object.keys(errors).length) return { ok: false, errors };
   const idConfig = state.data.identifierConfigs.find((i) => i.id === input.identifierConfigId)!;
-  const type: CredentialType = {
-    id: input.id,
-    organizationId: input.organizationId,
+  const org = state.data.organizations.find((o) => o.id === input.organizationId)!;
+  const existing = input.editing ? state.data.credentialTypes.find((t) => t.id === input.id) : undefined;
+  const rules = {
     name: input.name.trim(),
-    description: '',
-    identifier: { label: idConfig.name, mode: 'manual', prefix: '', digits: 0, nextSequence: 1 },
+    identifier: { label: idConfig.name, mode: 'manual' as const, prefix: '', digits: 0, nextSequence: 1 },
     identifierConfigId: idConfig.id,
     effectiveDate: input.effectiveDate,
     validity: input.validity,
-    renewal: input.renewal.allowed && input.validity.kind !== 'no-expiry' ? input.renewal : { allowed: false, windowDays: 0 },
-    lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: input.validity.kind !== 'no-expiry' },
-    cardDesignId: input.cardDesignId,
-    status: 'active',
-    createdAt: input.at,
+    // Only whether it can be renewed is stored; renewal windows aren't part of this release.
+    renewal: { allowed: input.renewable, windowDays: 0 },
+    templateId: input.templateId,
   };
+  const type: CredentialType = existing
+    ? { ...existing, ...rules, lifecycle: { ...existing.lifecycle, autoExpire: input.validity.kind !== 'no-expiry' }, updatedAt: input.at }
+    : {
+      id: input.id,
+      organizationId: input.organizationId,
+      description: '',
+      ...rules,
+      lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: input.validity.kind !== 'no-expiry' },
+      cardDesignId: org.defaultCardDesignId,
+      status: 'active',
+      createdAt: input.at,
+    };
   return {
     ok: true,
     credentialTypeId: type.id,
@@ -336,11 +351,15 @@ export function applyCredentialConfig(state: AppState, input: CredentialConfigIn
       ...state,
       data: {
         ...state.data,
-        credentialTypes: [...state.data.credentialTypes, type],
+        // Editing updates the configuration only; credentials already issued keep their snapshot.
+        credentialTypes: existing
+          ? state.data.credentialTypes.map((t) => (t.id === type.id ? type : t))
+          : [...state.data.credentialTypes, type],
         audit: withAudit(state, [{
-          organizationId: input.organizationId, action: 'credential-type.created', actor: state.data.admin.name, actorType: 'admin',
-          resourceType: 'credential-type', resourceId: type.id, result: 'success', occurredAt: input.at,
-          summary: `Created credential "${type.name}" using ${idConfig.name}`, href: `/templates/credential-types/${type.id}`,
+          organizationId: input.organizationId, action: existing ? 'credential-type.updated' : 'credential-type.created',
+          actor: state.data.admin.name, actorType: 'admin', resourceType: 'credential-type', resourceId: type.id, result: 'success',
+          occurredAt: input.at, href: `/credentials/configurations/${type.id}`,
+          summary: existing ? `Updated credential "${type.name}"` : `Created credential "${type.name}" using ${idConfig.name}`,
         }]),
       },
     },
@@ -362,6 +381,8 @@ export interface IssuanceInput {
   credentialTypeId: string;
   /** Used when the credential type lets the issuer choose the effective date. */
   effectiveDate?: string;
+  /** Required when the credential type's expiry date is chosen at issuance. */
+  expiresAt?: string;
   credentialId: string;
 }
 
@@ -405,8 +426,14 @@ export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ c
 
   // Validity: the effective date is a rule; the issuance timestamp is when it actually happened.
   const issuedAt = new Date(input.at);
+  if (type.effectiveDate === 'custom-date' && (!input.effectiveDate || Number.isNaN(new Date(input.effectiveDate).getTime()))) {
+    return { ok: false, errors: { form: 'Choose the date this credential becomes effective.' } };
+  }
+  if (type.validity.kind === 'set-at-issuance' && (!input.expiresAt || Number.isNaN(new Date(input.expiresAt).getTime()))) {
+    return { ok: false, errors: { form: 'Choose an expiry date before issuing.' } };
+  }
   const chosen = type.effectiveDate === 'custom-date' && input.effectiveDate ? new Date(input.effectiveDate) : undefined;
-  const { effectiveFrom, expiresAt } = computeValidity(type, issuedAt, chosen);
+  const { effectiveFrom, expiresAt } = computeValidity(type, issuedAt, chosen, input.expiresAt ? new Date(input.expiresAt) : undefined);
   if (expiresAt && expiresAt <= effectiveFrom) {
     return { ok: false, errors: { form: 'This credential would expire before it becomes effective. Choose a different effective date or update its validity.' } };
   }
@@ -424,6 +451,11 @@ export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ c
     expiresAt: expiresAt ? expiresAt.toISOString() : null,
     wallet: { status: org.integrations.seamfixWallet.connected && status === 'active' ? 'pending' : 'not-sent', updatedAt: input.at },
     issuanceRequestId: input.requestId,
+    snapshot: {
+      credentialName: type.name,
+      templateId: type.templateId,
+      identifierLabel: type.identifierConfigId ? d.identifierConfigs.find((c) => c.id === type.identifierConfigId)?.name ?? type.identifier.label : type.identifier.label,
+    },
   };
 
   return {

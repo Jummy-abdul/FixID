@@ -44,8 +44,8 @@ function createUser(state: AppState, over: Partial<CreateUserInput> = {}) {
 
 function withCredential(state: AppState) {
   return ok(applyCredentialConfig(state, {
-    organizationId: ORG, at: AT, id: 'ct_1', name: 'Student ID', identifierConfigId: 'idc_1', cardDesignId: `${ORG}_design_default`,
-    effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 }, renewal: { allowed: true, windowDays: 30 },
+    organizationId: ORG, at: AT, id: 'ct_1', name: 'Student ID', identifierConfigId: 'idc_1', templateId: 'classic-landscape',
+    effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 }, renewable: true,
   })).state;
 }
 
@@ -160,8 +160,8 @@ describe('credential configuration and issuance', () => {
   it('requires an existing identifier and a unique name', () => {
     const state = base();
     expect(applyCredentialConfig(state, {
-      organizationId: ORG, at: AT, id: 'ct_2', name: 'student id', identifierConfigId: 'missing', cardDesignId: `${ORG}_design_default`,
-      effectiveDate: 'on-issue', validity: { kind: 'fixed-date', date: '2020-01-01T00:00:00Z' }, renewal: { allowed: false, windowDays: 0 },
+      organizationId: ORG, at: AT, id: 'ct_2', name: 'student id', identifierConfigId: 'missing', templateId: 'classic-landscape',
+      effectiveDate: 'on-issue', validity: { kind: 'fixed-date', date: '2020-01-01T00:00:00Z' }, renewable: false,
     })).toMatchObject({ ok: false, errors: { name: expect.any(String), identifierConfigId: expect.any(String), validity: expect.any(String) } });
   });
 

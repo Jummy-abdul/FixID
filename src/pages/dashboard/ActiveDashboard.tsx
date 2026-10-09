@@ -47,9 +47,9 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
   const walletConnected = organization.integrations.seamfixWallet.connected;
 
   const attention = [
-    { label: 'Credentials awaiting approval', count: m.pendingCreds, to: '/credentials?status=pending', icon: Clock3 },
-    { label: 'Credentials expiring in 30 days', count: m.expiring, to: '/credentials?expiring=30', icon: CalendarClock },
-    { label: 'Wallet deliveries failed', count: m.walletFailed, to: '/credentials?wallet=failed', icon: Wallet },
+    { label: 'Credentials awaiting approval', count: m.pendingCreds, to: '/credentials/issued?status=pending', icon: Clock3 },
+    { label: 'Credentials expiring in 30 days', count: m.expiring, to: '/credentials/issued?expiring=30', icon: CalendarClock },
+    { label: 'Wallet deliveries failed', count: m.walletFailed, to: '/credentials/issued?wallet=failed', icon: Wallet },
     { label: 'Denied or indeterminate today', count: m.deniedToday, to: '/transactions?decision=not-allowed&range=today', icon: XCircle },
     { label: 'People with pending onboarding', count: m.pendingMembers, to: '/people?status=pending', icon: Users },
   ].filter((a) => a.count > 0);
@@ -72,12 +72,12 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="People" value={members.length.toLocaleString()} icon={<Users className="h-4 w-4" />} to="/people"
           hint={`${m.activeMembers} active`} />
-        <StatCard label="Active credentials" value={m.activeCreds.toLocaleString()} icon={<BadgeCheck className="h-4 w-4" />} to="/credentials?status=active" tone="emerald"
+        <StatCard label="Active credentials" value={m.activeCreds.toLocaleString()} icon={<BadgeCheck className="h-4 w-4" />} to="/credentials/issued?status=active" tone="emerald"
           hint={`${m.expiring} expiring in the next 30 days`} />
         <StatCard label="Verifications today" value={m.todayTx.length.toLocaleString()} icon={<ShieldCheck className="h-4 w-4" />} to="/transactions?range=today" tone="violet"
           hint={`${formatPercent(allowRate(m.weekTx))} allowed over 7 days`} />
         <StatCard label="Wallet delivery" value={walletConnected ? formatPercent(m.deliveryRate) : 'Not connected'} icon={<Wallet className="h-4 w-4" />} tone="amber"
-          to={walletConnected ? '/credentials?wallet=failed' : '/settings?tab=integrations'}
+          to={walletConnected ? '/credentials/issued?wallet=failed' : '/settings?tab=integrations'}
           hint={walletConnected ? `${m.walletFailed} failed ${m.walletFailed === 1 ? 'delivery' : 'deliveries'} to Seamfix Wallet` : 'Connect Seamfix Wallet in Settings'} />
       </div>
 
@@ -150,10 +150,10 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
 
         <Card>
           <CardHeader title="Active credentials by type"
-            action={<Link to="/credential-types" className="text-sm font-medium text-brand-600 hover:text-brand-700">Manage</Link>} />
+            action={<Link to="/credentials" className="text-sm font-medium text-brand-600 hover:text-brand-700">Manage</Link>} />
           <CardBody className="space-y-3">
             {typeCounts.map(({ type, count }) => (
-              <Link key={type.id} to={`/credentials?type=${type.id}`} className="group block">
+              <Link key={type.id} to={`/credentials/configurations/${type.id}?tab=issued`} className="group block">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-700 group-hover:text-slate-900">{type.name}{type.status === 'draft' && <span className="ml-1.5 text-xs text-slate-400">(draft)</span>}</span>
                   <span className="font-medium tabular-nums text-slate-900">{count}</span>

@@ -6,7 +6,7 @@ import {
   type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser,
 } from './operations';
 
-export const STATE_VERSION = 8;
+export const STATE_VERSION = 9;
 export const STORAGE_KEY = 'fixid.prototype.state';
 
 export interface Session {

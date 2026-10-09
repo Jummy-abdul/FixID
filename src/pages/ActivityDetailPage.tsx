@@ -51,7 +51,7 @@ export function ActivityDetailPage() {
             <DescriptionList items={[
               { label: 'Location', value: activity.location },
               { label: 'Schedule', value: activity.schedule.kind === 'always' ? 'Always on' : `${formatDate(activity.schedule.startsAt)} – ${formatDate(activity.schedule.endsAt)}` },
-              { label: 'Accepted credentials', value: activity.eligibility.credentialTypeIds.map((id) => <Link key={id} to={`/templates/credential-types/${id}`} className="mr-2 text-brand-700 hover:underline">{credentialTypeById.get(id)?.name}</Link>) },
+              { label: 'Accepted credentials', value: activity.eligibility.credentialTypeIds.map((id) => <Link key={id} to={`/credentials/configurations/${id}`} className="mr-2 text-brand-700 hover:underline">{credentialTypeById.get(id)?.name}</Link>) },
               { label: 'Relationships', value: activity.eligibility.relationships.join(', ') },
               { label: 'Roster', value: roster ? `${roster.length} people` : 'Not restricted', hint: roster ? roster.slice(0, 4).map((id) => memberById.get(id)?.displayName).join(', ') + (roster.length > 4 ? '…' : '') : undefined },
             ]} />

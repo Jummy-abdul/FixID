@@ -214,7 +214,7 @@ describe('dashboard', () => {
   it('links metrics to pre-filtered lists', async () => {
     const { user, state } = renderApp('/');
     await user.click(screen.getByRole('link', { name: /active credentials/i }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Credentials' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Issued credentials' })).toBeInTheDocument();
     const active = state.data.credentials.filter((c) => c.organizationId === state.session.currentOrganizationId && c.status === 'active').length;
     expect(screen.getByText(String(active), { selector: 'span.font-medium' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /active/i })).toHaveAttribute('aria-selected', 'true');
@@ -248,10 +248,10 @@ describe('users', () => {
 
 describe('planned features', () => {
   it('are clearly labelled and do not change data', async () => {
-    const { user } = renderApp('/templates');
+    const { user } = renderApp('/activities');
     await waitFor(() => expect(localStorage.getItem('fixid.prototype.state')).not.toBeNull());
     const before = localStorage.getItem('fixid.prototype.state');
-    await user.click(screen.getByRole('button', { name: /customize design/i }));
+    await user.click(screen.getByRole('button', { name: /new activity/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Planned')).toBeInTheDocument();
     expect(within(dialog).getByText(/Nothing has been changed/)).toBeInTheDocument();

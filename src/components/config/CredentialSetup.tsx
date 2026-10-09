@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BadgeCheck, CheckCircle2 } from 'lucide-react';
-import { Button, Modal } from '@/components/ui';
+import { Button, Modal, useToast } from '@/components/ui';
+import type { CredentialType } from '@/domain/types';
 import { useOrgData } from '@/store/AppStore';
 import { CredentialDrawer } from './CredentialDrawer';
 
@@ -8,14 +9,17 @@ import { CredentialDrawer } from './CredentialDrawer';
  * Creating a credential configuration: the reusable drawer, then a confirmation that offers to assign it.
  * Saving never issues anything. The modal opens only after the drawer has closed (no stacking).
  */
-export function CredentialSetup({ open, onClose, defaultIdentifierConfigId, onAssign, onLater }: {
+export function CredentialSetup({ open, onClose, defaultIdentifierConfigId, onAssign, onLater, existing }: {
   open: boolean;
   onClose: () => void;
   defaultIdentifierConfigId?: string;
   onAssign: (credentialTypeId: string) => void;
   onLater: (credentialTypeId: string) => void;
+  /** Edit this configuration; saving shows a confirmation instead of the assign prompt. */
+  existing?: CredentialType;
 }) {
   const { credentialTypeById } = useOrgData();
+  const toast = useToast();
   const [createdId, setCreatedId] = useState<string | null>(null);
   const created = createdId ? credentialTypeById.get(createdId) : undefined;
 
@@ -27,8 +31,12 @@ export function CredentialSetup({ open, onClose, defaultIdentifierConfigId, onAs
 
   return (
     <>
-      <CredentialDrawer open={open} onClose={onClose} defaultIdentifierConfigId={defaultIdentifierConfigId}
-        onSaved={(id) => { onClose(); setCreatedId(id); }} />
+      <CredentialDrawer open={open} onClose={onClose} defaultIdentifierConfigId={defaultIdentifierConfigId} existing={existing}
+        onSaved={(id) => {
+          onClose();
+          if (existing) toast({ tone: 'success', title: 'Changes saved', description: 'They apply to credentials issued from now on.' });
+          else setCreatedId(id);
+        }} />
       <Modal open={!!created} onClose={() => finish(false)} size="sm"
         title={<span className="flex flex-col gap-4"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500 text-white"><CheckCircle2 className="h-5 w-5" aria-hidden="true" /></span>Credential created successfully</span>}
         description={created && `${created.name} is ready to be assigned to users.`}

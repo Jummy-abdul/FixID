@@ -212,7 +212,7 @@ describe('User details', () => {
     expect(screen.getByRole('main').textContent).not.toMatch(/ID Switch|canonical|simulat|IDS-/i);
   });
 
-  it('lists every issued credential, previews the digital card, and keeps Issue Credential in the tab', async () => {
+  it('lists every issued credential, opens the shared details page, and keeps Issue Credential in the tab', async () => {
     const state = sampleState();
     const m = withManyCredentials(state);
     const creds = state.data.credentials.filter((c) => c.memberId === m.id);
@@ -221,13 +221,15 @@ describe('User details', () => {
     expect(within(panel).getAllByRole('row')).toHaveLength(creds.length + 1);
     expect(within(panel).getAllByRole('columnheader').map((h) => h.textContent?.trim()))
       .toEqual(['SN', 'Credential Name', 'Identifier', 'Date Issued', 'Expiration Date', 'Credential Status', 'Actions']);
-    await user.click(within(panel).getAllByRole('button', { name: /^View/ })[0]);
-    const preview = await screen.findByRole('region', { name: 'Digital ID preview' });
-    expect(preview).toHaveTextContent(m.displayName);
-    await user.click(screen.getByRole('button', { name: 'Close' }));
     if (m.status === 'active') {
       expect(within(panel).getByRole('link', { name: 'Issue Credential' })).toHaveAttribute('href', `/credentials/issue?recipients=${m.id}&from=user`);
     }
+    const links = within(panel).getAllByRole('link', { name: /^View Details/ });
+    expect(links).toHaveLength(creds.length);
+    await user.click(links[0]);
+    const preview = await screen.findByRole('region', { name: 'Digital ID preview' });
+    expect(preview).toHaveTextContent(m.displayName);
+    expect(screen.getByRole('link', { name: `Back to ${m.displayName}` })).toHaveAttribute('href', `/users/${m.id}?tab=credentials`);
   });
 
   it("shows only this user's verifications, newest first, and an empty state otherwise", async () => {
