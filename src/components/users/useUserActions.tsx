@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuthorization } from '@/auth/authorization';
 import { Eye, Send, UserCheck, UserX } from 'lucide-react';
 import { Button, ConfirmDialog, Modal, useToast, type OverflowMenuItem } from '@/components/ui';
 import type { Member } from '@/domain/types';
@@ -19,12 +20,14 @@ type Contact = { status: 'loading' } | { status: 'ready'; email: string } | { st
 /** Row actions for a user (view, activate/deactivate, enrollment link) and the confirmations they open. */
 export function useUserActions() {
   const navigate = useNavigate();
+  const canManage = useAuthorization().can('users.manage');
   const [pending, setPending] = useState<Pending | null>(null);
 
   const menuItems = useCallback((m: Member): OverflowMenuItem[] => {
     const items: OverflowMenuItem[] = [
       { key: 'view', label: 'View Details', icon: <Eye className="h-4 w-4" />, onSelect: () => navigate(`/users/${m.id}`) },
     ];
+    if (!canManage) return items;
     if (m.status === 'active') {
       items.push({ key: 'status', label: 'Deactivate User', tone: 'danger', icon: <UserX className="h-4 w-4" />, onSelect: () => setPending({ kind: 'status', memberId: m.id, next: 'inactive' }) });
     } else if (m.status === 'inactive') {
@@ -36,7 +39,7 @@ export function useUserActions() {
       items.push({ key: 'invite', label: resend ? 'Resend Enrollment Link' : 'Send Enrollment Link', icon: <Send className="h-4 w-4" />, onSelect: () => setPending({ kind: 'invite', memberId: m.id }) });
     }
     return items;
-  }, [navigate]);
+  }, [navigate, canManage]);
 
   /** Opens the confirmation for a bulk action; `onDone` runs after it completes (not on cancel). */
   const openBulk = useCallback((action: BulkAction, memberIds: string[], onDone?: () => void) => {

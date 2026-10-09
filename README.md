@@ -72,6 +72,28 @@ The app opens in **Crestfield Academy**, a brand-new organization with no users,
 
 Each signed-up organization has its own records (`ownerAccountId` on the organization). The signed-in administrator can only act in their own organization; resetting demo data keeps organizations created through sign-up.
 
+## Administrators & Roles
+
+Settings → **Administrators & Roles** (`/settings?tab=admins`, `&view=roles` for the role catalogue). Administrators are organization-scoped records (`data.administrators`), separate from the users an organization manages; one person can be both.
+
+| Role | Can do | Portal |
+| --- | --- | --- |
+| Organization Admin | Everything below, plus manage administrators, settings, users, groups and audit log | Yes |
+| Credential Manager | View users; view, configure and issue credentials | Yes |
+| Verification Manager | View outcomes, manage verification activities, assign verifiers | Yes |
+| Verifier | Perform assigned verifications (ready for activity assignment) | **No** |
+| Viewer / Auditor | Read-only: administrators, users, credentials, verification, audit log | Yes |
+
+Roles are lists of permissions (`src/domain/roles.ts`), so custom roles can be added later without changing the checks.
+
+**Rules:** you can only grant roles whose permissions you hold (Verifier can be granted by anyone who can assign verifiers); you can't change or deactivate an administrator with permissions you lack; you can't deactivate yourself; the organization always keeps at least one active Organization Admin. Duplicate, existing, deactivated and pending invitations are refused; an expired invitation can be replaced or resent. Every change is written to the audit log.
+
+**Invitations are simulated.** No email provider is connected and no email is sent. The invited person joins by signing up with the invited email address (code `123456`) within 7 days, and lands directly in the inviting organization with the invited roles.
+
+**Try another role:** sign in as the demo account, invite e.g. `cm@example.org` as Credential Manager, sign out, sign up with that email. Navigation, actions and direct URLs follow the role; a Verifier sees a "no portal access" screen; deactivating an administrator removes their access on their next action. Sessions expire after 12 hours.
+
+**Enforcement is client-side only.** Permissions are checked in three places — hidden/disabled actions, route guards and the store reducer — but all run in the browser and can be bypassed. Production must enforce the same rules on the server for every request.
+
 ## Add user journey
 
 `/users/new` (from the dashboard or Users) offers **Add manually**; **Select existing** and **Bulk upload** are marked Planned.

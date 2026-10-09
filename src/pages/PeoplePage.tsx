@@ -1,3 +1,4 @@
+import { useAuthorization } from '@/auth/authorization';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ScanFace, Send, UserCheck, UserPlus, Users, UserX } from 'lucide-react';
@@ -19,6 +20,7 @@ export function PeoplePage() {
   const [relationship, setRelationship] = useQueryState('relationship', 'all');
   const [page, setPage] = usePageParam();
   const { menuItems, dialogs, openBulk } = useUserActions();
+  const canManage = useAuthorization().can('users.manage');
 
   const kpis = useMemo(() => ({
     total: members.length,
@@ -68,7 +70,7 @@ export function PeoplePage() {
     <>
       <PageHeader
         title="Users"
-        actions={<ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>}
+        actions={canManage ? <ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink> : undefined}
       />
       <section aria-label="User summary" className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Total Users" value={kpis.total} icon={<Users className="h-4 w-4" />} />
@@ -92,7 +94,7 @@ export function PeoplePage() {
             </button>
           )}
         </div>
-        {selectedVisible.length > 0 && (
+        {canManage && selectedVisible.length > 0 && (
           <div role="toolbar" aria-label="Bulk actions" className="flex flex-wrap items-center gap-2 border-b border-brand-100 bg-brand-50/60 px-4 py-2.5">
             <span className="mr-2 text-sm font-medium text-slate-700" aria-live="polite">{selectedVisible.length} selected</span>
             {bulkCounts.invite > 0 && (

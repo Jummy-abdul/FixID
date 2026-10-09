@@ -13,6 +13,7 @@ import { useQueryState } from '@/hooks/useQueryState';
 import { useServices } from '@/services/ServicesProvider';
 import { useOrgData } from '@/store/AppStore';
 import { NotFoundPage } from './NotFoundPage';
+import { useAuthorization } from '@/auth/authorization';
 
 type TabId = 'profile' | 'credentials' | 'verifications';
 
@@ -131,9 +132,10 @@ function ProfileTab({ member }: { member: Member }) {
 function CredentialsTab({ member, creds }: { member: Member; creds: Credential[] }) {
   const { credentialTypeById } = useOrgData();
   const issueHref = assignUrl({ recipientIds: [member.id], from: 'user' });
+  const allowed = useAuthorization().can('credentials.issue');
   const canIssue = member.status === 'active';
   const serial = useMemo(() => new Map(creds.map((c, i) => [c.id, i + 1])), [creds]);
-  const issueButton = (variant: 'primary' | 'secondary') => canIssue
+  const issueButton = (variant: 'primary' | 'secondary') => !allowed ? null : canIssue
     ? <ButtonLink to={issueHref} variant={variant} icon={<BadgePlus className="h-4 w-4" />}>Issue Credential</ButtonLink>
     : <Button variant={variant} disabled title="Only active users can be issued credentials">Issue Credential</Button>;
 

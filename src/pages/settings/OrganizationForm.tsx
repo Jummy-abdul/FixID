@@ -1,3 +1,4 @@
+import { useAuthorization } from '@/auth/authorization';
 import { useState, type FormEvent } from 'react';
 import { Button, Card, CardBody, CardHeader, Field, Input, Select, useToast } from '@/components/ui';
 import { INDUSTRY_LABEL } from '@/domain/labels';
@@ -26,6 +27,7 @@ function pick(o: Organization): Values {
 }
 
 export function OrganizationForm({ organization }: { organization: Organization }) {
+  const canManage = useAuthorization().can('settings.manage');
   const { updateOrganizationProfile } = useActions();
   const toast = useToast();
   const initial = pick(organization);
@@ -60,6 +62,8 @@ export function OrganizationForm({ organization }: { organization: Organization 
     <Card>
       <CardHeader title="Organization profile" description="Shown to administrators, on credentials and in Seamfix Wallet." />
       <form onSubmit={submit} noValidate>
+        {!canManage && <p className="mx-5 mt-4 rounded-lg bg-slate-50 px-4 py-2.5 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">You can view these settings. Only administrators who manage settings can change them.</p>}
+        <fieldset disabled={!canManage} className="min-w-0">
         <CardBody className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <Field label="Organization name" required error={errors.name}>
             {(p) => <Input {...p} value={values.name} onChange={(e) => set('name', e.target.value)} />}
@@ -87,11 +91,12 @@ export function OrganizationForm({ organization }: { organization: Organization 
             {(p) => <Select {...p} value={values.timezone} onChange={(e) => set('timezone', e.target.value)}>{TIMEZONES.map((c) => <option key={c}>{c}</option>)}</Select>}
           </Field>
         </CardBody>
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
+        </fieldset>
+        {canManage && <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
           {dirty && <span className="mr-auto text-sm text-amber-700">You have unsaved changes</span>}
           <Button variant="secondary" disabled={!dirty || saving} onClick={() => { setValues(initial); setErrors({}); }}>Discard</Button>
           <Button type="submit" disabled={!dirty} loading={saving}>Save changes</Button>
-        </div>
+        </div>}
       </form>
     </Card>
   );

@@ -4,7 +4,7 @@ import { DEMO_ADMIN, NEW_ORGANIZATION_ID } from '@/data/seed';
 import type { AdminUser, CardDesign, Organization } from '@/domain/types';
 import { useStore } from '@/store/AppStore';
 import {
-  DEMO_ACCOUNT, DEMO_AUTH_ENABLED, hashPassword, loadAuth, normalizeEmail, passwordMatches, randomToken, saveAuth, saveSignup,
+  DEMO_ACCOUNT, DEMO_AUTH_ENABLED, hashPassword, loadAuth, newSession, normalizeEmail, passwordMatches, randomToken, saveAuth, saveSignup,
   type Account, type AuthSession, type AuthStore,
 } from './authCore';
 
@@ -18,6 +18,8 @@ interface AuthContextValue {
   createAccount: (email: string, password: string) => Promise<Account>;
   savePersonal: (firstName: string, lastName: string) => void;
   createOrganization: (input: { name: string; countryCode: string; region: string }) => string;
+  /** Joins the organization that invited this email (instead of creating one). */
+  acceptInvitation: (adminId: string, organizationId: string, firstName: string, lastName: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -91,7 +93,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
       const found = findAccount(email);
       // Same message whether or not the account exists.
       if (!found || !(await passwordMatches(found, password))) return { ok: false, error: 'Incorrect email or password.' };
-      setStore((s) => ({ ...s, session: { accountId: found.id } }));
+      setStore((s) => ({ ...s, session: newSession(found.id) }));
       return { ok: true, account: found };
     },
     signOut: () => {
@@ -107,13 +109,19 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
         id: `acct_${randomToken(8)}`, email: e, password: { hash: await hashPassword(password, salt), salt, iterations: 100_000 },
         emailVerified: true, onboarding: 'personal', createdAt: new Date().toISOString(),
       };
-      setStore((s) => ({ accounts: [...s.accounts, created], session: { accountId: created.id } }));
+      setStore((s) => ({ accounts: [...s.accounts, created], session: newSession(created.id) }));
       saveSignup(null);
       return created;
     },
     savePersonal: (firstName, lastName) => {
       if (!account || isDemo) return;
       updateAccount(account.id, { firstName: firstName.trim(), lastName: lastName.trim(), onboarding: account.onboarding === 'complete' ? 'complete' : 'organization' });
+    },
+    acceptInvitation: (adminId, organizationId, firstName, lastName) => {
+      if (!account || isDemo) return;
+      const name = `${firstName.trim()} ${lastName.trim()}`;
+      dispatch({ type: 'admins/accept', adminId, userId: account.id, name, at: new Date().toISOString() });
+      updateAccount(account.id, { firstName: firstName.trim(), lastName: lastName.trim(), organizationId, onboarding: 'complete' });
     },
     createOrganization: ({ name, countryCode, region }) => {
       if (!account || isDemo) throw new Error('Sign in to create an organization.');
@@ -138,7 +146,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
         primaryColor: '#1d2d8b', accentColor: '#f5b301', textColor: '#ffffff', layout: 'horizontal',
         showPhoto: true, showQr: true, fields: ['name', 'identifier', 'relationship', 'expiry'],
       };
-      dispatch({ type: 'organization/create', organization, cardDesign, at, actor: displayName(account) });
+      dispatch({ type: 'organization/create', organization, cardDesign, at, actor: displayName(account), owner: { userId: account.id, email: account.email } });
       updateAccount(account.id, { organizationId: id, onboarding: 'complete' });
       return id;
     },

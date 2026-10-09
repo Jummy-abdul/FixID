@@ -1,10 +1,13 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { Fingerprint } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useAuthorization } from '@/auth/authorization';
 import { NAVIGATION } from './navigation';
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { pathname } = useLocation();
+  const { can } = useAuthorization();
+  const groups = NAVIGATION.map((g) => ({ ...g, items: g.items.filter((i) => !i.permission || can(i.permission)) })).filter((g) => g.items.length > 0);
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-300">
       <div className="flex h-16 items-center gap-2.5 px-5">
@@ -17,7 +20,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <nav aria-label="Primary" className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {NAVIGATION.map((group) => (
+        {groups.map((group) => (
           <div key={group.label ?? 'top'}>
             {group.label && <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{group.label}</p>}
             <ul className="space-y-0.5">

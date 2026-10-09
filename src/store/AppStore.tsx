@@ -7,8 +7,9 @@ import {
   applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
   type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
+import { applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, type InviteInput } from './adminOps';
 import { loadState, saveState } from './persistence';
-import { createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
+import { authorizeAction, createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
 
 interface StoreContextValue {
   state: AppState;
@@ -108,16 +109,24 @@ export function useOrgData(): OrgData {
 
 export function useActions() {
   const { dispatch, getState } = useStore();
+  const run = useCallback((r: { ok: true; state: AppState } | { ok: false; error: string }, action: Action) => {
+    if (r.ok) dispatch(action);
+    return r.ok ? { ok: true as const } : { ok: false as const, error: r.error };
+  }, [dispatch]);
   return useMemo(
     () => ({
       /** Creates or updates a reusable identifier configuration. Returns validation errors without changing state. */
       saveIdentifierConfig: (input: IdentifierConfigInput) => {
+        const denied = authorizeAction(getState(), 'config/identifier');
+        if (denied) return { ok: false as const, errors: { form: denied } };
         const result = applyIdentifierConfig(getState(), input);
         if (result.ok) dispatch({ type: 'config/identifier', input });
         return result;
       },
       /** Saves a reusable credential configuration. */
       saveCredentialConfig: (input: CredentialConfigInput) => {
+        const denied = authorizeAction(getState(), 'config/credential');
+        if (denied) return { ok: false as const, errors: { form: denied } };
         const result = applyCredentialConfig(getState(), input);
         if (result.ok) dispatch({ type: 'config/credential', input });
         return result;
@@ -125,6 +134,8 @@ export function useActions() {
       /** Creates a user and assigns their identifier, atomically. Idempotent per requestId. */
       createUser: (input: CreateUserInput) => {
         const state = getState();
+        const denied = authorizeAction(state, 'users/create');
+        if (denied) return { ok: false as const, errors: { form: denied } as Record<string, string> };
         const prepared = prepareCreateUser(state, input);
         if (!prepared.ok) return prepared;
         if (prepared.duplicateRequest) return { ok: true as const, memberId: prepared.duplicateRequest.memberId, identifier: prepared.prepared.assigned.value };
@@ -135,18 +146,42 @@ export function useActions() {
       },
       /** Activates or deactivates a user. Credentials are not changed. */
       setMemberStatus: (input: MemberStatusInput) => {
+        const denied = authorizeAction(getState(), 'users/status');
+        if (denied) return { ok: false as const, errors: { form: denied } };
         const result = applyMemberStatus(getState(), input);
         if (result.ok && result.changed) dispatch({ type: 'users/status', input });
         return result;
       },
       /** Records a (simulated) portrait enrollment invitation and marks enrollment Pending. */
       recordEnrollmentInvite: (input: EnrollmentInviteInput) => {
+        const denied = authorizeAction(getState(), 'users/enrollmentInvite');
+        if (denied) return { ok: false as const, errors: { form: denied } };
         const result = applyEnrollmentInvite(getState(), input);
         if (result.ok) dispatch({ type: 'users/enrollmentInvite', input });
         return result;
       },
+      /** Administrator management. Each re-checks the signed-in administrator's permissions. */
+      inviteAdmin: (input: InviteInput) => run(applyInvite(getState(), input), { type: 'admins/invite', input }),
+      resendAdminInvite: (organizationId: string, adminId: string) => {
+        const at = new Date().toISOString();
+        return run(applyResendInvite(getState(), { organizationId, adminId, at }), { type: 'admins/resend', organizationId, adminId, at });
+      },
+      revokeAdminInvite: (organizationId: string, adminId: string) => {
+        const at = new Date().toISOString();
+        return run(applyRevokeInvite(getState(), { organizationId, adminId, at }), { type: 'admins/revoke', organizationId, adminId, at });
+      },
+      setAdminRoles: (organizationId: string, adminId: string, roleIds: string[]) => {
+        const at = new Date().toISOString();
+        return run(applySetRoles(getState(), { organizationId, adminId, roleIds, at }), { type: 'admins/roles', organizationId, adminId, roleIds, at });
+      },
+      setAdminStatus: (organizationId: string, adminId: string, status: 'active' | 'deactivated') => {
+        const at = new Date().toISOString();
+        return run(applySetAdminStatus(getState(), { organizationId, adminId, status, at }), { type: 'admins/status', organizationId, adminId, status, at });
+      },
       /** Issues a digital ID atomically. Idempotent per requestId; failures change nothing. */
       issueDigitalId: (input: IssuanceInput) => {
+        const denied = authorizeAction(getState(), 'issuance/issue');
+        if (denied) return { ok: false as const, errors: { form: denied } };
         const result = applyIssuance(getState(), input);
         if (result.ok && !result.duplicateRequest) dispatch({ type: 'issuance/issue', input });
         return result;
@@ -157,6 +192,6 @@ export function useActions() {
         dispatch({ type: 'organization/updateProfile', organizationId, changes, at: new Date().toISOString() }),
       resetDemoData: () => dispatch({ type: 'demo/reset', state: createInitialState() }),
     }),
-    [dispatch, getState],
+    [dispatch, getState, run],
   );
 }

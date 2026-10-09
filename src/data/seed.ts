@@ -8,6 +8,7 @@ import type {
   CredentialType,
   Decision,
   Member,
+  OrgAdministrator,
   Organization,
   Transaction,
   IdentifierConfig,
@@ -32,6 +33,38 @@ export interface SeedData {
   activities: VerificationActivity[];
   transactions: Transaction[];
   audit: AuditEvent[];
+  /** Administrative users per organization (Settings → Administrators & Roles). */
+  administrators: OrgAdministrator[];
+}
+
+const DAY = 86_400_000;
+
+/**
+ * Sample administrators. Every demo organization has the demo administrator as Organization Admin;
+ * established organizations also show the other roles and statuses. Crestfield (brand new) has only its owner.
+ */
+export function seedAdministrators(organizations: Pick<Organization, 'id' | 'contactEmail' | 'createdAt'>[], today: Date): OrgAdministrator[] {
+  const iso = (d: Date) => d.toISOString();
+  const ago = (days: number) => iso(new Date(today.getTime() - days * DAY));
+  const out: OrgAdministrator[] = [];
+  for (const org of organizations) {
+    const domain = org.contactEmail.split('@')[1] ?? 'example.org';
+    out.push({
+      id: `${org.id}_adm_owner`, organizationId: org.id, email: 'tobyson.te@fixid.demo', name: 'Tobyson TE', userId: 'usr_tobyson',
+      roleIds: ['organization-admin'], status: 'active', createdAt: org.createdAt, lastActiveAt: iso(today),
+    });
+    if (org.id === NEW_ORGANIZATION_ID) continue;
+    const invite = (sentDaysAgo: number) => ({ sentAt: ago(sentDaysAgo), expiresAt: ago(sentDaysAgo - 7), sendCount: 1, invitedBy: 'Tobyson TE' });
+    out.push(
+      { id: `${org.id}_adm_2`, organizationId: org.id, email: `adaora.nwosu@${domain}`, name: 'Adaora Nwosu', userId: `${org.id}_usr_2`, roleIds: ['credential-manager'], status: 'active', createdAt: ago(300), lastActiveAt: ago(1) },
+      { id: `${org.id}_adm_3`, organizationId: org.id, email: `kwame.mensah@${domain}`, name: 'Kwame Mensah', userId: `${org.id}_usr_3`, roleIds: ['verification-manager'], status: 'active', createdAt: ago(240), lastActiveAt: ago(3) },
+      { id: `${org.id}_adm_4`, organizationId: org.id, email: `halima.bello@${domain}`, name: 'Halima Bello', userId: `${org.id}_usr_4`, roleIds: ['verifier'], status: 'active', createdAt: ago(200), lastActiveAt: ago(2), verifierActivityIds: [] },
+      { id: `${org.id}_adm_5`, organizationId: org.id, email: `grace.okafor@${domain}`, name: 'Grace Okafor', userId: `${org.id}_usr_5`, roleIds: ['viewer'], status: 'deactivated', createdAt: ago(380), lastActiveAt: ago(40) },
+      { id: `${org.id}_adm_6`, organizationId: org.id, email: `operations@${domain}`, roleIds: ['credential-manager', 'viewer'], status: 'invited', createdAt: ago(2), invitation: invite(2) },
+      { id: `${org.id}_adm_7`, organizationId: org.id, email: `records@${domain}`, roleIds: ['viewer'], status: 'invited', createdAt: ago(12), invitation: invite(12) },
+    );
+  }
+  return out;
 }
 
 /** A newly created organization with no users, credentials or activities: the first-time journey starts here. */
@@ -590,6 +623,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     activities,
     transactions,
     audit,
+    administrators: seedAdministrators(organizations, today),
   };
 }
 

@@ -3,6 +3,9 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { ArrowLeft, BadgeCheck } from 'lucide-react';
 import { Button, Field, Input, Select } from '@/components/ui';
 import { useAuth } from '@/auth/AuthProvider';
+import { roleById } from '@/domain/roles';
+import { pendingInvitation } from '@/store/adminOps';
+import { useStore } from '@/store/AppStore';
 import { DEFAULT_COUNTRY, countryByCode } from '@/data/countries';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
 import { CountryCombobox } from './fields';
@@ -21,8 +24,11 @@ function StepLabel({ step }: { step: 1 | 2 }) {
 }
 
 export function OnboardingPersonalPage() {
-  const { account, savePersonal } = useAuth();
+  const { account, savePersonal, acceptInvitation } = useAuth();
+  const { state } = useStore();
   const navigate = useNavigate();
+  const invitation = account ? pendingInvitation(state, account.email) : undefined;
+  const invitingOrg = invitation ? state.data.organizations.find((o) => o.id === invitation.organizationId) : undefined;
   const [first, setFirst] = useState(account?.firstName ?? '');
   const [last, setLast] = useState(account?.lastName ?? '');
   const [errors, setErrors] = useState<{ first?: string; last?: string }>({});
@@ -37,14 +43,25 @@ export function OnboardingPersonalPage() {
     else if (!NAME.test(last.trim())) next.last = 'Use letters only.';
     setErrors(next);
     if (Object.keys(next).length) return;
+    // Invited administrators join the inviting organization with the roles they were given.
+    if (invitation && invitingOrg) {
+      acceptInvitation(invitation.id, invitingOrg.id, first, last);
+      navigate('/', { replace: true });
+      return;
+    }
     savePersonal(first, last);
     navigate('/onboarding/organization');
   };
 
   return (
     <AuthLayout>
-      <AuthHeading eyebrow={<StepLabel step={1} />} title="What should we call you?" description="A few details to personalize your FixID experience." />
+      <AuthHeading eyebrow={invitation ? undefined : <StepLabel step={1} />} title="What should we call you?" description="A few details to personalize your FixID experience." />
       <form onSubmit={submit} noValidate className="space-y-5">
+        {invitation && invitingOrg && (
+          <p role="status" className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900 ring-1 ring-inset ring-brand-200">
+            You've been invited to join <span className="font-semibold">{invitingOrg.name}</span> as {invitation.roleIds.map((id) => roleById(id)?.name ?? id).join(', ')}.
+          </p>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="First name" required error={errors.first}>
             {(p) => <Input {...p} autoComplete="given-name" autoFocus className="h-11" value={first} onChange={(e) => setFirst(e.target.value)} />}

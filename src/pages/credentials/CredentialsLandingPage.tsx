@@ -1,3 +1,4 @@
+import { useAuthorization } from '@/auth/authorization';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Pencil, Plus } from 'lucide-react';
@@ -41,6 +42,7 @@ export function CredentialsLandingPage() {
   const navigate = useNavigate();
   const [setup, setSetup] = useState<{ open: boolean; existing?: CredentialType }>({ open: false });
   const [q, setQ] = useState('');
+  const canConfigure = useAuthorization().can('credentials.configure');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const configs = useMemo(() => credentialTypes.filter((t) => t.status !== 'retired'), [credentialTypes]);
@@ -81,7 +83,7 @@ export function CredentialsLandingPage() {
           <IdCardIllustration />
           <h2 className="mt-6 text-xl font-semibold text-slate-900">No credentials configured yet</h2>
           <p className="mt-2 max-w-md text-slate-500">Create a credential to start issuing digital IDs to your users.</p>
-          <Button className="mt-7" icon={<Plus className="h-4 w-4" />} onClick={() => setSetup({ open: true })}>Create credential</Button>
+          {canConfigure && <Button className="mt-7" icon={<Plus className="h-4 w-4" />} onClick={() => setSetup({ open: true })}>Create credential</Button>}
         </section>
         {setupDrawer}
       </>
@@ -91,7 +93,7 @@ export function CredentialsLandingPage() {
   return (
     <>
       <PageHeader title="Credentials"
-        actions={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setSetup({ open: true })}>Create credential</Button>} />
+        actions={canConfigure ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setSetup({ open: true })}>Create credential</Button> : undefined} />
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search credentials" className="sm:w-80" label="Search credentials" />
@@ -121,7 +123,7 @@ export function CredentialsLandingPage() {
               cell: (t) => (
                 <OverflowMenu label={`Actions for ${t.name}`} items={[
                   { key: 'view', label: 'View Details', icon: <Eye className="h-4 w-4" />, onSelect: () => navigate(configPath(t.id)) },
-                  { key: 'edit', label: 'Edit', icon: <Pencil className="h-4 w-4" />, onSelect: () => setSetup({ open: true, existing: t }) },
+                  ...(canConfigure ? [{ key: 'edit', label: 'Edit', icon: <Pencil className="h-4 w-4" />, onSelect: () => setSetup({ open: true, existing: t }) }] : []),
                 ]} />
               ),
             },

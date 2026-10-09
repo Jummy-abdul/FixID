@@ -1,3 +1,4 @@
+import { useAuthorization } from '@/auth/authorization';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BadgeCheck, CheckCircle2 } from 'lucide-react';
@@ -20,6 +21,7 @@ export function ManualAddUserPage() {
   const orgId = org.organization.id;
   const navigate = useNavigate();
   const toast = useToast();
+  const canIssue = useAuthorization().can('credentials.issue');
   const [draft, setDraft] = useState<Draft>(() => loadDraft(orgId) ?? emptyDraft(orgId, org.identifierConfigs.length === 1 ? org.identifierConfigs[0].id : null));
   const [confirmCancel, setConfirmCancel] = useState(false);
   const draftRef = useRef(draft);
@@ -85,7 +87,7 @@ export function ManualAddUserPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => finish(false)}>Not now</Button>
-            <Button icon={<BadgeCheck className="h-4 w-4" />} onClick={() => finish(true)}>Yes, issue ID</Button>
+            {canIssue && <Button icon={<BadgeCheck className="h-4 w-4" />} onClick={() => finish(true)}>Yes, issue ID</Button>}
           </>
         }>
         {member && memberIdentifier && (

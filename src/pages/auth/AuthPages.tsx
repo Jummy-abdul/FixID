@@ -3,7 +3,8 @@ import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-d
 import { ArrowLeft, ArrowRight, MailCheck } from 'lucide-react';
 import { Button, Field, Input, useToast } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
-import { checkCode, emailError, issueCode, loadSignup, normalizeEmail, passwordIsStrong, saveSignup } from '@/auth/authCore';
+import { PortalBlocked, useAuthorization } from '@/auth/authorization';
+import { SESSION_EXPIRED_FLAG, checkCode, emailError, issueCode, loadSignup, normalizeEmail, passwordIsStrong, saveSignup } from '@/auth/authCore';
 import { DEMO_ADMIN } from '@/data/seed';
 import { useStore } from '@/store/AppStore';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
@@ -33,13 +34,18 @@ export function RequireOnboarding() {
 
 /** The application: signed in, onboarding complete, and the workspace switched to this account. */
 export function RequireApp() {
-  const { account, isDemo } = useAuth();
+  const { account, isDemo, signOut } = useAuth();
+  const { record, portalAccess } = useAuthorization();
   const { state } = useStore();
   const location = useLocation();
   if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
   if (account.onboarding !== 'complete') return <Navigate to={homeFor(account)} replace />;
   // Never render another organization's data while the workspace is being switched.
   if (state.data.admin.id !== (isDemo ? DEMO_ADMIN.id : account.id)) return null;
+  // Access follows the administrator record: deactivated or verifier-only administrators can't use the portal.
+  if (!record) return <PortalBlocked reason="no-membership" onSignOut={signOut} />;
+  if (record.status === 'deactivated') return <PortalBlocked reason="deactivated" onSignOut={signOut} />;
+  if (!portalAccess) return <PortalBlocked reason="no-portal" onSignOut={signOut} />;
   return <Outlet />;
 }
 
@@ -221,6 +227,13 @@ export function SignInPage() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [expired] = useState(() => {
+    try {
+      const flag = window.sessionStorage.getItem(SESSION_EXPIRED_FLAG);
+      window.sessionStorage.removeItem(SESSION_EXPIRED_FLAG);
+      return !!flag;
+    } catch { return false; }
+  });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -243,6 +256,7 @@ export function SignInPage() {
     <AuthLayout footer={<>Don't have an account? <Link to="/signup" className={linkCls}>Sign up</Link></>}>
       <AuthHeading title="Welcome back" description="Sign in to your FixID account." />
       <form onSubmit={submit} noValidate className="space-y-5">
+        {expired && !errors.form && <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Your session has expired. Sign in again to continue.</p>}
         {errors.form && <FormError>{errors.form}</FormError>}
         <Field label="Email address" error={errors.email}>
           {(p) => <Input {...p} type="email" autoComplete="email" autoFocus={!email} className="h-11" value={email} onChange={(e) => setEmail(e.target.value)} />}

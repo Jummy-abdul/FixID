@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AppLayout } from './layout/AppLayout';
+import { RequirePermission } from './auth/authorization';
 import {
   CreatePasswordPage, ForgotPasswordPage, PublicOnly, RequireApp, RequireOnboarding, SignInPage, SignUpPage, VerifyEmailPage,
 } from './pages/auth/AuthPages';
@@ -72,26 +73,26 @@ export function AppRoutes() {
       <Route element={<RequireApp />}>
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
-        <Route path="users" element={<PeoplePage />} />
-        <Route path="users/new" element={<AddUserEntryPage />} />
-        <Route path="users/new/manual" element={<ManualAddUserPage />} />
-        <Route path="users/:personId" element={<PersonDetailPage />} />
+        <Route path="users" element={<RequirePermission permission="users.view"><PeoplePage /></RequirePermission>} />
+        <Route path="users/new" element={<RequirePermission permission="users.manage"><AddUserEntryPage /></RequirePermission>} />
+        <Route path="users/new/manual" element={<RequirePermission permission="users.manage"><ManualAddUserPage /></RequirePermission>} />
+        <Route path="users/:personId" element={<RequirePermission permission="users.view"><PersonDetailPage /></RequirePermission>} />
         <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
-        <Route path="groups" element={<GroupsPage />} />
-        <Route path="credentials" element={<CredentialsLandingPage />} />
-        <Route path="credentials/issue" element={<AssignCredentialPage />} />
-        <Route path="credentials/issued" element={<IssuedCredentialsPage />} />
-        <Route path="credentials/configurations/:typeId" element={<CredentialConfigDetailPage />} />
-        <Route path="credentials/:credentialId" element={<IssuedCredentialDetailPage />} />
-        <Route path="templates" element={<CardDesignsPage />} />
-        <Route path="templates/credential-types" element={<CredentialTypesPage />} />
-        <Route path="templates/identifiers" element={<IdentifiersPage />} />
+        <Route path="groups" element={<RequirePermission permission="users.view"><GroupsPage /></RequirePermission>} />
+        <Route path="credentials" element={<RequirePermission permission="credentials.view"><CredentialsLandingPage /></RequirePermission>} />
+        <Route path="credentials/issue" element={<RequirePermission permission="credentials.issue"><AssignCredentialPage /></RequirePermission>} />
+        <Route path="credentials/issued" element={<RequirePermission permission="credentials.view"><IssuedCredentialsPage /></RequirePermission>} />
+        <Route path="credentials/configurations/:typeId" element={<RequirePermission permission="credentials.view"><CredentialConfigDetailPage /></RequirePermission>} />
+        <Route path="credentials/:credentialId" element={<RequirePermission permission="credentials.view"><IssuedCredentialDetailPage /></RequirePermission>} />
+        <Route path="templates" element={<RequirePermission permission="credentials.view"><CardDesignsPage /></RequirePermission>} />
+        <Route path="templates/credential-types" element={<RequirePermission permission="credentials.view"><CredentialTypesPage /></RequirePermission>} />
+        <Route path="templates/identifiers" element={<RequirePermission permission="credentials.view"><IdentifiersPage /></RequirePermission>} />
         <Route path="templates/credential-types/:typeId" element={<ConfigRedirect />} />
-        <Route path="activities" element={<ActivitiesPage />} />
-        <Route path="activities/:activityId" element={<ActivityDetailPage />} />
-        <Route path="verification-history" element={<TransactionsPage />} />
-        <Route path="verification-history/:transactionId" element={<TransactionDetailPage />} />
-        <Route path="audit" element={<AuditPage />} />
+        <Route path="activities" element={<RequirePermission permission="verification.view"><ActivitiesPage /></RequirePermission>} />
+        <Route path="activities/:activityId" element={<RequirePermission permission="verification.view"><ActivityDetailPage /></RequirePermission>} />
+        <Route path="verification-history" element={<RequirePermission permission="verification.view"><TransactionsPage /></RequirePermission>} />
+        <Route path="verification-history/:transactionId" element={<RequirePermission permission="verification.view"><TransactionDetailPage /></RequirePermission>} />
+        <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         {RENAMED.flatMap(([from, to]) => [

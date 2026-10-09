@@ -124,6 +124,30 @@ export interface EnrollmentInvitation {
   simulated: true;
 }
 
+export type AdministratorStatus = 'invited' | 'active' | 'deactivated';
+
+/**
+ * Someone authorized to operate FixID for an organization. Separate from Member (a person whose
+ * identity and credentials are managed); the same person may be both, linked via `memberId`.
+ */
+export interface OrgAdministrator {
+  id: string;
+  organizationId: string;
+  email: string;
+  name?: string;
+  /** The signed-in user (AdminUser.id) once the invitation is accepted. */
+  userId?: string;
+  /** Optional link to the same person's user record in User Management. */
+  memberId?: string;
+  roleIds: string[];
+  status: AdministratorStatus;
+  invitation?: { sentAt: ISODate; expiresAt: ISODate; sendCount: number; invitedBy: string };
+  /** Verification activities a verifier may perform (enforced by verification services in production). */
+  verifierActivityIds?: string[];
+  createdAt: ISODate;
+  lastActiveAt?: ISODate;
+}
+
 export type DateFormat = 'YYYY' | 'YY' | 'MM' | 'DD' | 'YYYYMM' | 'YYYYMMDD';
 
 /** One building block of a generated identifier. */
@@ -305,6 +329,13 @@ export type AuditAction =
   | 'activity.updated'
   | 'organization.updated'
   | 'organization.created'
+  | 'admin.invited'
+  | 'admin.invitation-resent'
+  | 'admin.invitation-revoked'
+  | 'admin.joined'
+  | 'admin.roles-changed'
+  | 'admin.deactivated'
+  | 'admin.reactivated'
   | 'wallet.delivered'
   | 'wallet.failed';
 
@@ -315,7 +346,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator';
   resourceId: string;
   result: 'success' | 'failure';
   summary: string;

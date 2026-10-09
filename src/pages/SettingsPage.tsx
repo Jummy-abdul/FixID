@@ -1,16 +1,19 @@
 import { PageHeader, Tabs } from '@/components/ui';
 import { useQueryState } from '@/hooks/useQueryState';
 import { useAuth } from '@/auth/AuthProvider';
+import { NoAccess, useAuthorization } from '@/auth/authorization';
+import { AdministratorsPanel } from './settings/AdministratorsPanel';
 import { useSession } from '@/store/AppStore';
 import { DemoDataPanel } from './settings/DemoDataPanel';
 import { IntegrationsPanel } from './settings/IntegrationsPanel';
 import { OrganizationForm } from './settings/OrganizationForm';
 
-type Tab = 'organization' | 'integrations' | 'demo';
+type Tab = 'organization' | 'admins' | 'integrations' | 'demo';
 
 export function SettingsPage() {
   const { organization } = useSession();
   const { isDemo } = useAuth();
+  const { can } = useAuthorization();
   const [rawTab, setTab] = useQueryState('tab', 'organization');
   // Demo data (sample organizations, reset) belongs to the demo account only.
   const tab = rawTab === 'demo' && !isDemo ? 'organization' : rawTab;
@@ -20,11 +23,13 @@ export function SettingsPage() {
       <div className="mb-6">
         <Tabs<Tab> value={tab as Tab} onChange={setTab} tabs={[
           { value: 'organization', label: 'Organization' },
+          ...(can('admins.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
           { value: 'integrations', label: 'Integrations' },
           ...(isDemo ? [{ value: 'demo' as const, label: 'Demo data' }] : []),
         ]} />
       </div>
       {tab === 'organization' && <OrganizationForm key={organization.id} organization={organization} />}
+      {tab === 'admins' && (can('admins.view') ? <AdministratorsPanel /> : <NoAccess />)}
       {tab === 'integrations' && <IntegrationsPanel key={organization.id} organization={organization} />}
       {tab === 'demo' && isDemo && <DemoDataPanel />}
     </>

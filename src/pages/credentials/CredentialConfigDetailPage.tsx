@@ -1,3 +1,4 @@
+import { useAuthorization } from '@/auth/authorization';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BadgePlus, Pencil, ShieldCheck } from 'lucide-react';
@@ -30,7 +31,8 @@ export function CredentialConfigDetailPage() {
   const issued = credentials.filter((c) => c.credentialTypeId === type.id).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
   const current: TabId = tab === 'issued' ? 'issued' : 'configuration';
   const issueHref = assignUrl({ recipientIds: [], credentialTypeId: type.id, step: 'recipients', from: 'config' });
-  const canIssue = type.status === 'active';
+  const { can } = useAuthorization();
+  const canIssue = type.status === 'active' && can('credentials.issue');
   const template = templateById(type.templateId);
 
   return (
@@ -39,7 +41,7 @@ export function CredentialConfigDetailPage() {
         breadcrumbs={[{ label: 'Credentials', to: '/credentials' }, { label: type.name }]}
         title={type.name}
         meta={<span className="text-sm text-slate-500">{identifierName} · Created {formatDate(type.createdAt)}</span>}
-        actions={<Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit</Button>}
+        actions={can('credentials.configure') ? <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit</Button> : undefined}
       />
       <Tabs<TabId> value={current} onChange={setTab} tabs={[
         { value: 'configuration', label: 'Configuration' },

@@ -5,6 +5,10 @@ import {
   applyCreateUser, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
   type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser,
 } from './operations';
+import type { Permission } from '@/domain/roles';
+import {
+  actorPermissions, applyAcceptInvite, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
+} from './adminOps';
 
 export const STATE_VERSION = 9;
 export const STORAGE_KEY = 'fixid.prototype.state';
@@ -37,7 +41,13 @@ export type Action =
   | { type: 'users/enrollmentInvite'; input: EnrollmentInviteInput }
   | { type: 'wallet/update'; credentialId: string; status: Credential['wallet']['status']; at: string }
   | { type: 'demo/reset'; state: AppState }
-  | { type: 'organization/create'; organization: Organization; cardDesign: CardDesign; at: string; actor: string }
+  | { type: 'organization/create'; organization: Organization; cardDesign: CardDesign; at: string; actor: string; owner: { userId: string; email: string } }
+  | { type: 'admins/invite'; input: InviteInput }
+  | { type: 'admins/resend'; organizationId: string; adminId: string; at: string }
+  | { type: 'admins/revoke'; organizationId: string; adminId: string; at: string }
+  | { type: 'admins/roles'; organizationId: string; adminId: string; roleIds: string[]; at: string }
+  | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
+  | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string }
   /** Applies the signed-in administrator and their organization to the workspace. */
   | { type: 'session/signIn'; admin: AdminUser; organizationId: string };
 
@@ -51,12 +61,38 @@ export function createInitialState(now: Date = new Date()): AppState {
   };
 }
 
+/**
+ * Permission each protected change requires (any one of them). Checked in the reducer so the
+ * workspace can't be changed by someone without it, whatever the UI shows. Client-side only;
+ * production must enforce this on the server.
+ */
+const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
+  'organization/updateProfile': ['settings.manage'],
+  'config/identifier': ['users.manage', 'credentials.configure'],
+  'config/credential': ['credentials.configure'],
+  'users/create': ['users.manage'],
+  'users/status': ['users.manage'],
+  'users/enrollmentInvite': ['users.manage'],
+  'issuance/issue': ['credentials.issue'],
+};
+
+/** Null when allowed, otherwise the reason. */
+export function authorizeAction(state: AppState, type: Action['type']): string | null {
+  const needed = ACTION_PERMISSIONS[type];
+  if (!needed) return null;
+  const perms = actorPermissions(state, state.session.currentOrganizationId);
+  return needed.some((p) => perms.has(p)) ? null : "You don't have permission to do this.";
+}
+
+const orKeep = (state: AppState, r: { ok: true; state: AppState } | { ok: false }) => (r.ok ? r.state : state);
+
 function nextAuditId(audit: AuditEvent[]): string {
   const max = audit.reduce((m, e) => Math.max(m, Number(e.id.replace(/\D/g, '')) || 0), 0);
   return `AUD-${String(max + 1).padStart(5, '0')}`;
 }
 
 export function reducer(state: AppState, action: Action): AppState {
+  if (authorizeAction(state, action.type)) return state;
   switch (action.type) {
     case 'session/switchOrganization': {
       const allowed = state.data.admin.organizationIds.includes(action.organizationId);
@@ -138,6 +174,7 @@ export function reducer(state: AppState, action: Action): AppState {
           activities: keep(n.activities, d.activities),
           transactions: keep(n.transactions, d.transactions),
           audit: keep(n.audit, d.audit),
+          administrators: keep(n.administrators, d.administrators),
         },
       };
     }
@@ -154,6 +191,7 @@ export function reducer(state: AppState, action: Action): AppState {
           ...state.data,
           organizations: [...state.data.organizations, action.organization],
           cardDesigns: [...state.data.cardDesigns, action.cardDesign],
+          administrators: [...state.data.administrators, ownerRecord(action.organization.id, action.owner.userId, action.owner.email, action.actor, action.at)],
           audit: [event, ...state.data.audit],
         },
       };
@@ -161,12 +199,23 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'session/signIn': {
       if (!state.data.organizations.some((o) => o.id === action.organizationId) || !action.admin.organizationIds.includes(action.organizationId)) return state;
       if (JSON.stringify(state.data.admin) === JSON.stringify(action.admin) && state.session.currentOrganizationId === action.organizationId) return state;
+      const at = new Date().toISOString();
       return {
         ...state,
         session: { adminId: action.admin.id, currentOrganizationId: action.organizationId },
-        data: { ...state.data, admin: action.admin },
+        data: {
+          ...state.data,
+          admin: action.admin,
+          administrators: state.data.administrators.map((a) => (a.organizationId === action.organizationId && a.userId === action.admin.id ? { ...a, lastActiveAt: at } : a)),
+        },
       };
     }
+    case 'admins/invite': return orKeep(state, applyInvite(state, action.input));
+    case 'admins/resend': return orKeep(state, applyResendInvite(state, action));
+    case 'admins/revoke': return orKeep(state, applyRevokeInvite(state, action));
+    case 'admins/roles': return orKeep(state, applySetRoles(state, action));
+    case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
+    case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
     default:
       return state;
   }

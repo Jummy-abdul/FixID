@@ -31,7 +31,11 @@ export interface Account {
   createdAt: string;
 }
 
-export interface AuthSession { accountId: string }
+export interface AuthSession { accountId: string; expiresAt?: string }
+
+export const SESSION_TTL_MS = 12 * 60 * 60_000;
+export const SESSION_EXPIRED_FLAG = 'fixid.auth.sessionExpired';
+export const newSession = (accountId: string, now = new Date()): AuthSession => ({ accountId, expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString() });
 
 export interface AuthStore { accounts: Account[]; session: AuthSession | null }
 
@@ -101,7 +105,14 @@ export function loadAuth(): AuthStore {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (raw) {
       const p = JSON.parse(raw) as AuthStore;
-      if (Array.isArray(p.accounts)) return { accounts: p.accounts, session: p.session ?? null };
+      if (Array.isArray(p.accounts)) {
+        // Expired sessions end here; Sign in explains why.
+        if (p.session?.expiresAt && new Date(p.session.expiresAt) <= new Date()) {
+          try { window.sessionStorage.setItem(SESSION_EXPIRED_FLAG, '1'); } catch { /* ignore */ }
+          return { accounts: p.accounts, session: null };
+        }
+        return { accounts: p.accounts, session: p.session ?? null };
+      }
     }
   } catch { /* fall through */ }
   return { accounts: [], session: null };
