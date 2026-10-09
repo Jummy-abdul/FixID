@@ -247,6 +247,8 @@ export interface Credential {
   wallet: { status: WalletDeliveryStatus; updatedAt: ISODate };
   /** Idempotency key of the issuance request that created this credential. */
   issuanceRequestId?: string;
+  /** The issuance run that created this credential, when it was issued to several people at once (e.g. from a group). Ownership stays with the holder. */
+  issuanceBatchId?: string;
   /**
    * What the configuration looked like when this credential was issued. Later edits to the
    * configuration apply to future issuance only and never rewrite issued credentials.
@@ -344,6 +346,8 @@ export type AuditAction =
   | 'group.removed'
   | 'group.members-added'
   | 'group.members-removed'
+  | 'issuance.batch-started'
+  | 'issuance.batch-completed'
   | 'admin.role-removed'
   | 'admin.roles-changed'
   | 'admin.deactivated'
@@ -360,7 +364,8 @@ export interface AuditEvent {
   actorType: 'admin' | 'system' | 'integration';
   resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group';
   resourceId: string;
-  result: 'success' | 'failure';
+  /** `partial` when an operation on several records succeeded for some and not others. */
+  result: 'success' | 'partial' | 'failure';
   summary: string;
   occurredAt: ISODate;
   /** Optional link target inside the app. */
@@ -396,4 +401,32 @@ export interface GroupMembership {
   memberId: string;
   addedAt: ISODate;
   addedBy: string;
+}
+
+/** Outcome for one person in an issuance run. Skipped means not attempted because they weren't eligible. */
+export interface IssuanceBatchResult {
+  memberId: string;
+  memberName: string;
+  outcome: 'issued' | 'failed' | 'skipped';
+  reason?: string;
+  credentialId?: string;
+}
+
+/**
+ * One issuance operation for several recipients, started from a group. Each credential it creates
+ * is an ordinary credential owned by its holder; the run only records where it came from and how it went.
+ */
+export interface IssuanceBatch {
+  id: string;
+  organizationId: string;
+  /** The group the run was started from. Kept by ID, so it survives renames. */
+  groupId: string;
+  groupName: string;
+  credentialTypeId: string;
+  credentialName: string;
+  initiatedAt: ISODate;
+  initiatedBy: string;
+  completedAt: ISODate;
+  status: 'completed' | 'partial' | 'failed';
+  results: IssuanceBatchResult[];
 }

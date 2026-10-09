@@ -11,6 +11,7 @@ import type {
   OrgAdministrator,
   Group,
   GroupMembership,
+  IssuanceBatch,
   Organization,
   Transaction,
   IdentifierConfig,
@@ -40,6 +41,8 @@ export interface SeedData {
   /** User groups per organization (User Management → Groups) and their memberships. */
   groups: Group[];
   groupMemberships: GroupMembership[];
+  /** Issuance runs started from groups. */
+  issuanceBatches: IssuanceBatch[];
 }
 
 const DAY = 86_400_000;
@@ -662,6 +665,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     audit,
     administrators: seedAdministrators(organizations, today),
     ...seedGroups(organizations, members, today),
+    issuanceBatches: [],
   };
 }
 

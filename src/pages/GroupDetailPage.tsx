@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Eye, Pencil, Trash2, UserMinus, UserPlus, Users } from 'lucide-react';
 import {
-  Button, Card, ConfirmDialog, DataTable, EmptyState, FilterSelect, OverflowMenu, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
+  Button, Card, ConfirmDialog, Tabs, DataTable, EmptyState, FilterSelect, OverflowMenu, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
   type OverflowMenuItem,
 } from '@/components/ui';
 import { MemberStatusBadge } from '@/components/domain/StatusBadges';
@@ -12,6 +12,9 @@ import { useAuthorization } from '@/auth/authorization';
 import { membershipsOfGroup } from '@/domain/groups';
 import type { Group, Member } from '@/domain/types';
 import { useContacts } from '@/hooks/useContacts';
+import { useQueryState } from '@/hooks/useQueryState';
+import { GroupActivityTab } from '@/components/groups/GroupActivityTab';
+import { GroupCredentialsTab } from '@/components/groups/GroupCredentialsTab';
 import { formatDate } from '@/lib/dates';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { NotFoundPage } from './NotFoundPage';
@@ -27,8 +30,72 @@ export function GroupDetailPage() {
 }
 
 type Row = { member: Member; addedAt: string; addedBy: string };
+type TabId = 'members' | 'credentials' | 'activity';
 
+/** Group header (always visible) and the Members, Credentials and Activity tabs. Tabs follow permissions. */
 function GroupDetails({ group }: { group: Group }) {
+  const { organization } = useSession();
+  const { state } = useStore();
+  const { can } = useAuthorization();
+  const navigate = useNavigate();
+  const [tab, setTab] = useQueryState('tab', 'members');
+  const [editing, setEditing] = useState(false);
+  const [removingGroup, setRemovingGroup] = useState(false);
+  const count = membershipsOfGroup(state.data, organization.id, group.id).length;
+  const batches = state.data.issuanceBatches.filter((b) => b.organizationId === organization.id && b.groupId === group.id);
+  const tabs = [
+    { value: 'members' as const, label: 'Members', count },
+    ...(can('credentials.view') ? [{ value: 'credentials' as const, label: 'Credentials', count: batches.length }] : []),
+    ...(can('audit.view') ? [{ value: 'activity' as const, label: 'Activity' }] : []),
+  ];
+  const requested = (['members', 'credentials', 'activity'] as const).includes(tab as TabId) ? (tab as TabId) : 'members';
+  const allowed = tabs.some((t) => t.value === requested);
+  const current: TabId = allowed ? requested : 'members';
+  const canManage = can('groups.manage');
+
+  return (
+    <>
+      <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1 text-sm text-slate-500">
+        <Link to="/groups" className="hover:text-slate-800">Groups</Link>
+        <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="truncate text-slate-700">{group.name}</span>
+      </nav>
+      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{group.name}</h1>
+          <p className="mt-1 max-w-2xl text-slate-500">{group.description || 'No description.'}</p>
+          <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
+            <div className="flex items-center gap-1.5"><Users className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Total members</dt>
+              <dd className="font-medium text-slate-900">{count} {count === 1 ? 'member' : 'members'}</dd></div>
+            <div className="flex gap-1.5"><dt className="text-slate-500">Created</dt><dd className="text-slate-700">{formatDate(group.createdAt)} by {group.createdBy}</dd></div>
+            <div className="flex gap-1.5"><dt className="text-slate-500">Last updated</dt><dd className="text-slate-700">{formatDate(group.updatedAt)}</dd></div>
+          </dl>
+        </div>
+        {canManage && (
+          <div className="flex shrink-0 gap-2">
+            <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit Group</Button>
+            <Button variant="secondary" icon={<Trash2 className="h-4 w-4" />} onClick={() => setRemovingGroup(true)}>Remove Group</Button>
+          </div>
+        )}
+      </header>
+
+      <Tabs<TabId> value={current} onChange={(v) => setTab(v)} tabs={tabs} />
+      <div className="mt-6" role="tabpanel" aria-label={tabs.find((t) => t.value === current)?.label}>
+        {!allowed && tab !== 'members' && tab !== '' && (
+          <p role="status" className="mb-4 rounded-lg bg-slate-50 px-4 py-2.5 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">You don't have access to that tab, so Members is shown.</p>
+        )}
+        {current === 'members' && <MembersTab group={group} />}
+        {current === 'credentials' && <GroupCredentialsTab group={group} batches={batches} />}
+        {current === 'activity' && <GroupActivityTab group={group} />}
+      </div>
+
+      <GroupFormModal open={editing} group={group} onClose={() => setEditing(false)} />
+      {removingGroup && <RemoveGroupDialog group={group} onClose={() => setRemovingGroup(false)} onRemoved={() => navigate('/groups', { replace: true })} />}
+    </>
+  );
+}
+
+function MembersTab({ group }: { group: Group }) {
   const { organization } = useSession();
   const { state } = useStore();
   const { memberById, identifierConfigById } = useOrgData();
@@ -39,8 +106,6 @@ function GroupDetails({ group }: { group: Group }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const [editing, setEditing] = useState(false);
-  const [removingGroup, setRemovingGroup] = useState(false);
   const [adding, setAdding] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Member[] | null>(null);
   const [q, setQ] = useState('');
@@ -95,36 +160,9 @@ function GroupDetails({ group }: { group: Group }) {
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1 text-sm text-slate-500">
-        <Link to="/groups" className="hover:text-slate-800">Groups</Link>
-        <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className="truncate text-slate-700">{group.name}</span>
-      </nav>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{group.name}</h1>
-          <p className="mt-1 max-w-2xl text-slate-500">{group.description || 'No description.'}</p>
-        </div>
-        {canManage && (
-          <div className="flex shrink-0 gap-2">
-            <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit Group</Button>
-            <Button variant="secondary" icon={<Trash2 className="h-4 w-4" />} onClick={() => setRemovingGroup(true)}>Remove Group</Button>
-          </div>
-        )}
-      </div>
-
-      <Card className="mb-6">
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 px-6 py-5 sm:grid-cols-4">
-          <div><dt className="text-sm text-slate-500">Total members</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{rows.length}</dd></div>
-          <div><dt className="text-sm text-slate-500">Date created</dt><dd className="mt-1 text-sm font-medium text-slate-900">{formatDate(group.createdAt)}</dd></div>
-          <div><dt className="text-sm text-slate-500">Last updated</dt><dd className="mt-1 text-sm font-medium text-slate-900">{formatDate(group.updatedAt)}</dd></div>
-          <div><dt className="text-sm text-slate-500">Created by</dt><dd className="mt-1 text-sm font-medium text-slate-900">{group.createdBy}</dd></div>
-        </dl>
-      </Card>
-
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-6">
-          <h2 className="text-base font-semibold text-slate-900">Members <span className="font-normal text-slate-500">({rows.length})</span></h2>
+          <h2 className="text-base font-semibold text-slate-900">Members</h2>
           {canManage && <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => setAdding(true)}>Add Members</Button>}
         </div>
         {rows.length > 0 && (
@@ -187,8 +225,6 @@ function GroupDetails({ group }: { group: Group }) {
         <Pagination page={current} pageCount={pageCount} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </Card>
 
-      <GroupFormModal open={editing} group={group} onClose={() => setEditing(false)} />
-      {removingGroup && <RemoveGroupDialog group={group} onClose={() => setRemovingGroup(false)} onRemoved={() => navigate('/groups', { replace: true })} />}
       {canManage && <AddMembersDrawer group={group} open={adding} onClose={() => setAdding(false)} />}
       <ConfirmDialog open={!!confirmRemove} tone="danger" onCancel={() => setConfirmRemove(null)} onConfirm={() => { if (confirmRemove) remove(confirmRemove); }}
         title={confirmRemove?.length === 1 ? `Remove ${confirmRemove[0].displayName}?` : `Remove ${confirmRemove?.length ?? 0} members?`}

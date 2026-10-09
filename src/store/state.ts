@@ -10,6 +10,7 @@ import { permissionsFor, roleById, type Permission, type RoleId } from '@/domain
 import {
   actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
 } from './adminOps';
+import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup, type GroupInput } from './groupOps';
 
 export const STATE_VERSION = 9;
@@ -60,6 +61,7 @@ export type Action =
   | { type: 'groups/remove'; organizationId: string; groupId: string; at: string }
   | { type: 'groups/addMembers'; organizationId: string; groupId: string; memberIds: string[]; at: string }
   | { type: 'groups/removeMembers'; organizationId: string; groupId: string; memberIds: string[]; at: string }
+  | { type: 'issuance/group'; input: GroupIssuanceInput }
   | { type: 'preview/start'; roleId: RoleId }
   | { type: 'preview/stop' }
   /** Applies the signed-in administrator and their organization to the workspace. */
@@ -88,6 +90,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'users/status': ['users.manage'],
   'users/enrollmentInvite': ['users.manage'],
   'issuance/issue': ['credentials.issue'],
+  'issuance/group': ['credentials.issue'],
   'groups/create': ['groups.manage'],
   'groups/update': ['groups.manage'],
   'groups/remove': ['groups.manage'],
@@ -219,6 +222,7 @@ export function reducer(state: AppState, action: Action): AppState {
           administrators: keep(n.administrators, d.administrators),
           groups: keep(n.groups, d.groups),
           groupMemberships: keep(n.groupMemberships, d.groupMemberships),
+          issuanceBatches: keep(n.issuanceBatches, d.issuanceBatches),
         },
       };
     }
@@ -275,6 +279,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
+    case 'issuance/group': return orKeep(state, applyGroupIssuance(state, action.input));
     case 'groups/create': return orKeep(state, applyCreateGroup(state, action.input));
     case 'groups/update': return orKeep(state, applyUpdateGroup(state, action.input));
     case 'groups/remove': return orKeep(state, applyRemoveGroup(state, action));

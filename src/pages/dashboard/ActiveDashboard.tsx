@@ -187,7 +187,7 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
                     <span className="block truncate text-sm text-slate-800">{e.summary}</span>
                     <span className="block text-xs text-slate-500">{e.actor}</span>
                   </span>
-                  {e.result === 'failure' && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                  {e.result !== 'success' && <AlertTriangle className={`h-4 w-4 ${e.result === 'failure' ? 'text-red-500' : 'text-amber-500'}`} />}
                   <span className="shrink-0 text-xs text-slate-500">{formatRelative(e.occurredAt, now)}</span>
                 </>
               );

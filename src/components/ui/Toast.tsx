@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
-import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Info, X, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
-type ToastTone = 'success' | 'error' | 'info';
+type ToastTone = 'success' | 'warning' | 'error' | 'info';
 interface ToastItem { id: number; tone: ToastTone; title: string; description?: string }
 
 const ToastContext = createContext<((t: Omit<ToastItem, 'id'>) => void) | null>(null);
@@ -19,6 +19,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const icons = {
     success: <CheckCircle2 className="h-5 w-5 text-emerald-500" />,
+    warning: <AlertTriangle className="h-5 w-5 text-amber-500" />,
     error: <XCircle className="h-5 w-5 text-red-500" />,
     info: <Info className="h-5 w-5 text-brand-500" />,
   };

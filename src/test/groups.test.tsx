@@ -192,7 +192,8 @@ describe('Groups screens', () => {
     expect(within(drawer).getByText('2 selected')).toBeInTheDocument();
     await user.click(within(drawer).getByRole('button', { name: 'Add 2 users' }));
     expect(await screen.findByText('Members added')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /Members/ })).toHaveTextContent('(2)');
+    expect(screen.getByRole('tab', { name: /Members/ })).toHaveTextContent('Members2');
+    expect(screen.getByText('2 members')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: first.displayName })).toBeInTheDocument();
     // The picker no longer offers people already in the group.
     await user.click(screen.getByRole('button', { name: 'Add Members' }));
@@ -238,7 +239,7 @@ describe('Groups screens', () => {
     await user.click(screen.getByRole('button', { name: `Actions for ${member.displayName}` }));
     await user.click(screen.getByRole('menuitem', { name: 'Remove Member' }));
     await user.click(within(screen.getByRole('dialog', { name: `Remove ${member.displayName}?` })).getByRole('button', { name: 'Remove Member' }));
-    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /Members/ })).toHaveTextContent(`(${before - 1})`));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Members/ })).toHaveTextContent(`Members${before - 1}`));
     const saved = loadState()!;
     expect(saved.data.audit[0]).toMatchObject({ action: 'group.members-removed', summary: `Tobyson TE removed ${member.displayName} from the Volunteers group.` });
   });

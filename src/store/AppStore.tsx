@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
-  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, Member, Organization, Transaction, VerificationActivity,
+  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, Member, Organization, Transaction, VerificationActivity,
 } from '@/domain/types';
 import {
   applyEnrollmentInvite, applyMemberStatus, type EnrollmentInviteInput, type MemberStatusInput,
   applyCreateUser, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
   type CreateUserInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
+import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from './groupOps';
 import { applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, type InviteInput } from './adminOps';
 import type { RoleId } from '@/domain/roles';
@@ -67,6 +68,7 @@ export interface OrgData {
   audit: AuditEvent[];
   groups: Group[];
   groupMemberships: GroupMembership[];
+  issuanceBatches: IssuanceBatch[];
   memberById: Map<string, Member>;
   groupById: Map<string, Group>;
   credentialById: Map<string, Credential>;
@@ -99,6 +101,7 @@ export function selectOrgData(state: AppState, organizationId?: string): OrgData
     audit: scope(d.audit),
     groups: scope(d.groups),
     groupMemberships: scope(d.groupMemberships),
+    issuanceBatches: scope(d.issuanceBatches),
     memberById: new Map(members.map((x) => [x.id, x])),
     groupById: new Map(scope(d.groups).map((x) => [x.id, x])),
     credentialById: new Map(credentials.map((x) => [x.id, x])),
@@ -210,6 +213,19 @@ export function useActions() {
       removeGroupMembers: (organizationId: string, groupId: string, memberIds: string[]) => {
         const at = new Date().toISOString();
         return run(() => applyRemoveMembers(getState(), { organizationId, groupId, memberIds, at }), { type: 'groups/removeMembers', organizationId, groupId, memberIds, at });
+      },
+      /**
+       * Issues a credential configuration to selected group members through the ordinary issuance
+       * operation, skipping anyone who isn't eligible. Returns the recorded run.
+       */
+      issueToGroup: (input: Omit<GroupIssuanceInput, 'at'>) => {
+        const full = { ...input, at: new Date().toISOString() };
+        const denied = authorizeAction(getState(), 'issuance/group');
+        if (denied) return { ok: false as const, error: denied };
+        const r = applyGroupIssuance(getState(), full);
+        if (!r.ok) return r;
+        dispatch({ type: 'issuance/group', input: full });
+        return { ok: true as const, batch: r.batch, state: r.state };
       },
       /** Issues a digital ID atomically. Idempotent per requestId; failures change nothing. */
       issueDigitalId: (input: IssuanceInput) => {

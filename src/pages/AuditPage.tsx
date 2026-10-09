@@ -35,10 +35,10 @@ export function AuditPage() {
           <SearchInput value={q} onChange={setQ} placeholder="Search events or actors" className="sm:w-72" />
           <FilterSelect label="Area" value={area} onChange={setArea} options={[
             { value: 'all', label: 'All areas' }, { value: 'user', label: 'Users' }, { value: 'enrollment', label: 'Enrollment' }, { value: 'identifier', label: 'Identifiers' }, { value: 'credential', label: 'Credentials' },
-            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Verification events' }, { value: 'organization', label: 'Organization' }, { value: 'admin', label: 'Administrators' }, { value: 'group', label: 'Groups' },
+            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Verification events' }, { value: 'organization', label: 'Organization' }, { value: 'admin', label: 'Administrators' }, { value: 'group', label: 'Groups' }, { value: 'issuance', label: 'Group issuance' },
           ]} />
           <FilterSelect label="Result" value={result} onChange={setResult} options={[
-            { value: 'all', label: 'Any result' }, { value: 'success', label: 'Success' }, { value: 'failure', label: 'Failure' },
+            { value: 'all', label: 'Any result' }, { value: 'success', label: 'Success' }, { value: 'partial', label: 'Partial' }, { value: 'failure', label: 'Failure' },
           ]} />
         </div>
         <DataTable<AuditEvent>
@@ -50,7 +50,7 @@ export function AuditPage() {
             { key: 'action', header: 'Action', cell: (e) => <span className="font-mono text-xs text-slate-600">{e.action}</span> },
             { key: 'summary', header: 'Event', cell: (e) => e.href ? <Link to={e.href} className="text-slate-900 hover:text-brand-700">{e.summary}</Link> : e.summary, className: 'max-w-md truncate' },
             { key: 'actor', header: 'Actor', cell: (e) => <span className="flex items-center gap-2">{e.actor}<Badge tone={ACTOR_TONE[e.actorType]}>{e.actorType}</Badge></span> },
-            { key: 'result', header: 'Result', cell: (e) => <Badge tone={e.result === 'success' ? 'success' : 'danger'} dot>{e.result}</Badge> },
+            { key: 'result', header: 'Result', cell: (e) => <ResultBadgeFor result={e.result} /> },
             {
               key: 'details', header: <span className="sr-only">Details</span>, className: 'w-24 text-right',
               cell: (e) => <Button size="sm" variant="ghost" onClick={() => setOpen(e)} aria-label={`Details for ${e.id}`}>Details</Button>,
@@ -76,7 +76,7 @@ function AuditEventDrawer({ event: e, organizationName, onClose }: { event: Audi
     ...(e.related?.length ? [[e.related.length === 1 ? 'Affected user' : `Affected users (${e.related.length})`, (
       <ul className="space-y-0.5">{e.related.map((r) => <li key={r.id}>{r.name}</li>)}</ul>
     )] as [string, React.ReactNode]] : []),
-    ['Outcome', <Badge tone={e.result === 'success' ? 'success' : 'danger'} dot>{e.result}</Badge>],
+    ['Outcome', <ResultBadgeFor result={e.result} />],
   ];
   return (
     <Drawer open onClose={onClose} title="Audit event" description={e.summary}>
@@ -105,4 +105,8 @@ function AuditEventDrawer({ event: e, organizationName, onClose }: { event: Audi
       {e.href && <Link to={e.href} onClick={onClose} className="mt-6 inline-block text-sm font-semibold text-brand-600 hover:text-brand-700">Go to record</Link>}
     </Drawer>
   );
+}
+
+export function ResultBadgeFor({ result }: { result: AuditEvent['result'] }) {
+  return <Badge tone={result === 'success' ? 'success' : result === 'partial' ? 'warning' : 'danger'} dot>{result}</Badge>;
 }

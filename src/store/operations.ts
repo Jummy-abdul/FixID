@@ -384,20 +384,40 @@ export interface IssuanceInput {
   /** Required when the credential type's expiry date is chosen at issuance. */
   expiresAt?: string;
   credentialId: string;
+  /** Set when the credential is issued as part of an issuance run. */
+  batchId?: string;
+}
+
+export type EligibilityStatus = 'eligible' | 'attention' | 'ineligible';
+
+/**
+ * Whether a credential type can be issued to a member under the existing issuance rules, and why not.
+ * `attention`: fixable on the user's record (missing identifier, onboarding not finished).
+ * `ineligible`: blocked by a rule (inactive user, already holds it, credential not active).
+ * Portrait enrollment isn't checked: credential configurations don't require it.
+ */
+export function issuanceEligibility(state: AppState, memberId: string, type: CredentialType): { status: EligibilityStatus; reason?: string } {
+  const member = state.data.members.find((m) => m.id === memberId);
+  if (!member) return { status: 'ineligible', reason: 'User not found.' };
+  if (type.status !== 'active') return { status: 'ineligible', reason: `${type.name} is not active.` };
+  if (!member.displayName.trim()) return { status: 'attention', reason: 'The user has no name recorded.' };
+  if (member.status === 'inactive') return { status: 'ineligible', reason: 'The user is inactive. Activate them to issue credentials.' };
+  if (member.status === 'pending') return { status: 'attention', reason: "The user hasn't completed onboarding yet." };
+  if (type.identifierConfigId && member.identifier?.configId !== type.identifierConfigId) {
+    const needed = state.data.identifierConfigs.find((c) => c.id === type.identifierConfigId)?.name ?? 'a different identifier';
+    return member.identifier
+      ? { status: 'ineligible', reason: `Uses ${needed}, which this user doesn't have.` }
+      : { status: 'attention', reason: `The user has no ${needed} yet.` };
+  }
+  const holding = state.data.credentials.find((c) => c.memberId === member.id && c.credentialTypeId === type.id && HOLDING.includes(c.status));
+  if (holding) return { status: 'ineligible', reason: `Already holds ${type.name} (${holding.status}).` };
+  return { status: 'eligible' };
 }
 
 /** Why a credential type can or can't be issued to a member. */
 export function issuability(state: AppState, memberId: string, type: CredentialType): { ok: true } | { ok: false; reason: string } {
-  const member = state.data.members.find((m) => m.id === memberId);
-  if (!member) return { ok: false, reason: 'User not found.' };
-  if (type.status !== 'active') return { ok: false, reason: `${type.name} is not active.` };
-  if (type.identifierConfigId && member.identifier?.configId !== type.identifierConfigId) {
-    const needed = state.data.identifierConfigs.find((c) => c.id === type.identifierConfigId)?.name ?? 'a different identifier';
-    return { ok: false, reason: `Uses ${needed}, which this user doesn't have.` };
-  }
-  const holding = state.data.credentials.find((c) => c.memberId === member.id && c.credentialTypeId === type.id && HOLDING.includes(c.status));
-  if (holding) return { ok: false, reason: `Already holds ${type.name} (${holding.status}).` };
-  return { ok: true };
+  const e = issuanceEligibility(state, memberId, type);
+  return e.status === 'eligible' ? { ok: true } : { ok: false, reason: e.reason! };
 }
 
 export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ credentialId: string; duplicateRequest?: boolean }> {
@@ -451,6 +471,7 @@ export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ c
     expiresAt: expiresAt ? expiresAt.toISOString() : null,
     wallet: { status: org.integrations.seamfixWallet.connected && status === 'active' ? 'pending' : 'not-sent', updatedAt: input.at },
     issuanceRequestId: input.requestId,
+    ...(input.batchId ? { issuanceBatchId: input.batchId } : {}),
     snapshot: {
       credentialName: type.name,
       templateId: type.templateId,
