@@ -65,11 +65,15 @@ describe('configuration rules', () => {
     const outcome = { onRequiredFailure: 'not-verified' as const, onInconclusive: 'unable-to-verify' as const };
 
     expect(msgs({ type: 'identity', checks: [], outcome })).toMatch(/at least one verification check/);
-    // Facial matching needs a reference and liveness, and its service isn't configured.
+    // Facial matching needs a reference and liveness. Without a provider it's a warning, not a blocker:
+    // each verification then records Unable to Verify.
     const face = msgs({ type: 'identity', checks: [chk(s, 'face-match')], outcome });
     expect(face).toMatch(/needs Identity Record Lookup/);
     expect(face).toMatch(/needs Liveness Verification/);
-    expect(face).toMatch(/not configured/);
+    expect(face).not.toMatch(/not configured/);
+    expect(validateConfiguration({ type: 'identity', checks: [chk(s, 'face-match')], outcome }, ctx).warnings.map((w) => w.message).join(' ')).toMatch(/Biometric verification isn’t connected/);
+    // Other services that aren't configured block activation.
+    expect(msgs({ type: 'identity', checks: [chk(s, 'identity-lookup'), chk(s, 'external-eligibility')], outcome })).toMatch(/not configured/);
     // A required check can't depend on an optional one.
     expect(msgs({ type: 'identity', checks: [chk(s, 'identity-lookup', { requirement: 'optional' }), chk(s, 'attribute-match', { params: { attributes: ['Full name'] } })], outcome }))
       .toMatch(/Identity Attribute Matching is required, so .* must be required too/);
@@ -161,11 +165,14 @@ describe('lifecycle and versions', () => {
     expect(s.data.audit[0]).toMatchObject({ action: 'verification-activity.removed' });
   });
 
-  it('blocks activation while a check needs a service that isn’t configured', () => {
-    const s = sampleState();
+  it('blocks activation while a check needs a service that isn’t configured, but reports missing facial verification per verification', () => {
+    let s = sampleState();
     const draft = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'draft')!;
-    const { blockers } = activationProblems(s, ORG, draft);
-    expect(blockers.join(' ')).toMatch(/not configured/);
+    // Facial verification without a provider: a warning, so the camera journey can be tried; nobody can be verified.
+    expect(activationProblems(s, ORG, draft).warnings.join(' ')).toMatch(/Biometric verification isn’t connected/);
+    const v = s.data.activityVersions.find((x) => x.id === draft.draftVersionId)!;
+    s = { ...s, data: { ...s.data, activityVersions: s.data.activityVersions.map((x) => (x.id === v.id ? { ...x, checks: [...x.checks, chk(s, 'external-eligibility')] } : x)) } };
+    expect(activationProblems(s, ORG, draft).blockers.join(' ')).toMatch(/not configured/);
     expect(applyActivate(s, { organizationId: ORG, activityId: draft.id, at: AT })).toMatchObject({ ok: false });
   });
 
@@ -216,8 +223,8 @@ describe('screens', () => {
     expect(screen.getByRole('link', { name: 'Event Access Verification' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Actions for Event Access Verification' }));
     await user.click(screen.getByRole('menuitem', { name: 'Activate' }));
-    const dialog = screen.getByRole('dialog', { name: 'This activity can’t be activated yet' });
-    expect(dialog).toHaveTextContent(/not configured/);
+    const dialog = screen.getByRole('dialog', { name: 'Activate Event Access Verification?' });
+    expect(dialog).toHaveTextContent(/Biometric verification isn’t connected/);
   });
 
   it('creates an activity in three stages: details, participants & verifiers, review & activate', async () => {
@@ -351,9 +358,9 @@ describe('screens', () => {
   it('refuses to activate when identity can’t be verified, rather than weakening verification', async () => {
     const s = sampleState();
     const disconnected: AppState = { ...s, data: { ...s.data, organizations: s.data.organizations.map((o) => (o.id === ORG ? { ...o, integrations: { ...o.integrations, idSwitch: { ...o.integrations.idSwitch, connected: false } } } : o)) } };
-    // Demonstration providers are never chosen automatically, even when they're turned on.
+    // New activities verify identity by face (1:1 against the enrolled portrait), whatever demonstration providers are on.
     const demo = { ...org(s), integrations: { ...org(s).integrations, verificationDemo: { enabled: true } } };
-    expect(standardRequirementsFor(demo).identity).toBe('record');
+    expect(standardRequirementsFor(demo).identity).toBe('face');
     const user = renderApp('/verification-activities/new?step=review', disconnected);
     expect(screen.getByRole('alert')).toHaveTextContent(/can’t verify people’s identity for this organization yet/);
     expect(screen.getByRole('button', { name: 'Create & Activate' })).toBeDisabled();
@@ -396,7 +403,7 @@ describe('screens', () => {
     const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.name === 'Annual Staff Conference')!;
     const user = renderApp(`/verification-activities/${activity.id}?tab=participants`, s);
     const removed = s.data.members.find((m) => m.id === activity.participants!.memberIds[0])!;
-    expect(screen.getByRole('link', { name: removed.displayName })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: removed.displayName }).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('button', { name: 'Edit participants' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: `Remove ${removed.displayName}` }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save participants' }));

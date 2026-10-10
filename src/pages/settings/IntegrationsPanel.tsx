@@ -89,7 +89,7 @@ function DemoProvidersCard({ organization }: { organization: Organization }) {
     <Card>
       <CardHeader
         title={<span className="flex items-center gap-2"><FlaskConical className="h-4 w-4 text-slate-500" />Demonstration verification providers</span>}
-        description="Demonstration stand-ins for facial matching, liveness, holder binding and wallet credential presentation, for trying the verification flow. Their results are labelled as demonstration results and are never real identity or credential assurance."
+        description="Demonstration stand-ins for holder binding and wallet credential presentation (facial verification has none: it needs a real provider), for trying the verification flow. Their results are labelled as demonstration results and are never real identity or credential assurance."
         action={<Badge tone={on ? 'warning' : 'neutral'} dot>{on ? 'On (demonstration)' : 'Off'}</Badge>}
       />
       <CardBody>

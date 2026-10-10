@@ -1,3 +1,4 @@
+import type { FaceVerificationService } from './faceVerification';
 import type { GeolocationService, MapsService } from './location';
 import type { CanonicalIdentity, Credential, CredentialType, Organization, WalletDeliveryStatus } from '@/domain/types';
 
@@ -84,4 +85,6 @@ export interface Services {
   maps: MapsService;
   /** The verifier device's location, captured only for activities with a location check. */
   geolocation: GeolocationService;
+  /** 1:1 facial verification against the enrolled reference. Unavailable unless a provider is configured. */
+  faceVerification: FaceVerificationService;
 }

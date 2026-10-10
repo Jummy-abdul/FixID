@@ -6,6 +6,6 @@ import { createVerificationService } from './engine';
 /** The verification service for the signed-in administrator, as used by the FixID web verifier. */
 export function useVerificationService() {
   const { getState, dispatch } = useStore();
-  const { idSwitch } = useServices();
-  return useMemo(() => createVerificationService({ getState, dispatch, idSwitch }), [getState, dispatch, idSwitch]);
+  const { idSwitch, faceVerification } = useServices();
+  return useMemo(() => createVerificationService({ getState, dispatch, idSwitch, faceVerification }), [getState, dispatch, idSwitch, faceVerification]);
 }

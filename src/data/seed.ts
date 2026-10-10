@@ -149,12 +149,12 @@ export function seedVerificationActivities(
     if (!types.length) continue;
     const orgLike = org as Organization;
     const add = (key: string, a: Partial<ActivityConfig> & { name: string; description: string; purpose: string; status: ActivityConfig['status']; createdDaysAgo: number },
-      versions: { requirements: StandardRequirements; status: ActivityVersion['status']; daysAgo: number; outcome?: ActivityVersion['outcome'] }[]) => {
+      versions: { requirements: StandardRequirements; status: ActivityVersion['status']; daysAgo: number; outcome?: ActivityVersion['outcome']; identifierConfigId?: string }[]) => {
       const id = `${org.id}_va_${key}`;
       const vs: ActivityVersion[] = versions.map((v, i) => {
         const vid = `${id}_v${i + 1}`;
         let n = 0;
-        const built = buildChecks(v.requirements, orgLike, () => `${vid}_chk_${++n}`);
+        const built = buildChecks(v.requirements, orgLike, () => `${vid}_chk_${++n}`, v.identifierConfigId);
         return {
           id: vid, organizationId: org.id, activityId: id, number: i + 1, type: built.type, checks: built.checks, requirements: v.requirements, customized: false,
           outcome: v.outcome ?? outcome, status: v.status, createdAt: ago(v.daysAgo), createdBy: by, updatedAt: ago(v.daysAgo),
@@ -189,6 +189,16 @@ export function seedVerificationActivities(
     add('event', { name: 'Event Access Verification', description: 'Verify the person is the credential holder before entry.', purpose: 'Control access to organization events.', status: 'draft', createdDaysAgo: 6, location: 'Conference Centre, Hall B' }, [
       { requirements: { identity: 'face', credential: { credentialTypeIds: types.map((t) => t.id) }, eligibility: null }, status: 'draft', daysAgo: 5 },
     ]);
+    // Officer-led examination clearance: matric number, then a live face verified 1:1 against the enrolled
+    // portrait, then eligibility. Nobody is assigned as a verifier; an administrator assigns them.
+    const matric = d.identifierConfigs.find((i) => i.organizationId === org.id && i.name === 'Matric number');
+    if (matric) {
+      const candidates = d.members.filter((m) => m.organizationId === org.id && m.status === 'active' && m.identifier?.configId === matric.id).slice(0, 24).map((m) => m.id);
+      add('exam', {
+        name: '2026 Examination Clearance', description: 'Confirm each candidate’s identity and eligibility before they enter the examination hall.', purpose: 'Clear registered candidates into the 2026 examinations.',
+        status: 'active', createdDaysAgo: 3, participants: { groupIds: [], memberIds: candidates },
+      }, [{ requirements: { identity: 'face', credential: null, eligibility: 'participants' }, status: 'active', daysAgo: 2, identifierConfigId: matric.id }]);
+    }
     add('employee', { name: 'Employee Credential Validation', description: 'Validate staff credentials at service points.', purpose: 'Check staff credentials before granting access to internal services.', status: 'inactive', createdDaysAgo: 150 }, [
       { requirements: { identity: null, credential: { credentialTypeIds: [types[types.length - 1].id] }, eligibility: null }, status: 'active', daysAgo: 148, outcome: { onRequiredFailure: 'pending-review', onInconclusive: 'pending-review' } },
     ]);

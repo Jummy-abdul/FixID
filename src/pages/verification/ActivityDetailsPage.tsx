@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { CalendarClock, ChevronDown, ChevronRight, Copy, MapPin, Pencil, Power, PowerOff, Trash2, Undo2, Users, Wrench } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Copy, MapPin, Pencil, Power, PowerOff, ScanFace, Trash2, Undo2, Users, Wrench } from 'lucide-react';
 import {
-  Badge, Button, ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, Modal, OverflowMenu, Tabs, useToast, type OverflowMenuItem,
+  Badge, Button, ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, Modal, OverflowMenu, Pagination, SearchInput, Tabs, useToast, type OverflowMenuItem,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { ParticipantsPicker, useEligibleCount, type Participants } from '@/components/verification/ParticipantsPicker';
 import { ActivityStatusBadge, ChecksSummary, IssuesList, RulesList } from '@/components/verification/parts';
 import { memberCounts } from '@/domain/groups';
 import type { ActivityConfig, ActivityVersion } from '@/domain/types';
-import { activeAssignments, describeRequirements, validateConfiguration } from '@/domain/verification';
+import { activeAssignments, describeRequirements, eligibleParticipants, validateConfiguration } from '@/domain/verification';
+import { PARTICIPANT_ENTRY_LABEL, PARTICIPANT_VERIFICATION_LABEL, participantStatuses, statusOf } from '@/domain/participantStatus';
 import { formatCoordinate, formatRadius, validCoordinates } from '@/domain/location';
 import { useServices } from '@/services/ServicesProvider';
 import { LocationMap } from '@/components/verification/LocationMap';
@@ -39,7 +40,7 @@ export const scheduleText = (s?: ActivityConfig['schedule']) => (s?.startsAt || 
 function Details({ activity }: { activity: ActivityConfig }) {
   const { state } = useStore();
   const { organization } = useSession();
-  const { can } = useAuthorization();
+  const { can, record } = useAuthorization();
   const actions = useActions();
   const toast = useToast();
   const navigate = useNavigate();
@@ -88,6 +89,11 @@ function Details({ activity }: { activity: ActivityConfig }) {
     ...(canEdit && activity.status === 'draft' && !active ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending('remove') }] : []),
   ];
   const needsActivation = activity.status !== 'active' || !!draft;
+  // Managing an activity and performing its verifications are separate: verifying needs the Verifier
+  // permission and an assignment to this activity, for Organization Admins too.
+  const myRecord = record;
+  const assignedToMe = !!myRecord && activeAssignments(state.data, organization.id, activity.id).some((x) => x.administratorId === myRecord.id);
+  const canVerifyHere = can('verification.execute') && assignedToMe;
   const when = scheduleText(activity.schedule);
 
   return (
@@ -108,6 +114,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
           </dl>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          <ButtonLink to={canVerifyHere ? `/verify/activities/${activity.id}` : '/verify'} variant="secondary" icon={<ScanFace className="h-4 w-4" />}>Open Verifier Workspace</ButtonLink>
           {canEdit && <ButtonLink to={`${activityPath(activity.id)}/edit`} variant="secondary" icon={<Pencil className="h-4 w-4" />}>Edit</ButtonLink>}
           {canManage && activity.status === 'active' && <Button variant="secondary" icon={<PowerOff className="h-4 w-4" />} onClick={() => setPending('deactivate')}>Deactivate</Button>}
           {canManage && needsActivation && (
@@ -118,6 +125,13 @@ function Details({ activity }: { activity: ActivityConfig }) {
         </div>
       </header>
 
+      <p className="mb-4 flex items-start gap-2 rounded-xl bg-white px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200" aria-label="Your verifier access">
+        <ScanFace className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+        {canVerifyHere
+          ? <span>You’re assigned as a verifier for this activity{activity.status === 'active' ? '. Open the Verifier Workspace to verify people.' : ', but it isn’t active, so verifications can’t be started.'}</span>
+          : assignedToMe ? <span>You’re assigned to this activity, but your role doesn’t include performing verifications.</span>
+            : <span>You aren’t assigned as a verifier for this activity, so you can’t perform its verifications. Managing an activity doesn’t include verifying: {can('verification.execute') ? 'assign yourself in Participants & Verifiers.' : 'you’d need the Verifier role and an assignment.'}</span>}
+      </p>
       {draft && active && (
         <p className="mb-4 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
           Version {draft.number} has requirement changes that aren’t in use yet. Version {active.number} {activity.status === 'active' ? 'is used for verifications' : 'is the last activated version'} until you activate them.
@@ -293,6 +307,7 @@ function ParticipantsTab({ activity, uses }: { activity: ActivityConfig; uses: b
           />
         </section>
       </div>
+      <ParticipantStatusTable activity={activity} />
       {editing && (
         <Modal open size="lg" onClose={() => setEditing(null)} title="Edit participants" description="Changes apply from the next verification and are recorded in the Audit Log."
           footer={<><Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button onClick={() => save(editing)}>Save participants</Button></>}>
@@ -300,5 +315,65 @@ function ParticipantsTab({ activity, uses }: { activity: ActivityConfig; uses: b
         </Modal>
       )}
     </Card>
+  );
+}
+
+const STATUS_FILTERS = [
+  { id: 'all', label: 'All' }, { id: 'verified', label: 'Verified' }, { id: 'not-verified', label: 'Not verified' },
+  { id: 'failed', label: 'Failed or unable' }, { id: 'granted', label: 'Entry granted' }, { id: 'denied', label: 'Entry denied' },
+] as const;
+const PAGE = 25;
+
+/** Each eligible participant's verification and entry status, from persisted results only. */
+function ParticipantStatusTable({ activity }: { activity: ActivityConfig }) {
+  const { state } = useStore();
+  const org = useOrgData();
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<(typeof STATUS_FILTERS)[number]['id']>('all');
+  const [page, setPage] = useState(1);
+  const statuses = useMemo(() => participantStatuses(state.data.verificationAttempts, activity.id), [state.data.verificationAttempts, activity.id]);
+  const people = useMemo(() => [...eligibleParticipants(state.data, activity.organizationId, activity.participants)]
+    .map((id) => org.memberById.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName)), [state.data, activity, org.memberById]);
+  const rows = people.filter((m) => {
+    const st = statusOf(statuses, m.id);
+    const text = !q.trim() || `${m.displayName} ${m.identifier?.value ?? ''}`.toLowerCase().includes(q.trim().toLowerCase());
+    const f = filter === 'all' || (filter === 'verified' ? st.verification === 'verified' : filter === 'not-verified' ? st.verification === 'not-verified'
+      : filter === 'failed' ? st.verification === 'failed' || st.verification === 'unable' : st.entry === filter);
+    return text && f;
+  });
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE));
+  const shown = rows.slice((Math.min(page, pageCount) - 1) * PAGE, Math.min(page, pageCount) * PAGE);
+  const vTone = { verified: 'success', failed: 'danger', unable: 'warning', 'not-verified': 'neutral' } as const;
+  const eTone = { granted: 'brand', denied: 'danger', 'not-granted': 'neutral', pending: 'warning', 'not-recorded': 'neutral' } as const;
+  return (
+    <section aria-label="Participant status" className="border-t border-slate-100 px-6 py-5">
+      <h3 className="text-sm font-semibold text-slate-900">Participant status</h3>
+      <p className="text-sm text-slate-500">Identity verification and physical entry are recorded separately. Finding someone’s identifier never makes them Verified.</p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="sm:w-72"><SearchInput value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Search participants" label="Search participants" /></div>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+          {STATUS_FILTERS.map((f) => (
+            <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setPage(1); }}
+              className={cn('rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset', filter === f.id ? 'bg-brand-50 text-brand-700 ring-brand-300' : 'text-slate-600 ring-slate-200 hover:bg-slate-50')}>{f.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
+        <DataTable
+          rows={shown}
+          rowKey={(m) => m.id}
+          empty={<p className="px-4 py-4 text-sm text-slate-500">No participants match.</p>}
+          columns={[
+            { key: 'name', header: 'Participant', cell: (m) => <Link to={`/users/${m.id}`} className="font-medium text-slate-900 hover:text-brand-700">{m.displayName}</Link> },
+            { key: 'id', header: 'Identifier', cell: (m) => <span className="font-mono text-xs text-slate-600">{m.identifier?.value ?? '—'}</span> },
+            { key: 'verification', header: 'Verification', cell: (m) => { const st = statusOf(statuses, m.id); return <Badge tone={vTone[st.verification]}>{PARTICIPANT_VERIFICATION_LABEL[st.verification]}</Badge>; } },
+            { key: 'entry', header: 'Entry', cell: (m) => { const st = statusOf(statuses, m.id); return <Badge tone={eTone[st.entry]}>{PARTICIPANT_ENTRY_LABEL[st.entry]}</Badge>; } },
+            { key: 'at', header: 'Last verification', cell: (m) => { const st = statusOf(statuses, m.id); return st.attemptId ? <Link to={`/verification-history/${st.attemptId}`} className="text-slate-600 hover:text-brand-700">{formatDateTime(st.at!)}</Link> : <span className="text-slate-400">—</span>; } },
+          ]}
+        />
+      </div>
+      {rows.length > PAGE && <div className="mt-3"><Pagination page={Math.min(page, pageCount)} pageCount={pageCount} total={rows.length} pageSize={PAGE} onPage={setPage} /></div>}
+    </section>
   );
 }

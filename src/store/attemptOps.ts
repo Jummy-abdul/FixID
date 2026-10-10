@@ -208,13 +208,14 @@ function previousEntry(state: AppState, attempt: Pick<VerificationAttempt, 'id' 
 function accessDecision(state: AppState, attempt: VerificationAttempt, outcome: VerificationAttempt['outcome'], memberId?: string): Pick<VerificationAttempt, 'accessDecision' | 'accessReasons'> {
   if (outcome === 'not-verified') return { accessDecision: 'not-permitted', accessReasons: ['A required condition wasn’t met.'] };
   if (outcome !== 'verified') return { accessDecision: 'review-required', accessReasons: ['The verification couldn’t establish that the conditions are met.'] };
+  // A recorded entry is never duplicated through the normal flow. The "flag" rule refers it for review.
   const policy = state.data.activityConfigs.find((a) => a.id === attempt.activityId)?.entryPolicy ?? 'off';
-  const prior = policy !== 'off' ? previousEntry(state, attempt, memberId) : undefined;
+  const prior = previousEntry(state, attempt, memberId);
   if (prior) {
     const when = formatDateTime(prior.entry!.recordedAt);
-    return policy === 'deny'
-      ? { accessDecision: 'not-permitted', accessReasons: [`Already entered (recorded ${when}). This activity doesn’t allow multiple entries.`] }
-      : { accessDecision: 'review-required', accessReasons: [`Already entered (recorded ${when}). Multiple entries are flagged for review.`] };
+    return policy === 'flag'
+      ? { accessDecision: 'review-required', accessReasons: [`Already entered (recorded ${when}). Repeat entries are flagged for review.`] }
+      : { accessDecision: 'not-permitted', accessReasons: [`Already granted entry (recorded ${when} by ${prior.entry!.recordedBy}). Another entry isn’t recorded.`] };
   }
   return { accessDecision: 'permitted', accessReasons: [] };
 }
@@ -228,8 +229,8 @@ export function entryProblem(state: AppState, attemptId: string): string | null 
   if (!actorPermissionsFor(state, a.organizationId).has('verification.execute')) return 'Only verifiers can record entry.';
   if (a.status !== 'completed' || a.accessDecision !== 'permitted') return 'Entry can only be recorded after access was permitted.';
   if (a.entry) return 'An entry decision has already been recorded for this verification.';
-  const policy = state.data.activityConfigs.find((x) => x.id === a.activityId)?.entryPolicy ?? 'off';
-  if (policy === 'deny' && previousEntry(state, a, a.subject?.memberId)) return 'This person has already entered, and this activity doesn’t allow multiple entries.';
+  const prior = previousEntry(state, a, a.subject?.memberId);
+  if (prior) return `This person was already granted entry (${formatDateTime(prior.entry!.recordedAt)}, by ${prior.entry!.recordedBy}). Another entry isn’t recorded.`;
   return null;
 }
 

@@ -22,7 +22,8 @@ import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
 import { VerifierHistoryPage, VerifierHome } from './pages/verifier/VerifierHome';
-import { VerifierAttemptPage, VerifierStartPage } from './pages/verifier/VerifierAttemptPage';
+import { VerifierAttemptPage } from './pages/verifier/VerifierAttemptPage';
+import { VerifierActivityPage } from './pages/verifier/VerifierActivityPage';
 import { VerificationActivitiesPage } from './pages/verification/VerificationActivitiesPage';
 import { ActivityDetailsPage } from './pages/verification/ActivityDetailsPage';
 import { ActivityEditorPage } from './pages/verification/ActivityEditorPage';
@@ -86,7 +87,7 @@ export function AppRoutes() {
         {/* Verifier workspace: the home explains what's needed when the role doesn't include verifying. */}
         <Route path="verify" element={<VerifierHome />} />
         <Route path="verify/history" element={<RequirePermission permission="verification.execute"><VerifierHistoryPage /></RequirePermission>} />
-        <Route path="verify/activities/:activityId" element={<RequirePermission permission="verification.execute"><VerifierStartPage /></RequirePermission>} />
+        <Route path="verify/activities/:activityId" element={<RequirePermission permission="verification.execute"><VerifierActivityPage /></RequirePermission>} />
         <Route path="verify/attempts/:attemptId" element={<RequirePermission permission={['verification.execute', 'verification.results.view']}><VerifierAttemptPage /></RequirePermission>} />
         <Route path="users" element={<RequirePermission permission="users.view"><PeoplePage /></RequirePermission>} />
         <Route path="users/new" element={<RequirePermission permission={['users.create', 'users.import']}><AddUserEntryPage /></RequirePermission>} />

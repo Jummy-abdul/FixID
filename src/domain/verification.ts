@@ -1,3 +1,4 @@
+import { faceProviderConfigured } from '@/services/faceVerification';
 import type {
   ActivityCheck, ActivityConfig, ActivityVersion, CheckTypeId, CredentialType, Group, IdentifierConfig, Organization, OrgAdministrator,
   OutcomePolicy, StandardRequirements, VerificationOutcome, VerificationType, VerifierAssignment,
@@ -183,10 +184,11 @@ export function providersFor(org: Organization): ProviderInfo[] {
       status: fixiam ? 'available' : 'not-configured', statusNote: fixiam ? 'Connected.' : 'Fixiam isn’t connected for this organization.',
     },
     {
-      id: 'facial-matching', name: 'Facial matching service', role: 'provider', internal: false,
-      description: 'Compares facial captures with authorized references and checks liveness.',
-      status: 'not-configured', statusNote: 'No facial matching service is configured yet.',
-      ...(demo ? simulated('Facial matching service') : {}),
+      id: 'facial-matching', name: 'Facial verification service', role: 'provider', internal: false,
+      description: 'Compares a live capture with the person’s enrolled reference (1:1) and checks liveness.',
+      ...(faceProviderConfigured()
+        ? { status: 'available' as const, statusNote: 'Connected through the configured facial verification endpoint.' }
+        : { status: 'not-configured' as const, statusNote: 'No facial verification provider is integrated yet. Verifications record Biometric Verification Unavailable until one is.' }),
     },
     {
       id: 'presentation-proof', name: 'Credential presentation proof', role: 'provider', internal: false,
@@ -323,7 +325,11 @@ export function validateConfiguration(version: Pick<ActivityVersion, 'type' | 'c
     const def = checkById(c.type);
     const p = statusOf(c.providerId);
     if (!p || !def.providers.includes(p.id)) blockers.push({ checkId: c.id, message: `Choose a verification provider for ${def.name}.` });
-    else if (p.status !== 'available') blockers.push({ checkId: c.id, message: `${def.name} uses ${p.name}, which is ${p.status === 'unavailable' ? 'unavailable' : 'not configured'}. ${p.statusNote}` });
+    // Facial verification can be activated before a provider is connected: each verification then records
+    // Biometric Verification Unavailable (identity Unable to Verify). Nobody is ever verified without it.
+    else if (p.status !== 'available' && p.id === 'facial-matching') {
+      if (!warnings.some((w) => w.message.startsWith('Biometric verification'))) warnings.push({ message: 'Biometric verification isn’t connected: no facial verification provider is integrated. Until one is, verifications record Unable to Verify and nobody can be verified.' });
+    } else if (p.status !== 'available') blockers.push({ checkId: c.id, message: `${def.name} uses ${p.name}, which is ${p.status === 'unavailable' ? 'unavailable' : 'not configured'}. ${p.statusNote}` });
     if (def.sources) {
       const src = statusOf(c.sourceId);
       if (!src || !def.sources.includes(src.id)) blockers.push({ checkId: c.id, message: `Choose a trusted source for ${def.name}.` });
@@ -535,20 +541,20 @@ export function buildChecks(req: StandardRequirements, org: Organization, makeId
 }
 
 /**
- * How FixID verifies people for a new activity. Administrators don't choose this: FixID uses the
- * strongest identity method the organization has genuinely available. Simulated (demonstration)
- * providers are never chosen automatically, and nothing is weakened when a capability is missing:
- * the activity simply can't be activated until identity verification is available.
+ * How FixID verifies people for a new activity. Administrators don't choose this: the person's
+ * identifier finds their record, then a live capture is verified 1:1 against their enrolled reference
+ * (with liveness), then eligibility is checked. Nothing is weakened when a capability is missing: without
+ * a facial verification provider every verification records Unable to Verify.
  */
-export function standardRequirementsFor(org: Organization): StandardRequirements {
-  const real = (id: string) => providersFor(org).some((p) => p.id === id && p.status === 'available' && !p.simulated);
-  return { identity: real('identity-service') && real('facial-matching') ? 'face' : 'record', credential: null, eligibility: 'participants' };
+export function standardRequirementsFor(_org: Organization): StandardRequirements {
+  return { identity: 'face', credential: null, eligibility: 'participants' };
 }
 
 /** Why FixID can't verify identity for an activity's configuration right now, if it can't. */
 export function identityUnavailable(version: Pick<ActivityVersion, 'checks'>, org: Organization): string | null {
   const providers = providersFor(org);
-  const needed = [...new Set(version.checks.filter((c) => c.requirement !== 'optional' && checkById(c.type).category === 'identity').map((c) => c.providerId))];
+  // Facial verification is reported per verification (Biometric Verification Unavailable) instead of blocking activation.
+  const needed = [...new Set(version.checks.filter((c) => c.requirement !== 'optional' && checkById(c.type).category === 'identity' && c.providerId !== 'facial-matching').map((c) => c.providerId))];
   const missing = needed.map((id) => providers.find((p) => p.id === id)).filter((p) => p && p.status !== 'available');
   if (!missing.length) return null;
   return `FixID can’t verify people’s identity for this organization yet: ${missing.map((p) => p!.name.toLowerCase()).join(' and ')} ${missing.length === 1 ? 'isn’t' : 'aren’t'} connected. An administrator can connect it in Settings → Integrations.`;

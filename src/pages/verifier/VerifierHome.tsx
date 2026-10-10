@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CalendarClock, FlaskConical, MapPin, Play, ScanFace, ShieldOff } from 'lucide-react';
-import { Button, Card, ConfirmDialog, EmptyState, SearchInput, useToast } from '@/components/ui';
+import { Button, ButtonLink, Card, ConfirmDialog, EmptyState, SearchInput, useToast } from '@/components/ui';
+import type { ActivityConfig } from '@/domain/types';
+import { ActivityStatusBadge } from '@/components/verification/parts';
+import { activityPlace, useActivityProgress } from './VerifierActivityPage';
 import { useAuthorization } from '@/auth/authorization';
 import { AccessBadge, EntryBadge } from '@/components/verification/attemptParts';
-import { describeRequirements } from '@/domain/verification';
 import { scheduleText } from '../verification/ActivityDetailsPage';
-import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
+import { useActions, useSession, useStore } from '@/store/AppStore';
 import { canPreviewRoles } from '@/store/state';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { formatDateTime } from '@/lib/dates';
@@ -26,8 +28,6 @@ export function VerifierHome() {
   const activities = useMemo(() => service.listAuthorizedActivities(organization.id), [service, organization.id, state]); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = activities.filter(({ activity }) => !q.trim() || `${activity.name} ${activity.description}`.toLowerCase().includes(q.trim().toLowerCase()));
   const recent = state.data.verificationAttempts.filter((a) => a.organizationId === organization.id && a.verifierId === record?.id).slice(0, 8);
-  const demoOn = !!organization.integrations.verificationDemo?.enabled;
-  const { credentialTypeById } = useOrgData();
 
   const start = (activityId: string) => {
     setError(null);
@@ -43,45 +43,17 @@ export function VerifierHome() {
 
       {previewRole && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Role preview is read-only, so verifications can’t be performed. Exit the preview to verify.</p>}
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
-      {canExecute && !demoOn && (
-        <p className="mt-4 flex gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-600">
-          <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          Credential presentation, facial matching, liveness and holder binding have no connected service in this prototype, so those checks return Unable to Verify.
-          An administrator can turn on labelled demonstration providers in Settings → Integrations.
-        </p>
-      )}
 
       <div className="mt-6">
         {!canExecute ? <NoExecute onSetUp={() => toast({ tone: 'success', title: 'Verifier role added', description: 'Activities appear here once you’re assigned to them.' })} />
           : activities.length === 0 ? (
-            <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No activities assigned to you yet"
-              description="You can verify people only for activities you’re assigned to. An administrator assigns verifiers when they set up an activity." /></Card>
+            <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No verification activities assigned to you."
+              description="You can verify people only for active activities you’re assigned to. An administrator assigns verifiers in an activity’s Participants & Verifiers step." /></Card>
           ) : (
             <div className="space-y-4">
               {activities.length > 4 && <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities" />}
               <ul className="grid gap-4 md:grid-cols-2" aria-label="Your verification activities">
-                {shown.map(({ activity, version }) => {
-                  const when = scheduleText(activity.schedule);
-                  return (
-                    <li key={activity.id}>
-                      <Card className="flex h-full flex-col p-5">
-                        <h2 className="text-lg font-semibold text-slate-900">{activity.name}</h2>
-                        <p className="mt-1 text-sm text-slate-500">{activity.purpose || activity.description}</p>
-                        {(activity.location || when) && (
-                          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                            {activity.location && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" aria-hidden="true" />{activity.location}</span>}
-                            {when && <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{when}</span>}
-                          </p>
-                        )}
-                        <ul className="mt-3 flex-1 list-disc space-y-0.5 pl-5 text-sm text-slate-600" aria-label="What will be checked">
-                          {describeRequirements(version, (id) => credentialTypeById.get(id)?.name ?? '').map((l) => <li key={l}>{l}</li>)}
-                        </ul>
-                        <Button className="mt-4 self-start" icon={<Play className="h-4 w-4" />} disabled={!!previewRole} onClick={() => start(activity.id)}
-                          aria-label={`Start verification: ${activity.name}`}>Start Verification</Button>
-                      </Card>
-                    </li>
-                  );
-                })}
+                {shown.map(({ activity }) => <ActivityCard key={activity.id} activity={activity} disabled={!!previewRole} onStart={() => start(activity.id)} />)}
               </ul>
               {shown.length === 0 && <p className="text-sm text-slate-500">No activities match your search.</p>}
             </div>
@@ -108,6 +80,36 @@ export function VerifierHome() {
         </section>
       )}
     </>
+  );
+}
+
+function ActivityCard({ activity, disabled, onStart }: { activity: ActivityConfig; disabled: boolean; onStart: () => void }) {
+  const progress = useActivityProgress(activity);
+  const place = activityPlace(activity);
+  const when = scheduleText(activity.schedule);
+  return (
+    <li>
+      <Card className="flex h-full flex-col p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">{activity.name}</h2>
+          <ActivityStatusBadge status={activity.status} />
+        </div>
+        {(activity.description || activity.purpose) && <p className="mt-1 text-sm text-slate-500">{activity.description || activity.purpose}</p>}
+        {(place || when) && (
+          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+            {place && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" aria-hidden="true" />{place}</span>}
+            {when && <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{when}</span>}
+          </p>
+        )}
+        <p className="mt-3 flex-1 text-sm text-slate-700" aria-label="Progress">
+          {progress.verified} of {progress.eligible} verified · {progress.granted} entered{progress.denied ? ` · ${progress.denied} denied` : ''}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button icon={<Play className="h-4 w-4" />} disabled={disabled} onClick={onStart} aria-label={`Start verification: ${activity.name}`}>Start Verification</Button>
+          <ButtonLink to={`/verify/activities/${activity.id}`} variant="secondary" aria-label={`View details: ${activity.name}`}>View Details</ButtonLink>
+        </div>
+      </Card>
+    </li>
   );
 }
 

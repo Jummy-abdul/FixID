@@ -256,7 +256,7 @@ describe('invitations, permissions and revoked access', () => {
     expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Dashboard', 'My Verification Activities', 'My Verification History']);
     expect(screen.getByText(/You aren’t assigned to any verification activities yet/)).toBeInTheDocument();
     await user.click(within(nav).getByRole('link', { name: 'My Verification Activities' }));
-    expect(await screen.findByText('No activities assigned to you yet')).toBeInTheDocument();
+    expect(await screen.findByText('No verification activities assigned to you.')).toBeInTheDocument();
   }, 20_000);
 
   it('deactivation takes effect for the affected administrator', async () => {

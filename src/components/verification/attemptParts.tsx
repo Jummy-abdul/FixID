@@ -16,7 +16,7 @@ type Eligibility = NonNullable<VerificationAttempt['eligibilityResult']>;
 
 export const ACCESS_LABEL: Record<Access, string> = { permitted: 'Permitted', 'not-permitted': 'Not Permitted', 'review-required': 'Review Required' };
 const ACCESS_TONE = { permitted: 'success', 'not-permitted': 'danger', 'review-required': 'warning' } as const;
-export const ELIGIBILITY_LABEL: Record<Eligibility, string> = { eligible: 'Eligible', 'not-eligible': 'Not eligible', unable: 'Unable to confirm', review: 'Pending review', 'not-required': 'Not required' };
+export const ELIGIBILITY_LABEL: Record<Eligibility, string> = { eligible: 'Eligible', 'not-eligible': 'Not eligible', unable: 'Unable to determine', review: 'Pending review', 'not-required': 'Not required' };
 const ELIGIBILITY_TONE = { eligible: 'success', 'not-eligible': 'danger', unable: 'warning', review: 'violet', 'not-required': 'neutral' } as const;
 const RESULT_TONE = { verified: 'success', 'not-verified': 'danger', 'unable-to-verify': 'warning', 'pending-review': 'violet', 'not-required': 'neutral' } as const;
 
@@ -121,6 +121,11 @@ export function AccessAndEntry({ attempt }: { attempt: VerificationAttempt }) {
         ) : (
           <>
             <p className="mt-1 text-lg font-semibold text-slate-900">Not recorded</p>
+            {attempt.location?.result === 'outside' && mayDecide && (
+              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Your device appears to be outside the activity’s configured area. This doesn’t deny entry by itself: decide based on the situation.
+              </p>
+            )}
             <p className="mt-1 text-sm text-slate-600">{!mayDecide ? 'The verifier records the entry decision.' : canAllow ? 'Record your decision when the person enters or is turned away.' : attempt.accessDecision !== 'permitted' ? 'Entry can only be allowed when access is permitted. You can still record that entry was denied.' : allowProblem}</p>
             {(canAllow || canDeny) && (
               <div className="mt-3 flex flex-wrap gap-2">

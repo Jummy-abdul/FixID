@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -13,6 +13,7 @@ import { createInitialState, reducer, type Action, type AppState } from '@/store
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService } from '@/verification/engine';
 import { assign, statedDetails } from './helpers/identity';
+import { verifyByDetails } from './helpers/verifierFlow';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
@@ -107,11 +108,11 @@ describe('physical access: entry recording and duplicate entries', () => {
     // A verification is not an entry: verifying again is fine, but access is refused because they already entered.
     const again = await verify(h, insider);
     expect(again).toMatchObject({ outcome: 'verified', accessDecision: 'not-permitted' });
-    expect(again.accessReasons![0]).toMatch(/Already entered/);
+    expect(again.accessReasons![0]).toMatch(/Already granted entry/);
     expect(h.service.recordEntry(again.id)).toMatchObject({ ok: false });
   });
 
-  it('flags a second entry for review under a flag policy, and ignores entries with the policy off', async () => {
+  it('flags a second entry for review under a flag policy, and never records a second entry with the policy off', async () => {
     const flag = harness(asHalima(withPolicy(base(), 'flag')));
     const p = people(flag.state).insider;
     flag.service.recordEntry((await verify(flag, p)).id);
@@ -119,7 +120,10 @@ describe('physical access: entry recording and duplicate entries', () => {
 
     const off = harness(asHalima(withPolicy(base(), 'off')));
     off.service.recordEntry((await verify(off, p)).id);
-    expect(await verify(off, p)).toMatchObject({ accessDecision: 'permitted' });
+    const second = await verify(off, p);
+    expect(second).toMatchObject({ outcome: 'verified', accessDecision: 'not-permitted' });
+    expect(off.service.recordEntry(second.id)).toMatchObject({ ok: false });
+    expect(off.state.data.verificationAttempts.filter((a) => a.subject?.memberId === p.id && a.entry?.status === 'entered')).toHaveLength(1);
   });
 
   it('lets only verifiers record entry', async () => {
@@ -176,14 +180,8 @@ describe('screens', () => {
     const card = within(list).getByRole('heading', { name: 'Annual Staff Conference' }).closest('li')!;
     expect(card).toHaveTextContent('Main Auditorium');
     await user.click(within(card).getByRole('button', { name: 'Start verification: Annual Staff Conference' }));
-    await user.click(await screen.findByRole('button', { name: 'Run verification' }));
     // The identifier alone can't verify anyone: the stated details are needed too.
-    await user.type(screen.getAllByRole('textbox')[0], insider.identifier!.value);
-    const details = statedDetails(insider);
-    await user.type(screen.getByLabelText('Full name'), details['Full name']);
-    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: details['Date of birth'] } });
-    await user.click(screen.getByRole('button', { name: 'Run verification' }));
-    expect(await screen.findByRole('region', { name: 'Outcome' }, { timeout: 4000 })).toHaveTextContent('Verified');
+    expect(await verifyByDetails(user, insider)).toHaveTextContent('Identity verificationVerified');
     const panel = screen.getByRole('region', { name: 'Access and entry' });
     expect(panel).toHaveTextContent('Permitted');
     expect(panel).toHaveTextContent('Not recorded');

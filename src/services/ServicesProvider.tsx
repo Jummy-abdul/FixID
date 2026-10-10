@@ -4,12 +4,13 @@ import { createMockEnrollment } from './mockEnrollment';
 import { createMockIdSwitch } from './mockIdSwitch';
 import { createMockWallet } from './mockWallet';
 import { createBrowserGeolocation, createDefaultMaps } from './location';
+import { createDefaultFaceVerification } from './faceVerification';
 import type { Services } from './types';
 
 export function createDefaultServices(): Services {
   return {
     enrollment: createMockEnrollment(), idSwitch: createMockIdSwitch(), issuance: createIssuanceService(), wallet: createMockWallet(),
-    maps: createDefaultMaps(), geolocation: createBrowserGeolocation(),
+    maps: createDefaultMaps(), geolocation: createBrowserGeolocation(), faceVerification: createDefaultFaceVerification(),
   };
 }
 

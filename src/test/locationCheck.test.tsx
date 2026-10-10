@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -17,6 +17,7 @@ import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import type { Services } from '@/services/types';
 import { createVerificationService } from '@/verification/engine';
 import { assign, statedDetails } from './helpers/identity';
+import { verifyByDetails } from './helpers/verifierFlow';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
@@ -171,13 +172,7 @@ describe('screens', () => {
     const list = await screen.findByRole('list', { name: 'Your verification activities' });
     const card = within(list).getByRole('heading', { name: 'Annual Staff Conference' }).closest('li')!;
     await user.click(within(card).getByRole('button', { name: 'Start verification: Annual Staff Conference' }));
-    await user.click(await screen.findByRole('button', { name: 'Run verification' }));
-    await user.type(screen.getAllByRole('textbox')[0], m.identifier!.value);
-    const details = statedDetails(m);
-    await user.type(screen.getByLabelText('Full name'), details['Full name']);
-    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: details['Date of birth'] } });
-    await user.click(screen.getByRole('button', { name: 'Run verification' }));
-    return screen.findByRole('region', { name: 'Outcome' }, { timeout: 4000 });
+    return verifyByDetails(user, m);
   }
 
   it('doesn’t ask for the device location when the activity doesn’t check it', async () => {

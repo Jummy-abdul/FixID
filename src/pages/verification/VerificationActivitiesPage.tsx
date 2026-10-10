@@ -85,7 +85,7 @@ export function VerificationActivitiesPage() {
   const create = canCreate ? <ButtonLink to="/verification-activities/new" variant="primary" icon={<Plus className="h-4 w-4" />}>Create Activity</ButtonLink> : undefined;
   const headerActions = (
     <>
-      <ButtonLink to="/verify" variant="secondary" icon={<ScanFace className="h-4 w-4" />}>Open Verifier Interface</ButtonLink>
+      <ButtonLink to="/verify" variant="secondary" icon={<ScanFace className="h-4 w-4" />}>Open Verifier Workspace</ButtonLink>
       {create}
     </>
   );
@@ -94,7 +94,10 @@ export function VerificationActivitiesPage() {
       const p = activationProblems(state, organization.id, pending.activity);
       return p.blockers.length
         ? { title: 'This activity can’t be activated yet', body: <><span className="block">Resolve these first:</span><ul className="mt-2 list-disc pl-5">{p.blockers.map((b) => <li key={b}>{b}</li>)}</ul></>, cta: 'Review configuration', tone: 'primary' as const }
-        : { title: `Activate ${pending.activity.name}?`, body: 'Your organization’s verifiers will be able to use it straight away.', cta: 'Activate', tone: 'primary' as const };
+        : {
+          title: `Activate ${pending.activity.name}?`, cta: 'Activate', tone: 'primary' as const,
+          body: <><span className="block">Its assigned verifiers will be able to use it straight away.</span>{p.warnings.length > 0 && <ul className="mt-2 list-disc pl-5 text-amber-800">{p.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}</>,
+        };
     })(),
     deactivate: { title: `Deactivate ${pending.activity.name}?`, body: 'No new verifications can start. Earlier verification records and the configuration are kept, and you can activate it again later.', cta: 'Deactivate', tone: 'danger' as const },
     remove: { title: `Remove ${pending.activity.name}?`, body: 'This draft was never activated. It will be removed. This can’t be undone.', cta: 'Remove Draft', tone: 'danger' as const },

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -15,17 +15,20 @@ import { createInitialState, reducer, type Action, type AppState } from '@/store
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService, type VerificationInputs } from '@/verification/engine';
 import { assign, statedDetails } from './helpers/identity';
+import { findParticipant, verifyByDetails } from './helpers/verifierFlow';
+import { CAPTURE, FACE, fakeFaceVerification } from './helpers/faceVerification';
+import type { FaceVerificationResponse, FaceVerificationService } from '@/services/faceVerification';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 let seq = 0;
 
 /** A store harness: the same reducer the app uses, without React. */
-function harness(initial: AppState, opts: { now?: () => Date; outage?: boolean } = {}) {
+function harness(initial: AppState, opts: { now?: () => Date; outage?: boolean; face?: FaceVerificationService } = {}) {
   let state = initial;
   const dispatch = (a: Action) => { state = reducer(state, a); };
   const idSwitch = createMockIdSwitch();
   if (opts.outage) (idSwitch as unknown as { simulation: { setOutage: (v: boolean) => void } }).simulation.setOutage(true);
-  const service = createVerificationService({ getState: () => state, dispatch, idSwitch, now: opts.now, timeoutMs: 600 });
+  const service = createVerificationService({ getState: () => state, dispatch, idSwitch, now: opts.now, timeoutMs: 600, faceVerification: opts.face });
   return { get state() { return state; }, set state(s: AppState) { state = s; }, dispatch, service };
 }
 
@@ -140,19 +143,23 @@ describe('Scenario C — identity and credential', () => {
         chk(s, 'credential-status'), chk(s, 'liveness'), chk(s, 'face-match', { sourceId: 'identity-service' })],
     });
     s = asHalima(made.state);
-    const h = harness(s);
-    const inputs = { identifier: m.identifier!.value, credential: { method: 'simulated-presentation' as const, value: cred.identifier } };
-    expect((await verify(h, made.id, { ...inputs, demo: { liveness: 'live', face: 'match' } })).outcome).toBe('verified');
-    const noMatch = await verify(h, made.id, { ...inputs, demo: { liveness: 'live', face: 'no-match' } });
+    let next: FaceVerificationResponse | null = FACE.match;
+    const h = harness(s, { face: fakeFaceVerification(() => next ?? new Promise<FaceVerificationResponse>(() => {})) });
+    const inputs = { identifier: m.identifier!.value, credential: { method: 'simulated-presentation' as const, value: cred.identifier }, face: { image: CAPTURE, capturedAt: new Date().toISOString() } };
+    expect((await verify(h, made.id, inputs)).outcome).toBe('verified');
+    next = FACE.noMatch;
+    const noMatch = await verify(h, made.id, inputs);
     expect(noMatch.outcome).toBe('not-verified');
     expect(noMatch.checks.find((c) => c.type === 'credential-status')!.status).toBe('passed');
     // Not live: facial matching isn't run against an unreliable capture.
-    const notLive = await verify(h, made.id, { ...inputs, demo: { liveness: 'not-live', face: 'match' } });
+    next = FACE.notLive;
+    const notLive = await verify(h, made.id, inputs);
     expect(notLive.checks.find((c) => c.type === 'face-match')!.status).toBe('skipped');
     expect(notLive.outcome).toBe('not-verified');
     // A provider timeout is operational, not a failed match.
-    const timeout = await verify(h, made.id, { ...inputs, demo: { liveness: 'live', face: 'timeout' } });
-    expect(timeout.checks.find((c) => c.type === 'face-match')).toMatchObject({ status: 'error', explanation: expect.stringMatching(/didn’t respond in time/) });
+    next = null;
+    const timeout = await verify(h, made.id, inputs);
+    expect(timeout.checks.find((c) => c.type === 'liveness')).toMatchObject({ status: 'error', explanation: expect.stringMatching(/didn’t respond in time/) });
     expect(timeout.outcome).toBe('unable-to-verify');
   });
 });
@@ -189,11 +196,11 @@ describe('alternatives', () => {
       checks: [chk(s, 'identity-lookup', { params: lookup.params }), chk(s, 'credential-authenticity', { params: { credentialTypeIds: [cred.credentialTypeId] } }),
         chk(s, 'holder-binding', { requirement: 'alternative' }), chk(s, 'liveness', { requirement: 'alternative' }), chk(s, 'face-match', { requirement: 'alternative', sourceId: 'identity-service' })],
     });
-    const h = harness(asHalima(made.state));
-    const inputs = { identifier: m.identifier!.value, credential: { method: 'simulated-presentation' as const, value: cred.identifier } };
-    expect((await verify(h, made.id, { ...inputs, demo: { holderBinding: 'valid', liveness: 'not-live' } })).outcome).toBe('verified');
-    expect((await verify(h, made.id, { ...inputs, demo: { holderBinding: 'invalid', liveness: 'not-live' } })).outcome).toBe('not-verified');
-    expect((await verify(h, made.id, { ...inputs, demo: { holderBinding: 'unavailable', liveness: 'not-live' } })).outcome).toBe('unable-to-verify');
+    const h = harness(asHalima(made.state), { face: fakeFaceVerification(FACE.notLive) });
+    const inputs = { identifier: m.identifier!.value, credential: { method: 'simulated-presentation' as const, value: cred.identifier }, face: { image: CAPTURE, capturedAt: new Date().toISOString() } };
+    expect((await verify(h, made.id, { ...inputs, demo: { holderBinding: 'valid' } })).outcome).toBe('verified');
+    expect((await verify(h, made.id, { ...inputs, demo: { holderBinding: 'invalid' } })).outcome).toBe('not-verified');
+    expect((await verify(h, made.id, { ...inputs, demo: { holderBinding: 'unavailable' } })).outcome).toBe('unable-to-verify');
   });
 });
 
@@ -305,7 +312,7 @@ describe('Verifier Interface', () => {
     expect(screen.getByText('Your role doesn’t include performing verifications')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Set up demo verifier access' }));
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Set up access' }));
-    expect(await screen.findByText('No activities assigned to you yet')).toBeInTheDocument();
+    expect(await screen.findByText('No verification activities assigned to you.')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Your verification activities' })).toBeNull();
   });
 
@@ -321,14 +328,13 @@ describe('Verifier Interface', () => {
 
     await user.click(within(list).getByRole('button', { name: 'Start verification: Visitor Identity Check' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Visitor Identity Check' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Run verification' }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/Enter the person’s/);
-    await user.type(screen.getAllByRole('textbox')[0], m.identifier!.value);
-    await user.type(screen.getByLabelText('Full name'), statedDetails(m)['Full name']);
-    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: statedDetails(m)['Date of birth'] } });
-    await user.click(screen.getByRole('button', { name: 'Run verification' }));
-    const hero = await screen.findByRole('region', { name: 'Outcome' }, { timeout: 4000 });
-    expect(hero).toHaveTextContent('Verified');
+    expect(screen.getByRole('button', { name: 'Find Participant' })).toBeDisabled();
+    // An unknown identifier finds nobody and can't proceed.
+    await findParticipant(user, 'NOBODY-123');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/has this/);
+    expect(screen.queryByRole('region', { name: 'Participant found' })).toBeNull();
+    const hero = await verifyByDetails(user, m);
+    expect(hero).toHaveTextContent('Identity verificationVerified');
     expect(screen.getByRole('list', { name: 'Checks' })).toHaveTextContent('Identity Record Lookup');
     await user.click(screen.getByRole('button', { name: 'View Verification Details' }));
     expect(screen.getByText('Version 1')).toBeInTheDocument();
