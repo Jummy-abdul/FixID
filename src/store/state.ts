@@ -6,7 +6,7 @@ import {
   type CredentialConfigInput, type LogoUploadInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser, type ImportSummaryInput,
 } from './operations';
 import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
-import { findRole, permissionsFor, type Permission, type RoleId } from '@/domain/roles';
+import { findRole, permissionsFor, rolesFor, type Permission, type RoleId } from '@/domain/roles';
 import {
   actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, applySaveRole, applyDeleteRole, ownerRecord, type InviteInput, type RoleInput,
 } from './adminOps';
@@ -114,6 +114,12 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'organization/updateProfile': ['settings.manage'],
   'config/identifier': ['users.create', 'users.import', 'credentials.manage'],
   'config/credential': ['credentials.manage'],
+  // Also checked in adminOps (which adds the role-coverage rules); listed so role views are narrowed too.
+  'admins/invite': ['administrators.invite'],
+  'admins/resend': ['administrators.invite'],
+  'admins/revoke': ['administrators.invite'],
+  'admins/roles': ['roles.assign'],
+  'admins/status': ['administrators.manage'],
   'logos/upload': ['credentials.manage'],
   'users/create': ['users.create', 'users.import'],
   'users/importSummary': ['users.import'],
@@ -146,12 +152,40 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
 
 /** Actions that don't change workspace data, so they remain available during Role Preview. */
 const PREVIEW_SAFE = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'preview/start', 'preview/stop', 'verify/expire']);
+/** Workspace-wide actions that aren't part of any role's job: refused in every role view. */
+const ROLE_VIEW_BLOCKED = new Set<Action['type']>(['demo/reset', 'organization/create', 'admins/accept']);
 export const PREVIEW_READ_ONLY = 'Role preview is read-only. Exit the preview to make changes.';
 
-/** Whether the signed-in administrator may use Role Preview: an active Organization Admin, in a demo build. */
+/**
+ * Whether the signed-in administrator can switch role views: an active Organization Admin. Outside demo
+ * builds only roles they already hold every permission of (such as Verifier) can be chosen.
+ */
 export function canPreviewRoles(state: AppState): boolean {
   const rec = actorRecord(state, state.session.currentOrganizationId);
-  return ROLE_PREVIEW_ENABLED && rec?.status === 'active' && rec.roleIds.includes('organization-admin');
+  return rec?.status === 'active' && rec.roleIds.includes('organization-admin') && (ROLE_PREVIEW_ENABLED || switchableRoles(state).length > 0);
+}
+
+/** Roles whose permissions the administrator already has all of. Switching to one is a working view of their own access, narrowed. */
+function heldEntirely(state: AppState, role: { id: string; permissions: readonly Permission[] }): boolean {
+  const mine = actorPermissions(state, state.session.currentOrganizationId);
+  return role.permissions.every((p) => mine.has(p));
+}
+
+/** The roles an administrator may switch to: any role in demo builds (read-only unless held entirely), otherwise only roles they hold entirely. */
+export function switchableRoles(state: AppState) {
+  const roles = rolesFor(state.data.customRoles ?? [], state.session.currentOrganizationId);
+  return ROLE_PREVIEW_ENABLED ? roles : roles.filter((r) => heldEntirely(state, r));
+}
+
+/**
+ * True when the current role view is one the administrator holds entirely (e.g. an Organization Admin,
+ * who can perform verifications, switching to the Verifier view). Such a view works: actions are allowed
+ * within the intersection of that role's and the administrator's own permissions. Any other preview is
+ * read-only. Switching never adds a permission.
+ */
+export function isAuthorizedView(state: AppState): boolean {
+  const role = previewedRole(state);
+  return !!role && heldEntirely(state, role);
 }
 
 /** The role being previewed, resolved within the current organization. */
@@ -166,17 +200,23 @@ export function previewedRole(state: AppState) {
  * and the store's own checks always use the real permissions (actorPermissions), never these.
  */
 export function effectivePermissions(state: AppState): Set<Permission> {
-  if (!state.session.previewRoleId) return actorPermissions(state, state.session.currentOrganizationId);
+  const mine = actorPermissions(state, state.session.currentOrganizationId);
+  if (!state.session.previewRoleId) return mine;
   const role = previewedRole(state);
-  return role ? permissionsFor([role.id], [role]) : new Set();
+  if (!role) return new Set();
+  const theirs = permissionsFor([role.id], [role]);
+  // A working view never exceeds the administrator's own permissions; a read-only preview shows the role as it is.
+  return heldEntirely(state, role) ? new Set([...theirs].filter((p) => mine.has(p))) : theirs;
 }
 
 /** Null when allowed, otherwise the reason. */
 export function authorizeAction(state: AppState, type: Action['type']): string | null {
-  if (state.session.previewRoleId && !PREVIEW_SAFE.has(type)) return PREVIEW_READ_ONLY;
+  const viewing = !!state.session.previewRoleId && !PREVIEW_SAFE.has(type);
+  if (viewing && (!isAuthorizedView(state) || ROLE_VIEW_BLOCKED.has(type))) return PREVIEW_READ_ONLY;
   const needed = ACTION_PERMISSIONS[type];
   if (!needed) return null;
-  const perms = actorPermissions(state, state.session.currentOrganizationId);
+  // In a role view, only what both the role and the administrator's own roles allow.
+  const perms = viewing ? effectivePermissions(state) : actorPermissions(state, state.session.currentOrganizationId);
   return needed.some((p) => perms.has(p)) ? null : "You don't have permission to do this.";
 }
 
@@ -340,7 +380,7 @@ export function reducer(state: AppState, action: Action): AppState {
       });
     }
     case 'preview/start': {
-      if (!findRole(state.data.customRoles ?? [], state.session.currentOrganizationId, action.roleId) || !canPreviewRoles(state)) return state;
+      if (!canPreviewRoles(state) || !switchableRoles(state).some((r) => r.id === action.roleId)) return state;
       // Previewing your own full role is the same as not previewing.
       if (action.roleId === 'organization-admin') return reducer(state, { type: 'preview/stop' });
       return { ...state, session: { ...state.session, previewRoleId: action.roleId } };

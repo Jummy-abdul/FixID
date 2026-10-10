@@ -87,14 +87,14 @@ export function LocationCheckDetails({ attempt }: { attempt: Pick<VerificationAt
  */
 export function AccessAndEntry({ attempt }: { attempt: VerificationAttempt }) {
   const { state } = useStore();
-  const { can, previewRole } = useAuthorization();
+  const { can, readOnly } = useAuthorization();
   const service = useVerificationService();
   const toast = useToast();
   const [confirming, setConfirming] = useState<'allow' | 'deny' | null>(null);
   const [reason, setReason] = useState('');
   if (attempt.status !== 'completed' || !attempt.accessDecision) return null;
   const panel = ACCESS_PANEL[attempt.accessDecision];
-  const mayDecide = can('verification.execute') && !previewRole;
+  const mayDecide = can('verification.execute') && !readOnly;
   const allowProblem = entryProblem(state, attempt.id);
   const canAllow = mayDecide && !attempt.entry && !allowProblem;
   const canDeny = mayDecide && !attempt.entry && !denyProblem(state, attempt.id);

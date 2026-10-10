@@ -67,7 +67,7 @@ export function GroupsPage() {
             rowKey={(g) => g.id}
             empty={groups.length === 0 ? (
               <EmptyState icon={<Layers className="h-5 w-5" />} title="No groups yet"
-                description="Create a group to organize users, for example by department, team, location or cohort."
+                description="Create a group to organize users, for example by team, location or role."
                 action={createButton} />
             ) : <EmptyState title="No matching groups" description="Try a different search." />}
             columns={[

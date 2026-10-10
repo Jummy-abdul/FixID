@@ -82,7 +82,7 @@ export function OrganizationForm({ organization }: { organization: Organization 
               </Select>
             )}
           </Field>
-          <Field label="Default person label" required error={errors.memberLabel} hint="How people are referred to by default, e.g. Student, Employee.">
+          <Field label="Default person label" required error={errors.memberLabel} hint="How people are referred to by default, e.g. Member, Employee.">
             {(p) => <Input {...p} value={values.memberLabel} onChange={(e) => set('memberLabel', e.target.value)} />}
           </Field>
           <Field label="Contact email" required error={errors.contactEmail}>

@@ -615,6 +615,8 @@ export interface ActivityConfig {
   restrictVerifiers?: boolean;
   /** Optional check of the verifier device's location during verification. Reported only; never decides entry. */
   locationCheck?: LocationCheckConfig;
+  /** Drafts only: the editor step to reopen on, so a draft continues where it was left. */
+  editorStep?: 'details' | 'people' | 'review';
   createdAt: ISODate;
   createdBy: string;
   updatedAt: ISODate;

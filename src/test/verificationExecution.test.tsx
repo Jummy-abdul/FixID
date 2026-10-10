@@ -218,9 +218,9 @@ describe('Scenario F — authorization', () => {
     expect(h.service.startAttempt(ORG, visitor.id)).toMatchObject({ ok: true });
     // Assigned to a draft activity: still refused.
     expect(h.service.startAttempt(ORG, activity(h.state, 'Event Access Verification').id)).toMatchObject({ ok: false, code: 'inactive' });
-    // An Organization Admin isn't a verifier unless explicitly given the role.
+    // An Organization Admin may verify, but only once assigned to the activity.
     const admin = harness(base());
-    expect(admin.service.startAttempt(ORG, visitor.id)).toMatchObject({ ok: false, code: 'not-authorized' });
+    expect(admin.service.startAttempt(ORG, visitor.id)).toMatchObject({ ok: false, code: 'not-assigned' });
   });
 
   it('an assignment to another verifier doesn’t authorize anyone else', () => {
@@ -305,13 +305,10 @@ describe('Verifier Interface', () => {
     return userEvent.setup();
   }
 
-  it('lets the demo Organization Admin add the Verifier role, which opens nothing until they’re assigned', async () => {
+  it('gives an Organization Admin nothing to verify until they’re assigned', async () => {
     const s = base();
-    const user = renderApp('/verify', s);
+    renderApp('/verify', s);
     expect(screen.getByRole('heading', { level: 1, name: 'My Verification Activities' })).toBeInTheDocument();
-    expect(screen.getByText('Your role doesn’t include performing verifications')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Set up demo verifier access' }));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Set up access' }));
     expect(await screen.findByText('No verification activities assigned to you.')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Your verification activities' })).toBeNull();
   });
@@ -341,18 +338,18 @@ describe('Verifier Interface', () => {
     expect(screen.queryByText(m.identifier!.value)).toBeNull();
   });
 
-  it('refuses direct links: without the Verifier permission, and to activities the verifier isn’t assigned to', async () => {
-    let s = base();
+  it('refuses direct links: without the verification permission, and to activities the verifier isn’t assigned to', async () => {
+    const s = base();
     const target = activity(s, 'Visitor Identity Check');
+    // Without the permission (here: the Viewer role view), the page isn't available, even by direct link.
+    const viewing = reducer(s, { type: 'preview/start', roleId: 'viewer' });
     const { unmount } = render(
       <MemoryRouter initialEntries={[`/verify/activities/${target.id}`]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AppProviders initialState={s} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
+        <AppProviders initialState={viewing} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>
       </MemoryRouter>,
     );
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
     unmount();
-    const me = adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
-    s = reducer(s, { type: 'admins/roles', organizationId: ORG, adminId: me.id, roleIds: [...me.roleIds, 'verifier'], at: new Date().toISOString() });
     renderApp(`/verify/activities/${target.id}`, s);
     expect(await screen.findByRole('heading', { name: 'You can’t perform this verification' })).toBeInTheDocument();
     expect(screen.getByText('Not assigned to this activity.')).toBeInTheDocument();

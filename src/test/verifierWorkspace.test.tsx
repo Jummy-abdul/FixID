@@ -430,11 +430,12 @@ describe('screens', () => {
     const s = prepared(adminVerifier(base()));
     const cam = mockCamera(async () => cam.stream);
     const user = renderApp(`/verify/activities/${exam(s).id}`, s);
-    expect(await screen.findByText(/Biometric verification unavailable: integration required/)).toBeInTheDocument();
+    expect(await screen.findByText(/Biometric verification unavailable/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/provider|integration required/i);
     await user.click(screen.getByRole('button', { name: 'Start Verification' }));
     await findParticipant(user, people(s).enrolled.identifier!.value);
     await user.click(within(await screen.findByRole('region', { name: 'Participant found' })).getByRole('button', { name: 'Continue' }));
-    expect(screen.getByRole('status')).toHaveTextContent('Biometric Verification Unavailable: integration required');
+    expect(screen.getByRole('status')).toHaveTextContent('Biometric Verification Unavailable');
     await user.click(screen.getByRole('button', { name: 'Capture Selfie' }));
     await user.click(await screen.findByRole('button', { name: 'Capture' }));
     await user.click(screen.getByRole('button', { name: 'Verify Identity' }));
@@ -481,7 +482,7 @@ describe('screens', () => {
     expect(outcome).not.toHaveTextContent('Identity verificationVerified');
   });
 
-  it('refuses an unassigned verifier who opens an activity link directly, and shows the Organization Admin how verifier access works', async () => {
+  it('refuses an unassigned verifier who opens an activity link directly; the admin details page has no workspace shortcut', async () => {
     let s = base();
     const me = adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
     s = reducer(s, { type: 'admins/roles', organizationId: ORG, adminId: me.id, roleIds: [...me.roleIds, 'verifier'], at: AT });
@@ -495,7 +496,8 @@ describe('screens', () => {
     expect(screen.queryByRole('button', { name: 'Start Verification' })).toBeNull();
     unmount();
     renderApp(`/verification-activities/${exam(s).id}`, s);
-    expect(screen.getByLabelText('Your verifier access')).toHaveTextContent('You aren’t assigned as a verifier for this activity');
-    expect(screen.getByRole('link', { name: 'Open Verifier Workspace' })).toHaveAttribute('href', '/verify');
+    expect(screen.getByRole('heading', { level: 1, name: /2026 Examination Clearance/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open Verifier Workspace' })).toBeNull();
+    expect(screen.queryByText(/Verifier Workspace/)).toBeNull();
   });
 });

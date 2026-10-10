@@ -17,7 +17,7 @@ import { AttemptBadge } from '@/components/verification/attemptParts';
 export function VerifierHome() {
   const { organization } = useSession();
   const { state } = useStore();
-  const { record, previewRole, can } = useAuthorization();
+  const { record, readOnly, can } = useAuthorization();
   const service = useVerificationService();
   const navigate = useNavigate();
   const toast = useToast();
@@ -41,7 +41,7 @@ export function VerifierHome() {
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">My Verification Activities</h1>
       <p className="mt-1 text-slate-500">Choose the activity, then verify each person in front of you. They don’t need to scan or present anything unless the activity asks for a credential.</p>
 
-      {previewRole && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Role preview is read-only, so verifications can’t be performed. Exit the preview to verify.</p>}
+      {readOnly && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Role preview is read-only, so verifications can’t be performed. Exit the preview to verify.</p>}
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
 
       <div className="mt-6">
@@ -53,7 +53,7 @@ export function VerifierHome() {
             <div className="space-y-4">
               {activities.length > 4 && <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities" />}
               <ul className="grid gap-4 md:grid-cols-2" aria-label="Your verification activities">
-                {shown.map(({ activity }) => <ActivityCard key={activity.id} activity={activity} disabled={!!previewRole} onStart={() => start(activity.id)} />)}
+                {shown.map(({ activity }) => <ActivityCard key={activity.id} activity={activity} disabled={readOnly} onStart={() => start(activity.id)} />)}
               </ul>
               {shown.length === 0 && <p className="text-sm text-slate-500">No activities match your search.</p>}
             </div>
@@ -207,11 +207,47 @@ export function VerifierDashboard() {
         <Link to="/verify" className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"><Play className="h-4 w-4" aria-hidden="true" />My Verification Activities</Link>
         <Link to="/verify/history" className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50">My Verification History</Link>
       </div>
-      {assigned.length === 0 && (
+      {assigned.length === 0 ? (
         <p className="mt-6 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
           You aren’t assigned to any verification activities yet. An administrator assigns verifiers when they set up an activity.
         </p>
+      ) : (
+        <section className="mt-8" aria-labelledby="assigned-heading">
+          <h2 id="assigned-heading" className="text-sm font-semibold text-slate-900">Your active activities</h2>
+          <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white" aria-label="Your active activities">
+            {assigned.map(({ activity }) => <AssignedRow key={activity.id} activity={activity} />)}
+          </ul>
+        </section>
+      )}
+      {mine.length > 0 && (
+        <section className="mt-8" aria-labelledby="recent-heading">
+          <h2 id="recent-heading" className="flex items-center justify-between text-sm font-semibold text-slate-900">Recent verifications<Link to="/verify/history" className="font-medium text-brand-600 hover:text-brand-700">View all</Link></h2>
+          <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white" aria-label="Recent verifications">
+            {mine.slice(0, 5).map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium text-slate-900">{a.subject?.label ?? a.activityName}</span>
+                  <span className="block text-xs text-slate-500">{a.activityName} · {formatDateTime(a.completedAt ?? a.startedAt)}</span>
+                </span>
+                <AttemptBadge attempt={a} />
+                {a.entry && <EntryBadge attempt={a} />}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </>
+  );
+}
+
+function AssignedRow({ activity }: { activity: ActivityConfig }) {
+  const progress = useActivityProgress(activity);
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+      <span className="min-w-0 flex-1">
+        <Link to={`/verify/activities/${activity.id}`} className="block font-medium text-slate-900 hover:text-brand-700">{activity.name}</Link>
+        <span className="block text-xs text-slate-500">{progress.verified} of {progress.eligible} verified · {progress.granted} entered</span>
+      </span>
+    </li>
   );
 }

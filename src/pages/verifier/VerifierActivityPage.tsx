@@ -52,7 +52,7 @@ export function VerifierActivityPage() {
 function Details({ activity, inactive }: { activity: ActivityConfig; inactive: boolean }) {
   const { organization } = useSession();
   const { state } = useStore();
-  const { record, previewRole } = useAuthorization();
+  const { record, readOnly } = useAuthorization();
   const { credentialTypeById } = useOrgData();
   const service = useVerificationService();
   const navigate = useNavigate();
@@ -93,14 +93,14 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
       ) : (
         <div className="mt-5">
           {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
-          <Button size="lg" className="w-full sm:w-auto" icon={<Play className="h-5 w-5" />} disabled={!!previewRole} onClick={start}>Start Verification</Button>
-          {previewRole && <p className="mt-2 text-sm text-amber-800">Role preview is read-only. Exit the preview to verify.</p>}
+          <Button size="lg" className="w-full sm:w-auto" icon={<Play className="h-5 w-5" />} disabled={readOnly} onClick={start}>Start Verification</Button>
+          {readOnly && <p className="mt-2 text-sm text-amber-800">Role preview is read-only. Exit the preview to verify.</p>}
         </div>
       )}
       {usesFace && !service.faceVerificationAvailable && (
         <p className="mt-4 flex gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
           <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><span className="font-semibold">Biometric verification unavailable: integration required.</span> No facial verification provider is connected, so identity can’t be verified yet. You can find participants and capture a selfie, but every verification records Unable to Verify.</span>
+          <span><span className="font-semibold">Biometric verification unavailable.</span> Identity can’t be verified right now. You can find participants and capture a selfie, but every verification records Unable to Verify.</span>
         </p>
       )}
 

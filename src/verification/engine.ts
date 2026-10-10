@@ -6,7 +6,7 @@ import { checkById, eligibleParticipants, providersFor } from '@/domain/verifica
 import { actorPermissions, actorRecord } from '@/store/adminOps';
 import { WEB_CLIENT, authorizeExecution, denyProblem, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
 import type { DeviceLocation } from '@/services/location';
-import type { Action, AppState } from '@/store/state';
+import { effectivePermissions, type Action, type AppState } from '@/store/state';
 import type { IdSwitchService } from '@/services/types';
 import { FACE_UNAVAILABLE_REASON, NO_FACE_VERIFICATION, type FaceVerificationResponse, type FaceVerificationService } from '@/services/faceVerification';
 import { simulatedHolderBinding, type HolderBindingScenario } from './simulatedProviders';
@@ -419,7 +419,9 @@ export function createVerificationService(deps: ServiceDeps) {
       const a = s.data.verificationAttempts.find((x) => x.id === attemptId);
       if (!a) return undefined;
       const rec = actorRecord(s, a.organizationId);
-      return rec && (rec.id === a.verifierId || actorPermissions(s, a.organizationId).has('verification.results.view')) ? a : undefined;
+      // Other people's verifications need organization-wide results access in the current view: the Verifier view sees only its own.
+      const viewing = s.session.currentOrganizationId === a.organizationId ? effectivePermissions(s) : new Set();
+      return rec && (rec.id === a.verifierId || (actorPermissions(s, a.organizationId).has('verification.results.view') && viewing.has('verification.results.view'))) ? a : undefined;
     },
 
     /**

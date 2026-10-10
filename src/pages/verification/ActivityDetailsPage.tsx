@@ -1,23 +1,23 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { CalendarClock, ChevronDown, ChevronRight, Copy, MapPin, Pencil, Power, PowerOff, ScanFace, Trash2, Undo2, Users, Wrench } from 'lucide-react';
+import { CalendarClock, ChevronRight, Copy, MapPin, Pencil, Power, PowerOff, Trash2, Undo2, Users } from 'lucide-react';
 import {
   Badge, Button, ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, Modal, OverflowMenu, Pagination, SearchInput, Tabs, useToast, type OverflowMenuItem,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { ParticipantsPicker, useEligibleCount, type Participants } from '@/components/verification/ParticipantsPicker';
-import { ActivityStatusBadge, ChecksSummary, IssuesList, RulesList } from '@/components/verification/parts';
+import { ActivityStatusBadge, IssuesList } from '@/components/verification/parts';
 import { memberCounts } from '@/domain/groups';
-import type { ActivityConfig, ActivityVersion } from '@/domain/types';
-import { activeAssignments, describeRequirements, eligibleParticipants, validateConfiguration } from '@/domain/verification';
-import { PARTICIPANT_ENTRY_LABEL, PARTICIPANT_VERIFICATION_LABEL, participantStatuses, statusOf } from '@/domain/participantStatus';
+import type { ActivityConfig } from '@/domain/types';
+import { activeAssignments, eligibleParticipants } from '@/domain/verification';
+import { PARTICIPANT_ENTRY_LABEL, PARTICIPANT_VERIFICATION_LABEL, participantProgress, participantStatuses, statusOf } from '@/domain/participantStatus';
 import { formatCoordinate, formatRadius, validCoordinates } from '@/domain/location';
 import { useServices } from '@/services/ServicesProvider';
 import { LocationMap } from '@/components/verification/LocationMap';
 import { useQueryState } from '@/hooks/useQueryState';
 import { cn } from '@/lib/cn';
 import { formatDate, formatDateTime } from '@/lib/dates';
-import { activationProblems, validationContext } from '@/store/activityOps';
+import { NO_VERIFIER_WARNING, activationProblems } from '@/store/activityOps';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { NotFoundPage } from '../NotFoundPage';
 import { AttemptsTable } from './VerificationHistoryPage';
@@ -40,7 +40,7 @@ export const scheduleText = (s?: ActivityConfig['schedule']) => (s?.startsAt || 
 function Details({ activity }: { activity: ActivityConfig }) {
   const { state } = useStore();
   const { organization } = useSession();
-  const { can, record } = useAuthorization();
+  const { can } = useAuthorization();
   const actions = useActions();
   const toast = useToast();
   const navigate = useNavigate();
@@ -89,11 +89,6 @@ function Details({ activity }: { activity: ActivityConfig }) {
     ...(canEdit && activity.status === 'draft' && !active ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending('remove') }] : []),
   ];
   const needsActivation = activity.status !== 'active' || !!draft;
-  // Managing an activity and performing its verifications are separate: verifying needs the Verifier
-  // permission and an assignment to this activity, for Organization Admins too.
-  const myRecord = record;
-  const assignedToMe = !!myRecord && activeAssignments(state.data, organization.id, activity.id).some((x) => x.administratorId === myRecord.id);
-  const canVerifyHere = can('verification.execute') && assignedToMe;
   const when = scheduleText(activity.schedule);
 
   return (
@@ -114,7 +109,6 @@ function Details({ activity }: { activity: ActivityConfig }) {
           </dl>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <ButtonLink to={canVerifyHere ? `/verify/activities/${activity.id}` : '/verify'} variant="secondary" icon={<ScanFace className="h-4 w-4" />}>Open Verifier Workspace</ButtonLink>
           {canEdit && <ButtonLink to={`${activityPath(activity.id)}/edit`} variant="secondary" icon={<Pencil className="h-4 w-4" />}>Edit</ButtonLink>}
           {canManage && activity.status === 'active' && <Button variant="secondary" icon={<PowerOff className="h-4 w-4" />} onClick={() => setPending('deactivate')}>Deactivate</Button>}
           {canManage && needsActivation && (
@@ -125,13 +119,6 @@ function Details({ activity }: { activity: ActivityConfig }) {
         </div>
       </header>
 
-      <p className="mb-4 flex items-start gap-2 rounded-xl bg-white px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200" aria-label="Your verifier access">
-        <ScanFace className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
-        {canVerifyHere
-          ? <span>You’re assigned as a verifier for this activity{activity.status === 'active' ? '. Open the Verifier Workspace to verify people.' : ', but it isn’t active, so verifications can’t be started.'}</span>
-          : assignedToMe ? <span>You’re assigned to this activity, but your role doesn’t include performing verifications.</span>
-            : <span>You aren’t assigned as a verifier for this activity, so you can’t perform its verifications. Managing an activity doesn’t include verifying: {can('verification.execute') ? 'assign yourself in Participants & Verifiers.' : 'you’d need the Verifier role and an assignment.'}</span>}
-      </p>
       {draft && active && (
         <p className="mb-4 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
           Version {draft.number} has requirement changes that aren’t in use yet. Version {active.number} {activity.status === 'active' ? 'is used for verifications' : 'is the last activated version'} until you activate them.
@@ -143,7 +130,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
 
       <Tabs<TabId> value={selected} onChange={(v) => setTab(v)} tabs={tabs} />
       <div className="mt-6" role="tabpanel" aria-label={tabs.find((t) => t.value === selected)?.label}>
-        {selected === 'overview' && <Overview activity={activity} versions={versions} current={current} warnings={problems.warnings} eligible={usesParticipants ? eligible : null} />}
+        {selected === 'overview' && <Overview activity={activity} warnings={problems.warnings} />}
         {selected === 'participants' && <ParticipantsTab activity={activity} uses={usesParticipants} />}
         {selected === 'history' && (
           <Card>
@@ -168,79 +155,61 @@ function Details({ activity }: { activity: ActivityConfig }) {
   );
 }
 
-function Overview({ activity, versions, current, warnings, eligible }: { activity: ActivityConfig; versions: ActivityVersion[]; current?: ActivityVersion; warnings: string[]; eligible: number | null }) {
+/**
+ * An operational summary for the administrator: who can be verified, who verifies, where, and progress
+ * so far from actual records. How checks and providers work is FixID's concern and isn't shown here.
+ */
+function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: string[] }) {
   const { state } = useStore();
   const { organization } = useSession();
   const org = useOrgData();
-  const [advanced, setAdvanced] = useState(false);
-  const credName = (id: string) => org.credentialTypeById.get(id)?.name ?? '';
-  const v = current ? validateConfiguration(current, validationContext(state, organization.id, activity.participants)) : null;
   const { maps } = useServices();
   const loc = activity.locationCheck;
+  const p = activity.participants ?? { groupIds: [], memberIds: [] };
+  const usesList = p.groupIds.length + p.memberIds.length > 0;
+  const progress = participantProgress(participantStatuses(state.data.verificationAttempts, activity.id), eligibleParticipants(state.data, organization.id, activity.participants));
   const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
+  const groups = p.groupIds.map((id) => org.groupById.get(id)?.name ?? 'Removed group');
+  const users = p.memberIds.map((id) => org.memberById.get(id)?.displayName ?? 'Removed user');
+  const list = (xs: string[]) => (xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} and ${xs.length - 5} more`);
+  // Only issues an administrator can act on.
+  const actionable = warnings.filter((w) => w === NO_VERIFIER_WARNING);
   return (
     <div className="space-y-6">
-      <Card>
-        <div className="grid gap-8 px-6 py-5 lg:grid-cols-2">
-          <section>
-            <h2 className="text-sm font-semibold text-slate-900">How people are verified</h2>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700" aria-label="How people are verified">
-              {current ? describeRequirements(current, credName).map((l) => <li key={l}>{l}</li>) : <li>Not configured yet.</li>}
-              {activity.entryPolicy && activity.entryPolicy !== 'off' && <li>Repeat entry: {activity.entryPolicy === 'deny' ? 'not permitted after a recorded entry' : 'flagged for review after a recorded entry'}</li>}
-            </ul>
-            {current && <><h3 className="mt-5 text-sm font-semibold text-slate-900">How the result is decided</h3><div className="mt-2"><RulesList version={current} /></div></>}
-          </section>
-          <section>
-            <dl className="grid gap-y-3 text-sm">
-              <div><dt className="text-slate-500">Status</dt><dd className="mt-0.5"><ActivityStatusBadge status={activity.status} /></dd></div>
-              <div><dt className="text-slate-500">Eligibility</dt><dd className="text-slate-900">{eligible === null ? 'Not based on a participant list' : `${eligible} eligible ${eligible === 1 ? 'person' : 'people'}, using current group membership at verification time`}</dd></div>
-              <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="text-slate-900">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet: nobody can perform this activity'}</dd></div>
-              <div><dt className="text-slate-500">Location check</dt><dd className="text-slate-900">{loc?.enabled
-                ? validCoordinates(loc.lat, loc.lng)
-                  ? <>On{loc.label && <span className="block">{loc.label}</span>}<span className="block text-slate-600">{formatCoordinate(loc.lat)}, {formatCoordinate(loc.lng)} · within {formatRadius(loc.radiusM)}</span><span className="block text-xs text-slate-500">Reported in each verification; it doesn’t block verification or entry.</span></>
-                  : 'On, but no location selected'
-                : 'Off'}</dd></div>
-              {activity.location && <div><dt className="text-slate-500">Venue</dt><dd className="text-slate-900">{activity.location}<span className="block text-xs text-slate-500">For information only.</span></dd></div>}
-              {scheduleText(activity.schedule) && <div><dt className="text-slate-500">Schedule</dt><dd className="text-slate-900">{scheduleText(activity.schedule)}{!activity.schedule?.enforced && <span className="block text-xs text-slate-500">For information only.</span>}</dd></div>}
-              <div><dt className="text-slate-500">Last updated</dt><dd className="text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
-            </dl>
-          </section>
-        </div>
-        {warnings.length > 0 && <div className="px-6 pb-5"><IssuesList blockers={[]} warnings={warnings} /></div>}
+      <section aria-label="Activity summary" className="grid gap-4 sm:grid-cols-3">
+        {[
+          ['Eligible participants', progress.eligible],
+          ['Verified participants', progress.verified],
+          ['Entries granted', progress.granted],
+        ].map(([label, value]) => (
+          <Card key={label} className="p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p></Card>
+        ))}
+      </section>
+      {actionable.length > 0 && <IssuesList blockers={[]} warnings={actionable} warningsTitle="No verifier assigned" />}
+      <Card className="px-6 py-5">
+        <h2 className="text-sm font-semibold text-slate-900">Activity details</h2>
+        <dl className="mt-3 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
+          <div><dt className="text-slate-500">Eligible participants</dt><dd className="mt-0.5 text-slate-900">{usesList ? (
+            <>
+              {groups.length > 0 && <span className="block">Groups: {list(groups)}</span>}
+              {users.length > 0 && <span className="block">Users: {list(users)}</span>}
+            </>
+          ) : 'None selected'}</dd></div>
+          <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="mt-0.5 text-slate-900">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet'}</dd></div>
+          <div><dt className="text-slate-500">Location check</dt><dd className="mt-0.5 text-slate-900">{loc?.enabled
+            ? validCoordinates(loc.lat, loc.lng)
+              ? <>On{loc.label && <span className="block">{loc.label}</span>}<span className="block text-slate-600">{formatCoordinate(loc.lat)}, {formatCoordinate(loc.lng)} · within {formatRadius(loc.radiusM)}</span></>
+              : 'On, but no location selected'
+            : 'Off'}</dd></div>
+          <div><dt className="text-slate-500">Last updated</dt><dd className="mt-0.5 text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
+        </dl>
       </Card>
-
       {loc?.enabled && validCoordinates(loc.lat, loc.lng) && maps.available && (
         <Card className="px-6 py-5">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">Location check area</h2>
           <LocationMap maps={maps} center={{ lat: loc.lat, lng: loc.lng }} radiusM={loc.radiusM} label="Location check area map" />
         </Card>
       )}
-
-      <Card>
-        <button type="button" onClick={() => setAdvanced((a) => !a)} aria-expanded={advanced} className="flex w-full items-center gap-2 px-6 py-4 text-left text-sm font-semibold text-slate-800">
-          <Wrench className="h-4 w-4 text-slate-400" aria-hidden="true" />Technical details: checks, providers and versions
-          <ChevronDown className={cn('ml-auto h-4 w-4 transition-transform', advanced && 'rotate-180')} aria-hidden="true" />
-        </button>
-        {advanced && current && (
-          <div className="space-y-6 border-t border-slate-100 px-6 py-5">
-            <ChecksSummary version={current} issues={v?.blockers ?? []} />
-            <section>
-              <h3 className="text-sm font-semibold text-slate-900">Configuration versions</h3>
-              <p className="text-xs text-slate-500">Each verification records the version it used, so changes never rewrite earlier results.</p>
-              <ul className="mt-2 divide-y divide-slate-100" aria-label="Configuration versions">
-                {versions.map((x) => (
-                  <li key={x.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                    <span><span className="font-medium text-slate-900">Version {x.number}</span>
-                      <span className="block text-xs text-slate-500">{x.status === 'draft' ? `Draft, last saved ${formatDateTime(x.updatedAt)}` : `Activated ${x.activatedAt ? formatDateTime(x.activatedAt) : ''}${x.activatedBy ? ` by ${x.activatedBy}` : ''}`}</span></span>
-                    <Badge tone={x.status === 'active' ? 'success' : x.status === 'draft' ? 'info' : 'neutral'}>{x.status === 'active' ? 'In use' : x.status === 'draft' ? 'Draft' : 'Superseded'}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </section>
-            <Link to={`/audit?area=verification-activity&q=${encodeURIComponent(activity.name)}`} className="inline-block text-sm font-semibold text-brand-600 hover:text-brand-700">View configuration changes in the Audit Log</Link>
-          </div>
-        )}
-      </Card>
     </div>
   );
 }

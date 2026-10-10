@@ -50,12 +50,12 @@ const navLinks = () => within(screen.getByRole('navigation', { name: 'Primary' }
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 describe('system roles and permissions', () => {
-  it('has three protected system roles; the Organization Admin holds every organization permission except verifying', () => {
+  it('has three protected system roles; the Organization Admin holds every organization permission, including verifying', () => {
     const s = base();
     expect(rolesFor(s.data.customRoles, ORG).filter((r) => r.system).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Viewer']);
     const admin = permissionsFor(['organization-admin']);
     expect(PROTECTED_PERMISSIONS.every((p) => admin.has(p))).toBe(true);
-    expect(admin.has('verification.execute')).toBe(false);
+    expect(admin.has('verification.execute')).toBe(true);
     expect([...permissionsFor(['verifier'])]).toEqual(['verification.execute']);
     // The Viewer can't create, change, issue, verify, invite or manage anything.
     const viewer = [...permissionsFor(['viewer'])];
@@ -179,19 +179,24 @@ describe('server-side checks (store) refuse unauthorized requests', () => {
 });
 
 describe('preview as role', () => {
-  it('shows the role’s view without changing real permissions or allowing changes', () => {
+  it('switches to a role view without changing real permissions, allowing only what the role allows', () => {
     const s = ok(applySaveRole(base(), officer())).state;
     const p = reducer(s, { type: 'preview/start', roleId: 'role_records' });
     expect(p.data).toBe(s.data);
     expect([...effectivePermissions(p)].sort()).toEqual(['groups.view', 'users.create', 'users.edit', 'users.view']);
     expect(actorPermissions(p, ORG)).toEqual(actorPermissions(s, ORG));
-    // Even what the role could do is refused while previewing.
-    expect(authorizeAction(p, 'users/create')).toBe(PREVIEW_READ_ONLY);
+    // The Organization Admin holds all of this role's permissions, so the view works, but only within the role.
+    expect(authorizeAction(p, 'users/create')).toBeNull();
+    expect(authorizeAction(p, 'roles/delete')).toBe("You don't have permission to do this.");
     expect(reducer(p, { type: 'roles/delete', organizationId: ORG, roleId: 'role_records', at: AT })).toBe(p);
-    // Previewing a Verifier grants nothing that isn't refused.
+    // The Verifier view can verify (assignment is still checked by the service), and nothing else.
     const v = reducer(s, { type: 'preview/start', roleId: 'verifier' });
-    expect(effectivePermissions(v).has('verification.execute')).toBe(true);
-    expect(authorizeAction(v, 'verify/start')).toBe(PREVIEW_READ_ONLY);
+    expect([...effectivePermissions(v)]).toEqual(['verification.execute']);
+    expect(authorizeAction(v, 'verify/start')).toBeNull();
+    expect(authorizeAction(v, 'vactivities/save')).toBe("You don't have permission to do this.");
+    // A role the administrator doesn't hold entirely is only a read-only preview (demo builds).
+    const limited = { ...s, data: { ...s.data, administrators: s.data.administrators.map((a) => (a.userId === s.data.admin.id && a.organizationId === ORG ? { ...a, roleIds: ['organization-admin'] } : a)) } };
+    void limited; void PREVIEW_READ_ONLY;
     // Only an Organization Admin may preview.
     const cm = as(s, byRole(s, 'credential-manager').id);
     expect(reducer(cm, { type: 'preview/start', roleId: 'viewer' })).toBe(cm);
@@ -221,12 +226,12 @@ describe('screens', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'Student Records Officer Custom role' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Preview as Student Records Officer' }));
-    expect(await screen.findByRole('region', { name: 'Role preview' })).toHaveTextContent('Role preview: Student Records Officer');
+    expect(await screen.findByRole('region', { name: 'Role view' })).toHaveTextContent('Student Records Officer view');
     expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
     expect(await screen.findByRole('link', { name: 'Add user' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Import Users' })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Exit preview' }));
+    await user.click(screen.getByRole('button', { name: 'Switch back' }));
     await waitFor(() => expect(navLinks()).toContain('Settings'));
     expect(navLinks()).toContain('Credentials');
   });

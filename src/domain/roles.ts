@@ -95,10 +95,12 @@ export const SYSTEM_ROLES: Role[] = [
   {
     id: 'organization-admin', name: 'Organization Admin', system: true,
     description: 'Full administration of the organization’s FixID workspace.',
-    // Everything an organization can control. Performing verifications is the Verifier's job.
-    permissions: PERMISSIONS.map((p) => p.id).filter((p) => p !== 'verification.execute'),
+    // Everything an organization can control, including performing verifications, but only for the
+    // activities an Organization Admin is assigned to (assignment is still required).
+    permissions: PERMISSIONS.map((p) => p.id),
     highlights: [
       'Manage users, groups and credentials', 'Manage verification activities and view verification history',
+      'Perform verifications for activities they’re assigned to (switch to the Verifier view)',
       'Manage administrators, roles and custom roles', 'Manage organization settings and view the audit log',
     ],
     limits: ['Only within their own organization', 'Subject to platform security controls'],

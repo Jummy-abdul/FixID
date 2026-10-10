@@ -42,7 +42,7 @@ export function IdentifierConfigForm({ value, onChange, errors, timeZone, existi
   return (
     <div className="space-y-8">
       <section>
-        <Field label="Identifier name" required error={errors.name} hint="For example Matric Number, Staff ID or Membership Number.">
+        <Field label="Identifier name" required error={errors.name} hint="For example Employee ID, Membership Number or Staff ID.">
           {(p) => <Input {...p} data-autofocus value={value.name} maxLength={40} onChange={(e) => onChange({ ...value, name: e.target.value })} />}
         </Field>
       </section>

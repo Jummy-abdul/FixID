@@ -35,7 +35,8 @@ export interface FaceVerificationService {
   verify(req: FaceVerificationRequest): Promise<FaceVerificationResponse>;
 }
 
-export const FACE_UNAVAILABLE_REASON = 'Biometric verification unavailable: no facial verification provider is connected (integration required). No comparison was made.';
+/** Shown in results and history: says what happened, without technical configuration detail. */
+export const FACE_UNAVAILABLE_REASON = 'Biometric verification was unavailable, so no face comparison was made.';
 
 export const NO_FACE_VERIFICATION: FaceVerificationService = {
   available: false,

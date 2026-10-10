@@ -71,7 +71,8 @@ describe('configuration rules', () => {
     expect(face).toMatch(/needs Identity Record Lookup/);
     expect(face).toMatch(/needs Liveness Verification/);
     expect(face).not.toMatch(/not configured/);
-    expect(validateConfiguration({ type: 'identity', checks: [chk(s, 'face-match')], outcome }, ctx).warnings.map((w) => w.message).join(' ')).toMatch(/Biometric verification isn’t connected/);
+    // No technical provider warnings are shown to administrators.
+    expect(validateConfiguration({ type: 'identity', checks: [chk(s, 'face-match')], outcome }, ctx).warnings.map((w) => w.message).join(' ')).not.toMatch(/biometric|provider/i);
     // Other services that aren't configured block activation.
     expect(msgs({ type: 'identity', checks: [chk(s, 'identity-lookup'), chk(s, 'external-eligibility')], outcome })).toMatch(/not configured/);
     // A required check can't depend on an optional one.
@@ -108,7 +109,7 @@ describe('lifecycle and versions', () => {
     expect(applyActivate(bad.state, { organizationId: ORG, activityId: id1.activityId, at: AT })).toMatchObject({ ok: false, problems: ['Add at least one verification check.'] });
     // An activity can be activated before verifiers are assigned; it says nobody can perform it yet.
     const unassigned = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [] }), at: AT }));
-    expect(activationProblems(unassigned.state, ORG, unassigned.state.data.activityConfigs.find((a) => a.id === id1.activityId)!).warnings).toContain('No verifiers are assigned to this activity yet, so nobody can perform it. Assign verifiers in Participants & Verifiers.');
+    expect(activationProblems(unassigned.state, ORG, unassigned.state.data.activityConfigs.find((a) => a.id === id1.activityId)!).warnings).toEqual(['Assign at least one verifier to allow verification for this activity.']);
 
     s = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [] }), at: AT })).state;
     expect(s.data.verifierAssignments.some((v) => v.activityId === id1.activityId)).toBe(false);
@@ -168,8 +169,8 @@ describe('lifecycle and versions', () => {
   it('blocks activation while a check needs a service that isn’t configured, but reports missing facial verification per verification', () => {
     let s = sampleState();
     const draft = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'draft')!;
-    // Facial verification without a provider: a warning, so the camera journey can be tried; nobody can be verified.
-    expect(activationProblems(s, ORG, draft).warnings.join(' ')).toMatch(/Biometric verification isn’t connected/);
+    // Facial verification is a platform capability: no provider warning for administrators, and activation isn't blocked by it.
+    expect(activationProblems(s, ORG, draft).warnings.join(' ')).not.toMatch(/biometric|provider/i);
     const v = s.data.activityVersions.find((x) => x.id === draft.draftVersionId)!;
     s = { ...s, data: { ...s.data, activityVersions: s.data.activityVersions.map((x) => (x.id === v.id ? { ...x, checks: [...x.checks, chk(s, 'external-eligibility')] } : x)) } };
     expect(activationProblems(s, ORG, draft).blockers.join(' ')).toMatch(/not configured/);
@@ -189,8 +190,9 @@ describe('permissions', () => {
     expect(applySaveActivity(as('verification-manager'), { organizationId: ORG, ids: ids(), form: identityForm(s), at: AT })).toMatchObject({ ok: true });
     expect(applySaveActivity(as('credential-manager'), { organizationId: ORG, ids: ids(), form: identityForm(s), at: AT })).toMatchObject({ ok: false });
     expect(applySaveActivity(as('verifier'), { organizationId: ORG, ids: ids(), form: identityForm(s), at: AT })).toMatchObject({ ok: false });
-    const preview = reducer(s, { type: 'preview/start', roleId: 'verification-manager' });
-    expect(authorizeAction(preview, 'vactivities/save')).toMatch(/read-only/);
+    // In the Viewer view the Organization Admin can't change activities either.
+    const viewer = reducer(s, { type: 'preview/start', roleId: 'viewer' });
+    expect(authorizeAction(viewer, 'vactivities/save')).toBe("You don't have permission to do this.");
   });
 
   it('authorizes a verifier only for activities they’re assigned to; removing the assignment stops them', () => {
@@ -224,7 +226,8 @@ describe('screens', () => {
     await user.click(screen.getByRole('button', { name: 'Actions for Event Access Verification' }));
     await user.click(screen.getByRole('menuitem', { name: 'Activate' }));
     const dialog = screen.getByRole('dialog', { name: 'Activate Event Access Verification?' });
-    expect(dialog).toHaveTextContent(/Biometric verification isn’t connected/);
+    expect(dialog).toHaveTextContent('Its assigned verifiers will be able to use it straight away.');
+    expect(dialog).not.toHaveTextContent(/biometric|provider/i);
   });
 
   it('creates an activity in three stages: details, participants & verifiers, review & activate', async () => {
@@ -251,8 +254,10 @@ describe('screens', () => {
     await user.click(screen.getByRole('button', { name: `Add ${inGroup.displayName}` }));
     const groupSize = new Set(s.data.groupMemberships.filter((x) => x.groupId === group.id).map((x) => x.memberId)).size;
     expect(screen.getByText(/unique eligible/)).toHaveTextContent(`${groupSize} unique eligible people right now · 1 group · 1 user`);
-    // Verifiers: only administrators who can verify, searchable.
-    const verifier = eligibleVerifiers(s.data, ORG)[0];
+    // Verifiers: the administrator creating the activity is preselected; others who can verify are searchable.
+    const me = adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
+    expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me.name!)).toBeInTheDocument();
+    const verifier = eligibleVerifiers(s.data, ORG).find((a) => a.id !== me.id)!;
     const notVerifier = adminsOf(s, ORG).find((a) => a.name === 'Kwame Mensah')!;
     await user.type(screen.getByLabelText('Search verifiers'), verifier.name!.slice(0, 4));
     expect(screen.queryByRole('checkbox', { name: `Assign ${notVerifier.name}` })).toBeNull();
@@ -266,7 +271,7 @@ describe('screens', () => {
     expect(review).toHaveTextContent('Entry for registered members');
     expect(review).toHaveTextContent(`Groups: ${group.name}`);
     expect(review).toHaveTextContent(`Users: ${inGroup.displayName}`);
-    expect(review).toHaveTextContent(`Assigned verifiers${verifier.name}`);
+    expect(review).toHaveTextContent(`Assigned verifiers${me.name}, ${verifier.name}`);
     expect(review).toHaveTextContent('Location checkOff');
     // Going back keeps what was entered.
     await user.click(screen.getByRole('button', { name: /Activity Details/ }));
@@ -274,14 +279,17 @@ describe('screens', () => {
     await user.click(screen.getByRole('button', { name: /Review & Activate/ }));
     await user.click(screen.getByRole('button', { name: 'Create & Activate' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Members Evening/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /^Members Evening/ })).toBeInTheDocument();
     const after = loadState()!;
     const saved = after.data.activityConfigs.find((a) => a.name === 'Members Evening')!;
     expect(saved).toMatchObject({ status: 'active', description: 'Entry for registered members', participants: { groupIds: [group.id], memberIds: [inGroup.id] }, locationCheck: { enabled: false } });
-    expect(after.data.verifierAssignments.filter((v) => v.activityId === saved.id && v.status === 'active').map((v) => v.administratorId)).toEqual([verifier.id]);
+    expect(after.data.activityConfigs.filter((a) => a.name === 'Members Evening')).toHaveLength(1);
+    expect(after.data.verifierAssignments.filter((v) => v.activityId === saved.id && v.status === 'active').map((v) => v.administratorId).sort()).toEqual([me.id, verifier.id].sort());
     expect(authorizeVerifier(after.data, { organizationId: ORG, activityId: saved.id, administratorId: verifier.id })).toEqual({ authorized: true });
     expect(screen.getByRole('list', { name: 'Assigned verifiers' })).toHaveTextContent(verifier.name!);
-    expect(after.data.audit.slice(0, 3).map((e) => e.action)).toEqual(['verification-activity.activated', 'verification-activity.verifier-assigned', 'verification-activity.created']);
+    // The draft was saved automatically along the way, then activated: one activity, created once.
+    expect(after.data.audit[0].action).toBe('verification-activity.activated');
+    expect(after.data.audit.filter((e) => e.resourceId === saved.id && e.action === 'verification-activity.created')).toHaveLength(1);
   });
 
   it('saves an incomplete activity as a draft and explains what blocks activation', async () => {
@@ -293,8 +301,9 @@ describe('screens', () => {
     expect(screen.getByRole('button', { name: 'Create & Activate' })).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('Choose at least one eligible group or user.');
     await user.click(screen.getByRole('button', { name: 'Save as Draft' }));
-    expect(await screen.findByRole('heading', { level: 1, name: /Unfinished Check/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /^Unfinished Check/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+    expect(loadState()!.data.activityConfigs.filter((a) => a.name === 'Unfinished Check')).toHaveLength(1);
   });
 
   it('configures a location check by coordinates when no map provider is connected, and shows it on the activity', async () => {

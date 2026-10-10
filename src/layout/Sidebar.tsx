@@ -9,7 +9,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { pathname } = useLocation();
   const { can } = useAuthorization();
   const allowed = (p?: Permission | Permission[]) => !p || (Array.isArray(p) ? p.some(can) : can(p));
-  const groups = NAVIGATION.map((g) => ({ ...g, items: g.items.filter((i) => allowed(i.permission)) })).filter((g) => g.items.length > 0);
+  // Driven by the effective permissions of the current role view, so custom roles get the items they can use.
+  const groups = NAVIGATION.map((g) => ({ ...g, items: g.items.filter((i) => allowed(i.permission) && !(i.hiddenWith && can(i.hiddenWith))) })).filter((g) => g.items.length > 0);
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-300">
       <div className="flex h-16 items-center gap-2.5 px-5">

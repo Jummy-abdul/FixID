@@ -44,7 +44,7 @@ export function GroupFormModal({ open, group, onClose, onSaved }: {
 
   return (
     <Modal open={open} onClose={busy ? () => {} : onClose} title={group ? 'Edit group' : 'Create group'}
-      description={group ? undefined : 'Groups organize users, for example by department, team, location or cohort. You can add members after creating it.'}
+      description={group ? undefined : 'Groups organize users, for example by team, location or role. You can add members after creating it.'}
       footer={(
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
@@ -54,11 +54,11 @@ export function GroupFormModal({ open, group, onClose, onSaved }: {
       <form id="group-form" onSubmit={submit} noValidate className="space-y-5">
         {errors.form && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-inset ring-red-200">{errors.form}</p>}
         <Field label="Group name" required error={errors.name} hint="A clear, descriptive name. Names must be unique in your organization.">
-          {(p) => <Input {...p} autoFocus maxLength={GROUP_NAME_MAX + 20} placeholder="e.g. Engineering" value={name}
+          {(p) => <Input {...p} autoFocus maxLength={GROUP_NAME_MAX + 20} placeholder="Enter group name" value={name}
             onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((x) => ({ ...x, name: undefined })); }} />}
         </Field>
         <Field label="Description" error={errors.description} hint={`Optional. Explain what the group is for. ${description.trim().length}/${GROUP_DESCRIPTION_MAX}`}>
-          {(p) => <Textarea {...p} rows={3} value={description} placeholder="e.g. Everyone in the engineering department."
+          {(p) => <Textarea {...p} rows={3} value={description} placeholder="Enter a brief description of this group"
             onChange={(e) => { setDescription(e.target.value); if (errors.description) setErrors((x) => ({ ...x, description: undefined })); }} />}
         </Field>
       </form>

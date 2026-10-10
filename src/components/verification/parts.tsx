@@ -129,7 +129,7 @@ export function RulesList({ version }: { version: Pick<ActivityVersion, 'checks'
 }
 
 /** Blocking problems and warnings, in plain language. */
-export function IssuesList({ blockers, warnings, title = 'Resolve before activating' }: { blockers: string[]; warnings: string[]; title?: string }) {
+export function IssuesList({ blockers, warnings, title = 'Resolve before activating', warningsTitle = 'Worth checking' }: { blockers: string[]; warnings: string[]; title?: string; warningsTitle?: string }) {
   if (!blockers.length && !warnings.length) {
     return <p className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 ring-1 ring-inset ring-emerald-200"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Ready to activate. All required configuration is complete.</p>;
   }
@@ -143,7 +143,7 @@ export function IssuesList({ blockers, warnings, title = 'Resolve before activat
       )}
       {warnings.length > 0 && (
         <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-          <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" />Worth checking</p>
+          <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" />{warningsTitle}</p>
           <ul className="mt-1.5 list-disc space-y-1 pl-5">{warnings.map((w) => <li key={w}>{w}</li>)}</ul>
         </div>
       )}

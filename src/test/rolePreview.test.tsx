@@ -39,7 +39,7 @@ describe('current prototype account', () => {
     for (const org of s.data.organizations) {
       const rec = actorRecord(s, org.id)!;
       expect(rec).toMatchObject({ status: 'active', roleIds: ['organization-admin'] });
-      expect([...actorPermissions(s, org.id)].sort()).toEqual(PERMISSIONS.map((p) => p.id).filter((p) => p !== 'verification.execute').sort());
+      expect([...actorPermissions(s, org.id)].sort()).toEqual(PERMISSIONS.map((p) => p.id).sort());
     }
     expect(actorPermissions(s, 'org_somewhere_else').size).toBe(0);
   });
@@ -100,16 +100,17 @@ describe('verification governance and verifiers', () => {
 });
 
 describe('Role Preview', () => {
-  it('narrows what the screens use and makes the workspace read-only, without changing stored roles', () => {
+  it('narrows what the screens and actions use to the chosen role, without changing stored roles', () => {
     const s = sampleState();
     const p = reducer(s, { type: 'preview/start', roleId: 'credential-manager' });
     expect(p.session.previewRoleId).toBe('credential-manager');
     expect(p.data).toBe(s.data);
     expect([...effectivePermissions(p)].sort()).toEqual(['credentials.issue', 'credentials.manage', 'credentials.view', 'groups.view', 'users.view']);
     expect(actorPermissions(p, SAMPLE_ORGANIZATION_ID).has('roles.assign')).toBe(true);
-    // Even actions the previewed role could take are refused while previewing.
-    expect(authorizeAction(p, 'issuance/issue')).toBe(PREVIEW_READ_ONLY);
-    expect(authorizeAction(p, 'admins/roles')).toBe(PREVIEW_READ_ONLY);
+    // Within the role's permissions the view works; anything else is refused.
+    expect(authorizeAction(p, 'issuance/issue')).toBeNull();
+    expect(authorizeAction(p, 'admins/roles')).toBe("You don't have permission to do this.");
+    void PREVIEW_READ_ONLY;
     const kwame = adminsOf(p, SAMPLE_ORGANIZATION_ID).find((a) => a.name === 'Kwame Mensah')!;
     expect(reducer(p, { type: 'admins/roles', organizationId: SAMPLE_ORGANIZATION_ID, adminId: kwame.id, roleIds: ['viewer'], at: AT })).toBe(p);
     const stopped = reducer(p, { type: 'preview/stop' });
@@ -128,19 +129,19 @@ describe('Role Preview', () => {
     const user = renderApp('/', sampleState());
     await user.click(screen.getByRole('button', { name: `Account menu for ${DEMO_ADMIN.name}` }));
     await user.click(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: /^Credential Manager/ }));
-    const banner = await screen.findByRole('region', { name: 'Role preview' });
-    expect(banner).toHaveTextContent('Role preview: Credential Manager');
+    const banner = await screen.findByRole('region', { name: 'Role view' });
+    expect(banner).toHaveTextContent('Credential Manager view');
     const nav = screen.getAllByRole('navigation')[0];
     expect(within(nav).queryByRole('link', { name: /Audit Log/ })).toBeNull();
     expect(within(nav).getByRole('link', { name: /Credentials/ })).toBeInTheDocument();
     // Stored roles are untouched.
     expect(actorRecord(loadState()!, SAMPLE_ORGANIZATION_ID)!.roleIds).toEqual(['organization-admin']);
 
-    await user.selectOptions(within(banner).getByLabelText('Preview role'), 'verifier');
+    await user.selectOptions(within(banner).getByLabelText('Role view'), 'verifier');
     expect(await screen.findByRole('heading', { level: 1, name: 'My Dashboard' })).toBeInTheDocument();
     expect(within(screen.getAllByRole('navigation')[0]).getAllByRole('link').map((l) => l.textContent)).toEqual(['Dashboard', 'My Verification Activities', 'My Verification History']);
-    await user.click(within(screen.getByRole('region', { name: 'Role preview' })).getByRole('button', { name: 'Exit preview' }));
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Role preview' })).toBeNull());
+    await user.click(within(screen.getByRole('region', { name: 'Role view' })).getByRole('button', { name: 'Switch back' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Role view' })).toBeNull());
     expect(within(screen.getAllByRole('navigation')[0]).getByRole('link', { name: /Audit Log/ })).toBeInTheDocument();
   });
 
@@ -153,7 +154,7 @@ describe('Role Preview', () => {
     const s = reducer(sampleState(), { type: 'preview/start', roleId: 'viewer' });
     const user = renderApp('/settings?tab=admins', s);
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Exit preview' }));
+    await user.click(screen.getByRole('button', { name: 'Switch back' }));
     expect(await screen.findByRole('button', { name: 'Invite Administrator' })).toBeInTheDocument();
   });
 });

@@ -1,8 +1,8 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, BadgeCheck, ShieldCheck, ShieldX, UserRound, Wallet } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, ShieldCheck, ShieldX, UserRound } from 'lucide-react';
 import { ButtonLink, Card, CardBody, CardHeader, EmptyState } from '@/components/ui';
 import { FlippableCredentialCard } from '@/components/credentials/CredentialCard';
-import { CredentialStatusBadge, WalletBadge } from '@/components/domain/StatusBadges';
+import { CredentialStatusBadge } from '@/components/domain/StatusBadges';
 import { issuedLook } from '@/domain/templates';
 import type { Credential } from '@/domain/types';
 import { formatDate, formatDateTime } from '@/lib/dates';
@@ -51,14 +51,14 @@ export function IssuedCredentialDetailPage() {
     : type ? { to: `/credentials/configurations/${type.id}?tab=issued`, label: `Back to ${type.name}` }
       : { to: '/credentials', label: 'Back to Credentials' };
 
-  // Activity: recorded events for this credential and its verifications. Nothing is inferred.
+  // Activity: recorded lifecycle events for this credential and its verifications. Nothing is inferred.
+  // Wallet delivery is tracked (and audited) separately and isn't part of this administrator view.
   const events = [
-    ...audit.filter((e) => e.resourceType === 'credential' && e.resourceId === credential.id).map((e) => ({
-      id: e.id, at: e.occurredAt, icon: e.action === 'wallet.delivered' || e.action === 'wallet.failed' ? Wallet : BadgeCheck,
+    ...audit.filter((e) => e.resourceType === 'credential' && e.resourceId === credential.id && !e.action.startsWith('wallet.')).map((e) => ({
+      id: e.id, at: e.occurredAt, icon: BadgeCheck,
       title: ({
         'credential.issued': 'Credential issued', 'credential.renewed': 'Credential renewed', 'credential.suspended': 'Credential suspended',
-        'credential.revoked': 'Credential revoked', 'credential.activated': 'Credential activated', 'wallet.delivered': 'Added to Seamfix Wallet',
-        'wallet.failed': 'Wallet delivery failed',
+        'credential.revoked': 'Credential revoked', 'credential.activated': 'Credential activated',
       } as Record<string, string>)[e.action] ?? e.summary,
       detail: e.actor,
     })),
@@ -84,7 +84,6 @@ export function IssuedCredentialDetailPage() {
     ['Expiration date', credential.expiresAt ? formatDate(credential.expiresAt) : 'No expiry'],
     ['Credential status', <CredentialStatusBadge status={credential.status} />],
     ['Reference number', <span className="font-mono">{credentialReference(credential)}</span>],
-    ['Seamfix Wallet', <WalletBadge status={credential.wallet.status} />],
   ];
 
   return (

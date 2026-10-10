@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { Eye, Lock, LogOut, ShieldOff, X } from 'lucide-react';
 import { Button } from '@/components/ui';
 import type { Permission, Role } from '@/domain/roles';
-import { actorRecord, orgRoles } from '@/store/adminOps';
+import { actorRecord } from '@/store/adminOps';
 import { useActions, useStore } from '@/store/AppStore';
-import { canPreviewRoles, effectivePermissions, previewedRole } from '@/store/state';
+import { canPreviewRoles, effectivePermissions, isAuthorizedView, previewedRole, switchableRoles } from '@/store/state';
 
 /**
  * The signed-in administrator's effective permissions in the current organization, derived from their
@@ -25,24 +25,47 @@ export function useAuthorization() {
     can: (p: Permission) => permissions.has(p),
     /** Any permission opens the workspace; navigation and pages then follow the permissions. */
     portalAccess: active && permissions.size > 0,
-    /** The role being previewed, if any. */
+    /** The role being previewed or switched to, if any. */
     previewRole,
+    /** A role view the administrator holds entirely (e.g. Verifier): it works, within that role's permissions. */
+    roleView: !!previewRole && isAuthorizedView(state),
+    /** True only for a read-only preview of a role the administrator doesn't hold. */
+    readOnly: !!previewRole && !isAuthorizedView(state),
     canPreview: canPreviewRoles(state),
   };
 }
 
-/** Roles an Organization Admin can preview: the system roles and the organization's own custom roles. */
+/** Roles an Organization Admin can switch to: in demo builds every role (read-only unless held entirely), otherwise roles they hold entirely. */
 export function usePreviewableRoles(): Role[] {
   const { state } = useStore();
-  return orgRoles(state, state.session.currentOrganizationId);
+  return switchableRoles(state);
 }
 
 /** Visible whenever Role Preview is on: says what's happening, switches role, and exits. */
 export function RolePreviewBanner() {
-  const { previewRole } = useAuthorization();
+  const { previewRole, roleView } = useAuthorization();
   const roles = usePreviewableRoles();
   const { startRolePreview, stopRolePreview } = useActions();
   if (!previewRole) return null;
+  if (roleView) {
+    return (
+      <div role="region" aria-label="Role view" className="sticky top-0 z-30 border-b border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-950 sm:px-6">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Eye className="h-4 w-4 shrink-0 text-brand-700" aria-hidden="true" />
+          <p className="min-w-0 flex-1"><span className="font-semibold">{previewRole.name} view.</span> <span className="hidden sm:inline">You’re working with this role’s access only. Your own roles are unchanged.</span></p>
+          <label className="sr-only" htmlFor="role-view">Role view</label>
+          <select id="role-view" value={previewRole.id} onChange={(e) => startRolePreview(e.target.value)}
+            className="h-8 rounded-lg border-brand-300 bg-white py-0 pl-2.5 pr-8 text-sm text-slate-800 focus:border-brand-500 focus:ring-brand-500">
+            {roles.map((r) => <option key={r.id} value={r.id}>{r.id === 'organization-admin' ? `${r.name} (full access)` : r.name}{r.system ? '' : ' (custom)'}</option>)}
+          </select>
+          <button type="button" onClick={stopRolePreview}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand-700 px-3 text-sm font-semibold text-white hover:bg-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
+            <X className="h-4 w-4" aria-hidden="true" /> Switch back
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div role="region" aria-label="Role preview" className="sticky top-0 z-30 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-950 sm:px-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

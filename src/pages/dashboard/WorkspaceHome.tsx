@@ -13,7 +13,7 @@ export function WorkspaceHome() {
   const { admin, organization } = useSession();
   const { can } = useAuthorization();
   const items = NAVIGATION.flatMap((g) => g.items)
-    .filter((i) => i.to !== '/' && i.permission && (Array.isArray(i.permission) ? i.permission.some(can) : can(i.permission)));
+    .filter((i) => i.to !== '/' && i.permission && (Array.isArray(i.permission) ? i.permission.some(can) : can(i.permission)) && !(i.hiddenWith && can(i.hiddenWith)));
   return (
     <>
       <PageHeader title="Dashboard" description={`Welcome, ${admin.name.split(' ')[0]}. What you can do in ${organization.name}.`} />

@@ -4,7 +4,7 @@ import type {
   ActivityCheck, ActivityConfig, ActivityVersion, AuditEvent, OutcomePolicy, StandardRequirements, VerificationType, VerifierAssignment,
 } from '@/domain/types';
 import {
-  CHECKS, OUTCOME_LABEL, TYPE_INFO, activeAssignments, buildChecks, checkById, eligibleVerifiers, identityUnavailable, lookupOnlyIdentity, providersFor, validateConfiguration, withPlatformPolicies,
+  CHECKS, OUTCOME_LABEL, TYPE_INFO, activeAssignments, buildChecks, checkById, eligibleVerifiers, identityUnavailable, providersFor, validateConfiguration, withPlatformPolicies,
   type ValidationContext,
 } from '@/domain/verification';
 import { actorPermissions } from './adminOps';
@@ -34,6 +34,8 @@ export interface ActivityForm {
   entryPolicy?: ActivityConfig['entryPolicy'];
   restrictVerifiers?: boolean;
   locationCheck?: LocationCheckConfig;
+  /** Drafts: where the editor was, so the draft reopens there. Saved without an audit entry. */
+  editorStep?: ActivityConfig['editorStep'];
   /**
    * Editing an existing activity in the simplified editor: keep its verification configuration
    * (checks, outcome rules, requirements) exactly as saved instead of regenerating it.
@@ -157,6 +159,9 @@ const adminName = (state: AppState, id: string) => {
   return a?.name ?? a?.email ?? 'Unknown administrator';
 };
 
+/** The one warning shown when nobody can perform an activity. */
+export const NO_VERIFIER_WARNING = 'Assign at least one verifier to allow verification for this activity.';
+
 /** Create an activity (as Draft) or save changes to one. Config changes on an active activity go to a draft version. */
 export function applySaveActivity(state: AppState, input: { organizationId: string; activityId?: string; ids: { activityId: string; versionId: string }; form: ActivityForm; at: string }): Result {
   const { organizationId, at } = input;
@@ -171,7 +176,7 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   if (nameErr) return { ok: false, error: nameErr, field: 'name' };
   const eligible = new Set(eligibleVerifiers(state.data, organizationId).map((a) => a.id));
   const diff = verifierDiff(state, organizationId, existing?.id ?? input.ids.activityId, form.verifierIds);
-  if (diff.add.some((id) => !eligible.has(id))) return { ok: false, error: 'Only active administrators with the Verifier role can be assigned.' };
+  if (diff.add.some((id) => !eligible.has(id))) return { ok: false, error: 'Only active administrators who can perform verifications can be assigned.' };
   if ((diff.add.length || diff.remove.length) && !need('verification.verifiers.assign')) return { ok: false, error: "You don't have permission to assign verifiers." };
 
   const details = { name: form.name.trim(), description: form.description.trim(), purpose: form.purpose.trim() };
@@ -208,6 +213,7 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
     if (!need('verification.activities.create')) return { ok: false, error: DENIED };
     const activity: ActivityConfig = {
       id: input.ids.activityId, organizationId, ...details, ...settings, status: 'draft', draftVersionId: input.ids.versionId,
+      ...(form.editorStep ? { editorStep: form.editorStep } : {}),
       createdAt: at, createdBy: by, updatedAt: at, updatedBy: by,
     };
     const version: ActivityVersion = {
@@ -254,7 +260,12 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   if (detailChanges.length && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   if (participantsChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   if (configChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
-  if (!detailChanges.length && !participantsChanged && !configChanged && !diff.add.length && !diff.remove.length) return { ok: true, state, activityId: existing.id };
+  const stepChanged = existing.status === 'draft' && !!form.editorStep && form.editorStep !== existing.editorStep;
+  if (!detailChanges.length && !participantsChanged && !configChanged && !diff.add.length && !diff.remove.length) {
+    // Only the draft's editor position moved: remember it quietly (it isn't an activity change).
+    if (!stepChanged) return { ok: true, state, activityId: existing.id };
+    return { ok: true, activityId: existing.id, state: { ...state, data: { ...state.data, activityConfigs: state.data.activityConfigs.map((a) => (a.id === existing.id ? { ...a, editorStep: form.editorStep } : a)) } } };
+  }
 
   let versions = state.data.activityVersions;
   let draftVersionId = existing.draftVersionId;
@@ -272,7 +283,10 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
       draftVersionId = createdVersion.id;
     }
   }
-  const next: ActivityConfig = { ...existing, ...details, ...settings, draftVersionId, updatedAt: at, updatedBy: by };
+  const next: ActivityConfig = {
+    ...existing, ...details, ...settings, draftVersionId, updatedAt: at, updatedBy: by,
+    ...(existing.status === 'draft' && form.editorStep ? { editorStep: form.editorStep } : {}),
+  };
   const label = next.name;
   const into = existing.status !== 'draft' && configChanged
     ? ` (saved as draft version ${createdVersion?.number ?? draft?.number}; version ${active?.number} stays in use until it’s activated)` : '';
@@ -324,9 +338,8 @@ export function activationProblems(state: AppState, organizationId: string, acti
   const identity = identityUnavailable(version, org);
   if (identity) blockers.unshift(identity);
   const warnings = v.warnings.map((w) => w.message);
-  if (lookupOnlyIdentity(version)) warnings.push('Identity is confirmed only by finding a record from an identifier, which doesn’t prove who is present. Newer activities also require the person’s stated details to match.');
-  if (!eligible.size) warnings.push('Nobody in your organization has the Verifier role yet, so nobody can perform this activity. Add one in Settings → Administrators & Roles.');
-  else if (!assigned) warnings.push('No verifiers are assigned to this activity yet, so nobody can perform it. Assign verifiers in Participants & Verifiers.');
+  // Only issues an administrator can act on.
+  if (!eligible.size || !assigned) warnings.push(NO_VERIFIER_WARNING);
   return { blockers: [...new Set(blockers)], warnings };
 }
 

@@ -23,7 +23,7 @@ function SegmentFields({ segment, onChange, timeZone }: { segment: IdentifierSeg
   );
   switch (segment.kind) {
     case 'static':
-      return label('Text', <Input value={segment.value} maxLength={12} placeholder="e.g. STU" className="h-9 w-40 font-mono uppercase"
+      return label('Text', <Input value={segment.value} maxLength={12} placeholder="e.g. ID" className="h-9 w-40 font-mono uppercase"
         onChange={(e) => onChange({ ...segment, value: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} />);
     case 'separator':
       return (

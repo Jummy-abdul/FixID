@@ -273,7 +273,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
               </p>
             )}
             {errors.form && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{errors.form}</p>}
-            <Field label="Credential name" required error={errors.name} hint="For example Student ID, Staff ID, Membership Card or Visitor Pass.">
+            <Field label="Credential name" required error={errors.name} hint="For example Staff ID, Membership Card or Visitor Pass.">
               {(p) => <Input {...p} data-autofocus value={form.name} onChange={(e) => set('name', e.target.value)} />}
             </Field>
 
@@ -289,7 +289,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
               </div>
               {identifierConfigs.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-                  <p>No identifiers yet. Create one, such as Matric Number or Staff ID.</p>
+                  <p>No identifiers yet. Create one, such as Employee ID or Membership Number.</p>
                   <Button size="sm" className="mt-3" icon={<Plus className="h-4 w-4" />} onClick={() => setNested(initialIdentifierForm(undefined, ''))}>Create identifier</Button>
                 </div>
               ) : (

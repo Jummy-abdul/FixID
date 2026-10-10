@@ -125,7 +125,7 @@ export function OnboardingOrganizationPage() {
       <form onSubmit={submit} noValidate className="space-y-5">
         {errors.form && <FormError>{errors.form}</FormError>}
         <Field label="Organization name" required error={errors.name}>
-          {(p) => <Input {...p} autoComplete="organization" autoFocus className="h-11" placeholder="e.g. Crestfield Academy" value={name} onChange={(e) => setName(e.target.value)} />}
+          {(p) => <Input {...p} autoComplete="organization" autoFocus className="h-11" placeholder="Enter your organization’s name" value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
         <CountryCombobox value={country} onChange={(c) => { setCountry(c); setRegion(''); setErrors((x) => ({ ...x, country: undefined })); }} error={errors.country} required />
         <Field label="State / Region">

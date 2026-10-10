@@ -129,7 +129,12 @@ describe('physical access: entry recording and duplicate entries', () => {
   it('lets only verifiers record entry', async () => {
     const h = harness(asHalima(base()));
     const a = await verify(h, people(h.state).insider);
-    const admin = harness({ ...h.state, data: { ...h.state.data, admin: base().data.admin } });
+    // A Viewer can see results but can't record entry decisions.
+    const owner = { ...h.state, data: { ...h.state.data, admin: base().data.admin } };
+    const other = adminsOf(owner, ORG).find((x) => x.name === 'Adaora Nwosu')!;
+    const demoted = reducer(owner, { type: 'admins/roles', organizationId: ORG, adminId: other.id, roleIds: ['viewer'], at: AT });
+    expect(adminsOf(demoted, ORG).find((x) => x.id === other.id)!.roleIds).toEqual(['viewer']);
+    const admin = harness({ ...demoted, data: { ...demoted.data, admin: { ...demoted.data.admin, id: other.userId! } } });
     expect(admin.service.recordEntry(a.id)).toMatchObject({ ok: false, error: 'Only verifiers can record entry.' });
     expect(admin.state.data.verificationAttempts.find((x) => x.id === a.id)!.entry).toBeUndefined();
   });

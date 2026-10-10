@@ -347,7 +347,7 @@ describe('manual user creation', () => {
     for (const name of ['Static text', 'Separator', 'Date', 'Separator', 'Sequential number']) {
       await user.click(within(drawer).getByRole('button', { name }));
     }
-    const text = within(drawer).getByPlaceholderText('e.g. STU');
+    const text = within(drawer).getByPlaceholderText('e.g. ID');
     await user.clear(text);
     await user.type(text, 'emp');
     const [dateFormat, digits] = within(drawer).getAllByRole('combobox');

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Copy, Eye, Pencil, Plus, Power, PowerOff, ScanFace, ShieldCheck, Trash2 } from 'lucide-react';
+import { Copy, Eye, Pencil, Plus, Power, PowerOff, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
   type OverflowMenuItem,
@@ -75,7 +75,7 @@ export function VerificationActivitiesPage() {
 
   const menu = (a: ActivityConfig): OverflowMenuItem[] => [
     { key: 'view', label: 'View Activity', icon: <Eye className="h-4 w-4" />, onSelect: () => navigate(activityPath(a.id)) },
-    ...(canEdit ? [{ key: 'edit', label: 'Edit Activity', icon: <Pencil className="h-4 w-4" />, onSelect: () => navigate(`${activityPath(a.id)}/edit`) }] : []),
+    ...(canEdit ? [{ key: 'edit', label: a.status === 'draft' ? 'Continue Editing' : 'Edit Activity', icon: <Pencil className="h-4 w-4" />, onSelect: () => navigate(`${activityPath(a.id)}/edit`) }] : []),
     ...(canManage && a.status !== 'active' ? [{ key: 'activate', label: 'Activate', icon: <Power className="h-4 w-4" />, onSelect: () => setPending({ kind: 'activate', activity: a }) }] : []),
     ...(canManage && a.status === 'active' ? [{ key: 'deactivate', label: 'Deactivate', icon: <PowerOff className="h-4 w-4" />, onSelect: () => setPending({ kind: 'deactivate', activity: a }) }] : []),
     ...(canCreate ? [{ key: 'duplicate', label: 'Duplicate Activity', icon: <Copy className="h-4 w-4" />, onSelect: () => duplicate(a) }] : []),
@@ -85,7 +85,6 @@ export function VerificationActivitiesPage() {
   const create = canCreate ? <ButtonLink to="/verification-activities/new" variant="primary" icon={<Plus className="h-4 w-4" />}>Create Activity</ButtonLink> : undefined;
   const headerActions = (
     <>
-      <ButtonLink to="/verify" variant="secondary" icon={<ScanFace className="h-4 w-4" />}>Open Verifier Workspace</ButtonLink>
       {create}
     </>
   );
@@ -132,7 +131,17 @@ export function VerificationActivitiesPage() {
                 ),
               },
               { key: 'updated', header: 'Last Updated', cell: (r) => <span className="whitespace-nowrap text-slate-500">{formatDate(r.activity.updatedAt)}</span> },
-              { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'w-12 text-right', cell: (r) => <OverflowMenu label={`Actions for ${r.activity.name}`} items={menu(r.activity)} /> },
+              { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', cell: (r) => (
+                <span className="inline-flex items-center justify-end gap-2">
+                  {/* A draft opens where it was left, with everything entered so far. */}
+                  {canEdit && r.activity.status === 'draft' && (
+                    <Link to={`${activityPath(r.activity.id)}/edit`} className="whitespace-nowrap text-sm font-semibold text-brand-600 hover:text-brand-700">
+                      Continue Editing<span className="sr-only"> {r.activity.name}</span>
+                    </Link>
+                  )}
+                  <OverflowMenu label={`Actions for ${r.activity.name}`} items={menu(r.activity)} />
+                </span>
+              ) },
             ]}
           />
         )}

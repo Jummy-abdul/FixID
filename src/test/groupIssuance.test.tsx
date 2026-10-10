@@ -119,8 +119,9 @@ describe('group issuance', () => {
     expect(run(asVm, type, [eligible[0].id])).toMatchObject({ ok: false, error: "You don't have permission to issue credentials." });
     const cm = adminsOf(s, ORG).find((a) => a.roleIds.includes('credential-manager') && a.status === 'active')!;
     expect(run({ ...s, data: { ...s.data, admin: { ...s.data.admin, id: cm.userId! } } }, type, [eligible[0].id])).toMatchObject({ ok: true });
-    const preview = reducer(s, { type: 'preview/start', roleId: 'credential-manager' });
-    expect(authorizeAction(preview, 'issuance/group')).toMatch(/read-only/);
+    // Switching role views never adds a permission: the Viewer view can't issue.
+    const viewer = reducer(s, { type: 'preview/start', roleId: 'viewer' });
+    expect(authorizeAction(viewer, 'issuance/group')).toBe("You don't have permission to do this.");
   });
 });
 

@@ -68,7 +68,7 @@ export function LocationCheckEditor({ value, onChange, error, readOnly }: { valu
               <div className="flex gap-2" role="search">
                 <div className="min-w-0 flex-1">
                   <label className="sr-only" htmlFor="loc-search">Search for a location or address</label>
-                  <Input id="loc-search" value={q} disabled={readOnly} placeholder="Search for a location or address" onChange={(e) => { setQ(e.target.value); setSearchError(null); }}
+                  <Input id="loc-search" value={q} disabled={readOnly} placeholder="Search for a location or select one on the map" onChange={(e) => { setQ(e.target.value); setSearchError(null); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void search(); } }} />
                 </div>
                 <Button type="button" onClick={() => void search()} variant="secondary" loading={searching} disabled={readOnly} icon={searching ? undefined : <Search className="h-4 w-4" />}>Search</Button>

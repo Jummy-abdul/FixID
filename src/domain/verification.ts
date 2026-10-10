@@ -188,7 +188,7 @@ export function providersFor(org: Organization): ProviderInfo[] {
       description: 'Compares a live capture with the person’s enrolled reference (1:1) and checks liveness.',
       ...(faceProviderConfigured()
         ? { status: 'available' as const, statusNote: 'Connected through the configured facial verification endpoint.' }
-        : { status: 'not-configured' as const, statusNote: 'No facial verification provider is integrated yet. Verifications record Biometric Verification Unavailable until one is.' }),
+        : { status: 'not-configured' as const, statusNote: 'Biometric verification is unavailable. Verifications record Unable to Verify until it is.' }),
     },
     {
       id: 'presentation-proof', name: 'Credential presentation proof', role: 'provider', internal: false,
@@ -325,11 +325,10 @@ export function validateConfiguration(version: Pick<ActivityVersion, 'type' | 'c
     const def = checkById(c.type);
     const p = statusOf(c.providerId);
     if (!p || !def.providers.includes(p.id)) blockers.push({ checkId: c.id, message: `Choose a verification provider for ${def.name}.` });
-    // Facial verification can be activated before a provider is connected: each verification then records
-    // Biometric Verification Unavailable (identity Unable to Verify). Nobody is ever verified without it.
-    else if (p.status !== 'available' && p.id === 'facial-matching') {
-      if (!warnings.some((w) => w.message.startsWith('Biometric verification'))) warnings.push({ message: 'Biometric verification isn’t connected: no facial verification provider is integrated. Until one is, verifications record Unable to Verify and nobody can be verified.' });
-    } else if (p.status !== 'available') blockers.push({ checkId: c.id, message: `${def.name} uses ${p.name}, which is ${p.status === 'unavailable' ? 'unavailable' : 'not configured'}. ${p.statusNote}` });
+    // Facial verification is a platform capability, not something administrators configure. If it's
+    // unavailable at verification time, the verification records Unable to Verify; nobody is verified without it.
+    else if (p.status !== 'available' && p.id === 'facial-matching') { /* reported per verification */ }
+    else if (p.status !== 'available') blockers.push({ checkId: c.id, message: `${def.name} uses ${p.name}, which is ${p.status === 'unavailable' ? 'unavailable' : 'not configured'}. ${p.statusNote}` });
     if (def.sources) {
       const src = statusOf(c.sourceId);
       if (!src || !def.sources.includes(src.id)) blockers.push({ checkId: c.id, message: `Choose a trusted source for ${def.name}.` });

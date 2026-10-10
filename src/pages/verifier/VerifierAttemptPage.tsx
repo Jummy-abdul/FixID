@@ -227,8 +227,8 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
               </div>
               {!steps.biometric.available && (
                 <div role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
-                  <p className="flex items-center gap-1.5 font-semibold"><ScanFace className="h-4 w-4" aria-hidden="true" />Biometric Verification Unavailable: integration required</p>
-                  <p className="mt-1">No facial verification provider is connected. You can capture a selfie, but no comparison will be made: identity will be recorded as Unable to Verify. Don’t compare faces by eye instead.</p>
+                  <p className="flex items-center gap-1.5 font-semibold"><ScanFace className="h-4 w-4" aria-hidden="true" />Biometric Verification Unavailable</p>
+                  <p className="mt-1">Biometric verification isn’t available right now. You can capture a selfie, but no comparison will be made: identity will be recorded as Unable to Verify. Don’t compare faces by eye instead.</p>
                 </div>
               )}
               <CameraCapture captured={capture} onCapture={setCapture} onRetake={() => setCapture(null)} />
@@ -397,7 +397,7 @@ function ResultSummary({ attempt }: { attempt: VerificationAttempt }) {
       {biometricUnavailable && (
         <p className="mt-3 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
           <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><span className="font-semibold">Biometric Verification Unavailable: integration required.</span> No facial verification provider is connected, so no comparison was made and identity wasn’t verified.</span>
+          <span><span className="font-semibold">Biometric Verification Unavailable.</span> No face comparison was made, so identity wasn’t verified.</span>
         </p>
       )}
       <dl className="mt-4 divide-y divide-slate-100">

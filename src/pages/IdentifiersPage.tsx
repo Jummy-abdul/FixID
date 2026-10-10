@@ -22,7 +22,7 @@ export function IdentifiersPage() {
           rows={identifierConfigs}
           rowKey={(c) => c.id}
           empty={<EmptyState icon={<Fingerprint className="h-5 w-5" />} title="No identifiers yet"
-            description="Identifiers like Matric Number or Staff ID are set up once, the first time you add a user." />}
+            description="Identifiers like an Employee ID or Membership Number are set up once, the first time you add a user." />}
           columns={[
             { key: 'name', header: 'Identifier', cell: (c) => <span className="font-medium text-slate-900">{c.name}</span> },
             { key: 'mode', header: 'Assignment', cell: (c) => <Badge tone={c.mode === 'manual' ? 'neutral' : 'brand'}>{c.mode === 'manual' ? 'Entered manually' : 'Generated'}</Badge> },

@@ -16,7 +16,7 @@ import { cn } from '@/lib/cn';
 import { useQueryState } from '@/hooks/useQueryState';
 import { adminsOf, invitationExpired, inviteProblem, orgRoles, roleHolders, roleProblems, type RoleErrors } from '@/store/adminOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 type View = 'administrators' | 'roles';
 
@@ -107,6 +107,7 @@ export function AdministratorsPanel() {
   const current: View = tabs.some(([id]) => id === view) ? (view as View) : tabs[0][0];
   return (
     <div>
+      <ReturnToActivity />
       <div className="mb-5 inline-flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium" role="tablist" aria-label="Administrators and roles">
         {tabs.map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={current === id} onClick={() => setView(id)}
@@ -116,6 +117,22 @@ export function AdministratorsPanel() {
         ))}
       </div>
       {current === 'administrators' ? <AdministratorsTab /> : <RolesTab />}
+    </div>
+  );
+}
+
+/**
+ * Shown when the administrator came here from a verification activity draft (Invite Administrator):
+ * the draft was saved before leaving, so they can go straight back to it.
+ */
+function ReturnToActivity() {
+  const returnTo = new URLSearchParams(useLocation().search).get('returnTo');
+  // Only links back into Verification Activities are honoured.
+  if (!returnTo || !/^\/verification-activities\/[\w-]+\/edit(\?[\w=&-]*)?$/.test(returnTo)) return null;
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200" role="region" aria-label="Activity draft">
+      <span className="flex-1">Your verification activity draft is saved. Invite the administrator, then go back to continue where you left off.</span>
+      <Link to={returnTo} className="inline-flex items-center gap-1 font-semibold text-sky-800 hover:text-sky-950"><ArrowLeft className="h-4 w-4" aria-hidden="true" />Back to activity</Link>
     </div>
   );
 }
@@ -148,7 +165,9 @@ function AdministratorsTab() {
   const [status, setStatus] = useState('all');
   const [role, setRole] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  // Arriving from an activity's Invite Administrator action opens the invitation straight away.
+  const { search } = useLocation();
+  const [inviteOpen, setInviteOpen] = useState(() => new URLSearchParams(search).get('invite') === '1');
   const [viewing, setViewing] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   useEffect(() => { const t = setTimeout(() => setLoading(false), 250); return () => clearTimeout(t); }, []);
@@ -521,7 +540,7 @@ function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void 
             {holders} {holders === 1 ? 'administrator has' : 'administrators have'} this role. Changes apply to them as soon as you save, including removed permissions.
           </p>
         )}
-        <Field label="Role name" required error={errors.name} hint="e.g. Student Records Officer">
+        <Field label="Role name" required error={errors.name} hint="e.g. Records Officer">
           {(p) => <Input {...p} autoFocus value={name} maxLength={60} onChange={(e) => { setName(e.target.value); setErrors((x) => ({ ...x, name: undefined })); }} />}
         </Field>
         <Field label="Description" hint="Optional">
