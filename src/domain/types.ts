@@ -1,3 +1,4 @@
+import type { LocationCheckConfig, LocationCheckRecord } from './location';
 import type { Role } from './roles';
 /**
  * FixID domain model.
@@ -378,6 +379,7 @@ export type AuditAction =
   | 'verification-activity.participants-changed'
   | 'verification.denied'
   | 'verification.entry-recorded'
+  | 'verification.entry-denied'
   | 'integration.demo-providers'
   | 'admin.role-removed'
   | 'role.created'
@@ -591,6 +593,8 @@ export interface ActivityConfig {
   entryPolicy?: 'off' | 'flag' | 'deny';
   /** Advanced: only assigned verifiers may perform the activity. Off by default (any organization Verifier). */
   restrictVerifiers?: boolean;
+  /** Optional check of the verifier device's location during verification. Reported only; never decides entry. */
+  locationCheck?: LocationCheckConfig;
   createdAt: ISODate;
   createdBy: string;
   updatedAt: ISODate;
@@ -672,7 +676,10 @@ export interface VerificationAttempt {
   accessDecision?: 'permitted' | 'not-permitted' | 'review-required';
   accessReasons?: string[];
   /** Physical entry, recorded separately by an authorized officer. Never set automatically. */
-  entry?: { status: 'entered'; recordedAt: ISODate; recordedBy: string };
+  /** The officer's physical entry decision, recorded separately and never automatically. */
+  entry?: { status: 'entered' | 'denied'; recordedAt: ISODate; recordedBy: string; reason?: string };
+  /** The location check, when the activity has one. Separate from the identity and eligibility results. */
+  location?: LocationCheckRecord;
   /** Review referral, kept separate from the original outcome. */
   review?: { status: 'pending'; referredAt: ISODate; referredBy: string; reason: string };
   /** Idempotency key of the submission that completed the attempt. */

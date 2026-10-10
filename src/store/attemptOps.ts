@@ -2,6 +2,8 @@ import type { AuditEvent, CheckRun, VerificationAttempt, VerificationClientRef }
 import { authorizeVerifier, checkById, evaluateOutcome, splitResults } from '@/domain/verification';
 import { actorPermissions as actorPermissionsFor, actorRecord } from './adminOps';
 import type { AppState } from './state';
+import { LOCATION_LABEL, evaluateLocation, formatCoordinate } from '@/domain/location';
+import type { DeviceLocation } from '@/services/location';
 import { formatDateTime } from '@/lib/dates';
 
 /**
@@ -88,6 +90,8 @@ export interface CompleteInput {
   checks: CheckRun[];
   subject?: VerificationAttempt['subject'];
   inputs?: VerificationAttempt['inputs'];
+  /** What the verifier's device reported, when the activity has a location check. Evaluated here, not trusted as a result. */
+  location?: DeviceLocation;
 }
 
 export function applyCompleteAttempt(state: AppState, input: CompleteInput): Result {
@@ -113,8 +117,10 @@ export function applyCompleteAttempt(state: AppState, input: CompleteInput): Res
   const simulated = checks.some((c) => c.simulated && (c.status === 'passed' || c.status === 'failed'));
   const split = splitResults(version, checks);
   const access = accessDecision(state, g.attempt, outcome, input.subject?.memberId);
+  // Reported alongside the result; it never changes the outcome, eligibility or access decision.
+  const location = evaluateLocation(state.data.activityConfigs.find((a) => a.id === g.attempt.activityId)?.locationCheck, input.location);
   const attempt: VerificationAttempt = {
-    ...g.attempt, status: 'completed', completedAt: input.at, checks, outcome, reasons, simulated, ...split, ...access,
+    ...g.attempt, status: 'completed', completedAt: input.at, checks, outcome, reasons, simulated, ...split, ...access, location,
     subject: input.subject, inputs: input.inputs, submissionId: input.submissionId,
     review: outcome === 'pending-review' ? { status: 'pending', referredAt: input.at, referredBy: 'Activity policy', reason: reasons[0] ?? 'Required by the activity’s review policy.' } : undefined,
   };
@@ -192,7 +198,7 @@ export const checkName = (c: Pick<CheckRun, 'type'>) => checkById(c.type).name;
 /** The person's earlier recorded entry for this activity, if any. */
 function previousEntry(state: AppState, attempt: Pick<VerificationAttempt, 'id' | 'activityId'>, memberId?: string) {
   if (!memberId) return undefined;
-  return state.data.verificationAttempts.find((a) => a.id !== attempt.id && a.activityId === attempt.activityId && a.subject?.memberId === memberId && a.entry);
+  return state.data.verificationAttempts.find((a) => a.id !== attempt.id && a.activityId === attempt.activityId && a.subject?.memberId === memberId && a.entry?.status === 'entered');
 }
 
 /**
@@ -221,7 +227,7 @@ export function entryProblem(state: AppState, attemptId: string): string | null 
   if (!rec || rec.status !== 'active') return 'You aren’t an administrator of this organization.';
   if (!actorPermissionsFor(state, a.organizationId).has('verification.execute')) return 'Only verifiers can record entry.';
   if (a.status !== 'completed' || a.accessDecision !== 'permitted') return 'Entry can only be recorded after access was permitted.';
-  if (a.entry) return 'Entry has already been recorded.';
+  if (a.entry) return 'An entry decision has already been recorded for this verification.';
   const policy = state.data.activityConfigs.find((x) => x.id === a.activityId)?.entryPolicy ?? 'off';
   if (policy === 'deny' && previousEntry(state, a, a.subject?.memberId)) return 'This person has already entered, and this activity doesn’t allow multiple entries.';
   return null;
@@ -239,7 +245,53 @@ export function applyRecordEntry(state: AppState, input: { attemptId: string; at
     id: `AUD-${String(max + 1).padStart(5, '0')}`, organizationId: a.organizationId, action: 'verification.entry-recorded',
     actor: by, actorType: 'admin', resourceType: 'verification-activity', resourceId: a.activityId,
     subject: { id: a.activityId, name: a.activityName }, result: 'success', occurredAt: input.at,
-    summary: `${by} recorded entry for ${a.subject?.label ?? 'a person'} at ${a.activityName} (verification ${a.id}).`,
+    summary: `${by} allowed entry for ${a.subject?.label ?? 'a person'} at ${a.activityName} (verification ${a.id}).`,
+    changes: entryChanges(a, 'Allowed'),
+  };
+  return { ok: true, state: replace(state, next, [event]), attempt: next };
+}
+
+/** Audit details for an entry decision, including the location check it was made alongside. */
+function entryChanges(a: VerificationAttempt, decision: string): AuditEvent['changes'] {
+  const loc = a.location;
+  return [
+    { field: 'Entry decision', from: '—', to: decision },
+    { field: 'Verification outcome', from: '—', to: a.outcome ?? '—' },
+    ...(loc && loc.result !== 'not-required' ? [
+      { field: 'Location check', from: '—', to: LOCATION_LABEL[loc.result] },
+      ...(loc.reported ? [{ field: 'Reported device location', from: '—', to: `${formatCoordinate(loc.reported.lat)}, ${formatCoordinate(loc.reported.lng)} (±${loc.reported.accuracyM} m)` }] : []),
+      ...(loc.reason ? [{ field: 'Location unavailable because', from: '—', to: loc.reason }] : []),
+    ] : []),
+  ];
+}
+
+/** Why the officer can't record a Deny Entry decision, or null. Denying is always possible after a completed verification. */
+export function denyProblem(state: AppState, attemptId: string): string | null {
+  const a = state.data.verificationAttempts.find((x) => x.id === attemptId);
+  if (!a) return 'This verification wasn’t found.';
+  const rec = actorRecord(state, a.organizationId);
+  if (!rec || rec.status !== 'active') return 'You aren’t an administrator of this organization.';
+  if (!actorPermissionsFor(state, a.organizationId).has('verification.execute')) return 'Only verifiers can record entry decisions.';
+  if (a.status !== 'completed') return 'An entry decision can only be recorded for a completed verification.';
+  if (a.entry) return 'An entry decision has already been recorded for this verification.';
+  return null;
+}
+
+export function applyDenyEntry(state: AppState, input: { attemptId: string; at: string; reason?: string }): Result {
+  const problem = denyProblem(state, input.attemptId);
+  if (problem) return { ok: false, error: problem, code: 'not-in-progress' };
+  const a = state.data.verificationAttempts.find((x) => x.id === input.attemptId)!;
+  const rec = actorRecord(state, a.organizationId)!;
+  const by = rec.name ?? rec.email;
+  const reason = input.reason?.trim() || undefined;
+  const next: VerificationAttempt = { ...a, entry: { status: 'denied', recordedAt: input.at, recordedBy: by, ...(reason ? { reason } : {}) } };
+  const max = state.data.audit.reduce((m, x) => Math.max(m, Number(x.id.replace(/\D/g, '')) || 0), 0);
+  const event: AuditEvent = {
+    id: `AUD-${String(max + 1).padStart(5, '0')}`, organizationId: a.organizationId, action: 'verification.entry-denied',
+    actor: by, actorType: 'admin', resourceType: 'verification-activity', resourceId: a.activityId,
+    subject: { id: a.activityId, name: a.activityName }, result: 'success', occurredAt: input.at,
+    summary: `${by} denied entry for ${a.subject?.label ?? 'a person'} at ${a.activityName} (verification ${a.id})${reason ? `: ${reason}` : ''}.`,
+    changes: entryChanges(a, 'Denied'),
   };
   return { ok: true, state: replace(state, next, [event]), attempt: next };
 }

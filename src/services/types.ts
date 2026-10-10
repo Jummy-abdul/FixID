@@ -1,3 +1,4 @@
+import type { GeolocationService, MapsService } from './location';
 import type { CanonicalIdentity, Credential, CredentialType, Organization, WalletDeliveryStatus } from '@/domain/types';
 
 export interface ServiceHealth {
@@ -79,4 +80,8 @@ export interface Services {
   idSwitch: IdSwitchService;
   issuance: CredentialIssuanceService;
   wallet: WalletService;
+  /** Map tiles and address search for choosing an activity's location. */
+  maps: MapsService;
+  /** The verifier device's location, captured only for activities with a location check. */
+  geolocation: GeolocationService;
 }

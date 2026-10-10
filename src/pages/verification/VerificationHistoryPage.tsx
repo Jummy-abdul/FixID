@@ -4,7 +4,7 @@ import { Download, FlaskConical, X } from 'lucide-react';
 import { Badge, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice, type Column } from '@/components/ui';
 import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { ResultBadge } from '@/components/domain/StatusBadges';
-import { AccessAndEntry, AccessBadge, EligibilityBadge, EntryBadge, IdentityResultBadge } from '@/components/verification/attemptParts';
+import { AccessAndEntry, AccessBadge, EligibilityBadge, EntryBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
 import { rangeStart, type TimeRange } from '@/domain/metrics';
 import type { Transaction, VerificationAttempt, VerificationOutcome } from '@/domain/types';
 import { OUTCOME_LABEL, checkById, providersFor } from '@/domain/verification';
@@ -35,6 +35,7 @@ interface HistoryRow {
   outcome: ReactNode;
   outcomeKey?: VerificationOutcome;
   access: ReactNode;
+  location: ReactNode;
   entry: ReactNode;
   entered: boolean;
   search: string;
@@ -47,7 +48,7 @@ function fromAttempt(a: VerificationAttempt): HistoryRow {
     identity: <IdentityResultBadge attempt={a} />, eligibility: <EligibilityBadge attempt={a} />,
     outcome: <span className="inline-flex items-center gap-1"><AttemptBadge attempt={a} />{a.simulated && <FlaskConical className="h-3.5 w-3.5 text-amber-600" aria-label="Used simulated providers" />}</span>,
     outcomeKey: a.status === 'completed' ? a.outcome : undefined,
-    access: <AccessBadge attempt={a} />, entry: <EntryBadge attempt={a} />, entered: !!a.entry,
+    access: <AccessBadge attempt={a} />, location: <LocationBadge attempt={a} />, entry: <EntryBadge attempt={a} />, entered: a.entry?.status === 'entered',
     search: [a.id, a.activityName, a.subject?.label, a.verifierName, ...a.reasons].join(' ').toLowerCase(),
   };
 }
@@ -72,6 +73,7 @@ function HistoryTable({ rows, hide = [], empty }: { rows: HistoryRow[]; hide?: s
     { key: 'eligibility', header: 'Eligibility', cell: (r) => r.eligibility },
     { key: 'outcome', header: 'Outcome', cell: (r) => r.outcome },
     { key: 'access', header: 'Access', cell: (r) => r.access },
+    { key: 'location', header: 'Location', cell: (r) => r.location },
     { key: 'entry', header: 'Entry', cell: (r) => r.entry },
   ];
   return <DataTable columns={columns.filter((c) => !hide.includes(c.key))} rows={rows} rowKey={(r) => r.id} rowHref={(r) => `/verification-history/${r.id}`} empty={empty} />;
@@ -99,7 +101,7 @@ export function VerificationHistoryPage() {
         id: t.id, at: t.occurredAt, activityId: t.activityId, activityName: legacyName.get(t.activityId) ?? '—', memberId: m?.id, subject: m?.displayName ?? 'Unknown', verifier: t.verifier,
         identity: <ResultBadge result={t.result} />, eligibility: <span className="text-slate-400">—</span>,
         outcome: <AttemptBadge attempt={{ status: 'completed', outcome: LEGACY_OUTCOME[t.decision] }} />, outcomeKey: LEGACY_OUTCOME[t.decision],
-        access: <AccessBadge attempt={{ accessDecision: LEGACY_ACCESS[t.decision] }} />, entry: <span className="text-slate-400">—</span>, entered: false,
+        access: <AccessBadge attempt={{ accessDecision: LEGACY_ACCESS[t.decision] }} />, location: <span className="text-slate-400">—</span>, entry: <span className="text-slate-400">—</span>, entered: false,
         search: [t.id, t.reason, m?.displayName, t.credentialId && credentialById.get(t.credentialId)?.identifier, legacyName.get(t.activityId)].join(' ').toLowerCase(),
       };
     };
@@ -138,7 +140,7 @@ export function VerificationHistoryPage() {
           <FilterSelect label="Outcome" value={outcome} onChange={setOutcome}
             options={[{ value: 'all', label: 'All outcomes' }, ...(Object.keys(OUTCOME_LABEL) as VerificationOutcome[]).map((o) => ({ value: o, label: OUTCOME_LABEL[o] }))]} />
           <FilterSelect label="Entry" value={entry} onChange={setEntry}
-            options={[{ value: 'all', label: 'Any entry status' }, { value: 'entered', label: 'Entered' }, { value: 'not-entered', label: 'Not recorded' }]} />
+            options={[{ value: 'all', label: 'Any entry status' }, { value: 'entered', label: 'Entered' }, { value: 'not-entered', label: 'Not entered' }]} />
           {personName && (
             <Badge tone="brand" className="py-1">
               Person: {personName}

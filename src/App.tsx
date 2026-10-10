@@ -46,7 +46,7 @@ function ConfigRedirect() {
   return <Navigate to={`/credentials/configurations/${typeId}`} replace />;
 }
 
-/** Verification Events are no longer a separate page: their records are in Verification History. */
+/** The former separate page for earlier verification records: those records are now in Verification History. */
 function EventRedirect() {
   const { activityId = '' } = useParams();
   return <Navigate to={`/verification-history?activity=${encodeURIComponent(activityId)}&range=all`} replace />;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, CircleSlash, Clock, FlaskConical, Loader2, MinusCircle, QrCode, RotateCcw, ScanFace, XCircle,
+  AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, CircleSlash, Clock, FlaskConical, Loader2, MapPin, MinusCircle, QrCode, RotateCcw, ScanFace, XCircle,
 } from 'lucide-react';
 import { Badge, Button, Card, ConfirmDialog, Field, Input, Modal, Textarea, useToast } from '@/components/ui';
 import type { CheckRun, VerificationAttempt } from '@/domain/types';
@@ -12,6 +12,8 @@ import { useSession, useStore } from '@/store/AppStore';
 import type { VerificationInputs } from '@/verification/engine';
 import { FACE_SCENARIOS, HOLDER_SCENARIOS, LIVENESS_SCENARIOS } from '@/verification/simulatedProviders';
 import { useVerificationService } from '@/verification/useVerificationService';
+import { useServices } from '@/services/ServicesProvider';
+import type { DeviceLocation } from '@/services/location';
 import { AttemptBadge } from '@/components/verification/attemptParts';
 import { AccessAndEntry, EligibilityBadge, IdentityResultBadge } from '@/components/verification/attemptParts';
 
@@ -107,6 +109,10 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
   const service = useVerificationService();
   const navigate = useNavigate();
   const steps = service.requiredSteps(attempt.id)!;
+  const { geolocation } = useServices();
+  const { state } = useStore();
+  const locationCheck = state.data.activityConfigs.find((a) => a.id === attempt.activityId)?.locationCheck;
+  const [locating, setLocating] = useState(false);
   const [identifier, setIdentifier] = useState('');
   const [credMethod, setCredMethod] = useState<'reference' | 'simulated-presentation'>(steps.credential?.methods[0] ?? 'reference');
   const [credValue, setCredValue] = useState('');
@@ -123,11 +129,23 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
     if (inFlight.current) return;
     inFlight.current = true;
     setError(null);
+    // Missing input is reported before the device is asked for anything.
+    const missing = steps.identifier && !identifier.trim() ? `Enter the person’s ${steps.identifier.label.toLowerCase()}.`
+      : steps.credential && !credValue.trim() ? 'Enter or present the credential.' : null;
+    if (missing) { setError(missing); inFlight.current = false; return; }
+    // The device is asked for its location only when this activity has a location check.
+    let location: DeviceLocation | undefined;
+    if (locationCheck?.enabled) {
+      setLocating(true);
+      location = await geolocation.getCurrentPosition();
+      setLocating(false);
+    }
     const r = await service.submitInputs(attempt.id, {
       identifier: steps.identifier ? identifier : undefined,
       credential: steps.credential ? { method: credMethod, value: credValue } : undefined,
       attributes: steps.attributes.length ? attrs : undefined,
       demo,
+      location,
     }, { submissionId: submission.current, onProgress: setRuns });
     inFlight.current = false;
     if (!r.ok) {
@@ -148,7 +166,14 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
         <ul className="mt-1.5 flex flex-wrap gap-1.5">
           {steps.summary.map((c) => <li key={c.name}><Badge tone={c.requirement === 'required' ? 'brand' : c.requirement === 'alternative' ? 'violet' : 'neutral'}>{c.name}{c.requirement !== 'required' ? ` (${c.requirement})` : ''}</Badge></li>)}
         </ul>
+        {locationCheck?.enabled && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-500">
+            <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            This activity checks your device’s location when you run the verification. Your browser may ask for permission. The result is reported; it doesn’t block verification or entry.
+          </p>
+        )}
       </section>
+      {locating && <p className="mt-4 text-sm text-slate-500" role="status">Getting your device’s location…</p>}
 
       {runs ? (
         <section className="mt-6" aria-live="polite">

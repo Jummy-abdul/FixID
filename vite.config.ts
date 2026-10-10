@@ -10,5 +10,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
+    // No network map provider in tests; tests that need one inject a fake.
+    env: { VITE_MAP_PROVIDER: 'none' },
   },
 });

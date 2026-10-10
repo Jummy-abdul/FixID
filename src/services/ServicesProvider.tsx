@@ -3,10 +3,14 @@ import { createIssuanceService } from './issuance';
 import { createMockEnrollment } from './mockEnrollment';
 import { createMockIdSwitch } from './mockIdSwitch';
 import { createMockWallet } from './mockWallet';
+import { createBrowserGeolocation, createDefaultMaps } from './location';
 import type { Services } from './types';
 
 export function createDefaultServices(): Services {
-  return { enrollment: createMockEnrollment(), idSwitch: createMockIdSwitch(), issuance: createIssuanceService(), wallet: createMockWallet() };
+  return {
+    enrollment: createMockEnrollment(), idSwitch: createMockIdSwitch(), issuance: createIssuanceService(), wallet: createMockWallet(),
+    maps: createDefaultMaps(), geolocation: createBrowserGeolocation(),
+  };
 }
 
 const ServicesContext = createContext<Services | null>(null);

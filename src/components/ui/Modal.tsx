@@ -16,11 +16,14 @@ interface ModalProps {
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: ModalProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Kept in a ref so re-rendering with a new onClose (typing in a field) doesn't move focus back to the start.
+  const close = useRef(onClose);
+  close.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); };
     document.addEventListener('keydown', onKey);
     const first = panelRef.current?.querySelector<HTMLElement>('[data-autofocus], button, input, select, textarea');
     first?.focus();
@@ -28,7 +31,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       document.removeEventListener('keydown', onKey);
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const widths = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl' };

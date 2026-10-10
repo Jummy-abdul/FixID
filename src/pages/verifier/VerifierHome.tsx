@@ -55,7 +55,7 @@ export function VerifierHome() {
         {!canExecute ? <NoExecute onSetUp={() => toast({ tone: 'success', title: 'Verifier role added', description: 'Activities appear here once you’re assigned to them.' })} />
           : activities.length === 0 ? (
             <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No activities assigned to you yet"
-              description="You can verify people only for activities you’re assigned to. Assigning verifiers to activities is coming soon; until then there’s nothing to verify here." /></Card>
+              description="You can verify people only for activities you’re assigned to. An administrator assigns verifiers when they set up an activity." /></Card>
           ) : (
             <div className="space-y-4">
               {activities.length > 4 && <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities" />}
@@ -199,7 +199,7 @@ export function VerifierDashboard() {
       <section aria-label="Your verification summary" className="mt-6 grid gap-4 sm:grid-cols-3">
         <Card className="p-5"><p className="text-sm text-slate-500">Assigned activities</p><p className="mt-1 text-2xl font-semibold text-slate-900">{assigned.length}</p></Card>
         <Card className="p-5"><p className="text-sm text-slate-500">Verifications today</p><p className="mt-1 text-2xl font-semibold text-slate-900">{todays.filter((a) => a.status === 'completed').length}</p></Card>
-        <Card className="p-5"><p className="text-sm text-slate-500">Entries recorded today</p><p className="mt-1 text-2xl font-semibold text-slate-900">{todays.filter((a) => a.entry).length}</p></Card>
+        <Card className="p-5"><p className="text-sm text-slate-500">Entries allowed today</p><p className="mt-1 text-2xl font-semibold text-slate-900">{todays.filter((a) => a.entry?.status === 'entered').length}</p></Card>
       </section>
       <div className="mt-6 flex flex-wrap gap-2">
         <Link to="/verify" className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"><Play className="h-4 w-4" aria-hidden="true" />My Verification Activities</Link>
@@ -207,7 +207,7 @@ export function VerifierDashboard() {
       </div>
       {assigned.length === 0 && (
         <p className="mt-6 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
-          You aren’t assigned to any verification activities yet. Assigning verifiers to activities is coming soon.
+          You aren’t assigned to any verification activities yet. An administrator assigns verifiers when they set up an activity.
         </p>
       )}
     </>

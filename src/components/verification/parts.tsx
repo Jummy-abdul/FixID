@@ -1,12 +1,12 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Info, Lock, XCircle } from 'lucide-react';
-import { Badge, EmptyState, Field, Select } from '@/components/ui';
+import { AlertTriangle, CheckCircle2, Info, Lock, X, XCircle } from 'lucide-react';
+import { Badge, EmptyState, Field, SearchInput, Select } from '@/components/ui';
 import { findRole } from '@/domain/roles';
 import type { ActivityCheck, ActivityConfig, ActivityVersion } from '@/domain/types';
 import {
   CHECKS, CATEGORY_LABEL, TYPE_INFO, checkById, eligibleVerifiers, providersFor, rulesSummary, type ProviderInfo,
 } from '@/domain/verification';
-import { cn } from '@/lib/cn';
 import { describeParams } from '@/store/activityOps';
 import { useSession, useStore } from '@/store/AppStore';
 
@@ -152,37 +152,61 @@ export function IssuesList({ blockers, warnings, title = 'Resolve before activat
 }
 
 /** Pick administrators with the Verifier role. Assignment lets them perform this activity, nothing more. */
+/**
+ * Searchable choice of the administrators who perform verification for an activity. Only active
+ * administrators whose roles include performing verifications can be chosen.
+ */
 export function VerifierPicker({ value, onChange, readOnly }: { value: string[]; onChange: (ids: string[]) => void; readOnly?: boolean }) {
   const { organization } = useSession();
   const { state } = useStore();
+  const [q, setQ] = useState('');
   const eligible = eligibleVerifiers(state.data, organization.id);
-  if (eligible.length === 0) {
+  const name = (id: string) => { const a = state.data.administrators.find((x) => x.id === id); return a?.name ?? a?.email ?? 'Former administrator'; };
+  const query = q.trim().toLowerCase();
+  const shown = eligible.filter((a) => !query || `${a.name ?? ''} ${a.email}`.toLowerCase().includes(query));
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  if (eligible.length === 0 && value.length === 0) {
     return (
       <EmptyState icon={<Info className="h-5 w-5" />} title="No eligible verifiers yet"
-        description="Verifiers are administrators with the Verifier role. Invite one in Settings → Administrators & Roles, then assign them here."
+        description="Verifiers are administrators whose roles include performing verifications. Give someone the Verifier role in Settings → Administrators & Roles, then assign them here."
         action={<Link to="/settings?tab=admins" className="text-sm font-semibold text-brand-600 hover:text-brand-700">Go to Administrators & Roles</Link>} />
     );
   }
   return (
     <div className="space-y-3">
-      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200" aria-label="Eligible verifiers">
-        {eligible.map((a) => {
-          const on = value.includes(a.id);
-          return (
-            <li key={a.id}>
-              <label className={cn('flex items-center gap-3 px-4 py-3', readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-slate-50')}>
-                <input type="checkbox" checked={on} disabled={readOnly} aria-label={`Assign ${a.name ?? a.email}`}
-                  onChange={() => onChange(on ? value.filter((x) => x !== a.id) : [...value, a.id])}
-                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-slate-900">{a.name ?? a.email}</span>
-                  <span className="block text-xs text-slate-500">{a.email} · {a.roleIds.map((r) => findRole(state.data.customRoles ?? [], a.organizationId, r)?.name).filter(Boolean).join(', ')}</span>
-                </span>
-              </label>
+      {!readOnly && eligible.length > 0 && <SearchInput value={q} onChange={setQ} placeholder="Search verifiers by name or email" label="Search verifiers" />}
+      {!readOnly && (
+        <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200" aria-label="Eligible verifiers">
+          {shown.map((a) => {
+            const on = value.includes(a.id);
+            return (
+              <li key={a.id}>
+                <label className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-slate-50">
+                  <input type="checkbox" checked={on} onChange={() => toggle(a.id)} aria-label={`Assign ${a.name ?? a.email}`}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-slate-900">{a.name ?? a.email}</span>
+                    <span className="block text-xs text-slate-500">{a.email} · {a.roleIds.map((r) => findRole(state.data.customRoles ?? [], a.organizationId, r)?.name).filter(Boolean).join(', ')}</span>
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+          {shown.length === 0 && <li className="px-4 py-3 text-sm text-slate-500">No verifiers match your search.</li>}
+        </ul>
+      )}
+      {value.length > 0 && (
+        <ul className="flex flex-wrap gap-2" aria-label="Assigned verifiers">
+          {value.map((id) => (
+            <li key={id} className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 py-1 pl-3 pr-1.5 text-sm text-slate-800">
+              {name(id)}{!eligible.some((a) => a.id === id) && <span className="text-xs text-amber-700">(can’t verify)</span>}
+              {!readOnly && (
+                <button type="button" onClick={() => toggle(id)} aria-label={`Unassign ${name(id)}`} className="rounded-full p-0.5 text-slate-500 hover:bg-slate-200"><X className="h-3.5 w-3.5" /></button>
+              )}
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      )}
       <p className="text-sm font-medium text-slate-700" aria-live="polite">{value.length} {value.length === 1 ? 'verifier' : 'verifiers'} assigned</p>
     </div>
   );

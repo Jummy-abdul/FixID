@@ -1,3 +1,4 @@
+import { formatCoordinate, formatRadius, locationConfigProblem, type LocationCheckConfig } from '@/domain/location';
 import type { Permission } from '@/domain/roles';
 import type {
   ActivityCheck, ActivityConfig, ActivityVersion, AuditEvent, OutcomePolicy, StandardRequirements, VerificationType, VerifierAssignment,
@@ -32,6 +33,7 @@ export interface ActivityForm {
   participants?: { groupIds: string[]; memberIds: string[] };
   entryPolicy?: ActivityConfig['entryPolicy'];
   restrictVerifiers?: boolean;
+  locationCheck?: LocationCheckConfig;
   /**
    * Editing an existing activity in the simplified editor: keep its verification configuration
    * (checks, outcome rules, requirements) exactly as saved instead of regenerating it.
@@ -176,10 +178,11 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   const org = state.data.organizations.find((o) => o.id === organizationId)!;
   const type = form.requirements && !form.customized ? buildChecks(form.requirements, org, () => 'x').type : form.type;
   const versionMeta = { requirements: form.requirements, customized: form.requirements ? !!form.customized : undefined };
-  const keep = <K extends 'location' | 'schedule' | 'participants' | 'entryPolicy' | 'restrictVerifiers'>(k: K): ActivityConfig[K] => (form[k] !== undefined ? form[k] as ActivityConfig[K] : existing?.[k]);
+  const keep = <K extends 'location' | 'schedule' | 'participants' | 'entryPolicy' | 'restrictVerifiers' | 'locationCheck'>(k: K): ActivityConfig[K] => (form[k] !== undefined ? form[k] as ActivityConfig[K] : existing?.[k]);
   const settings = {
     location: keep('location')?.toString().trim() || undefined, schedule: keep('schedule'),
     participants: keep('participants') ?? { groupIds: [], memberIds: [] }, entryPolicy: keep('entryPolicy') ?? 'off', restrictVerifiers: keep('restrictVerifiers') ?? false,
+    locationCheck: keep('locationCheck'),
   };
   const groupName = (id: string) => state.data.groups.find((g) => g.id === id)?.name ?? 'Removed group';
   const userName = (id: string) => state.data.members.find((m) => m.id === id)?.displayName ?? 'Removed user';
@@ -189,10 +192,13 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   };
   const describeSchedule = (x?: ActivityConfig['schedule']) => (x?.startsAt || x?.endsAt ? `${x.startsAt ?? '…'} – ${x.endsAt ?? '…'}${x.enforced ? ' (enforced)' : ''}` : 'None');
   const ENTRY: Record<string, string> = { off: 'Allowed', flag: 'Flag for review', deny: 'Refuse' };
+  const describeLocation = (c?: LocationCheckConfig) => (c?.enabled
+    ? `On: ${c.label ? `${c.label}, ` : ''}${formatCoordinate(c.lat)}, ${formatCoordinate(c.lng)} within ${formatRadius(c.radiusM)}` : 'Off');
   const settingChanges = (prev: Partial<ActivityConfig>) => [
     ...((prev.location ?? '') !== (settings.location ?? '') ? [{ field: 'Location', from: prev.location || '—', to: settings.location || '—' }] : []),
     ...(describeSchedule(prev.schedule) !== describeSchedule(settings.schedule) ? [{ field: 'Schedule', from: describeSchedule(prev.schedule), to: describeSchedule(settings.schedule) }] : []),
     ...((prev.entryPolicy ?? 'off') !== settings.entryPolicy ? [{ field: 'Multiple entries', from: ENTRY[prev.entryPolicy ?? 'off'], to: ENTRY[settings.entryPolicy] }] : []),
+    ...(describeLocation(prev.locationCheck) !== describeLocation(settings.locationCheck) ? [{ field: 'Location check', from: describeLocation(prev.locationCheck), to: describeLocation(settings.locationCheck) }] : []),
     ...(!!prev.restrictVerifiers !== settings.restrictVerifiers ? [{ field: 'Who can verify', from: prev.restrictVerifiers ? 'Assigned verifiers only' : 'Any Verifier in the organization', to: settings.restrictVerifiers ? 'Assigned verifiers only' : 'Any Verifier in the organization' }] : []),
   ];
   const participantsChanged = describeParticipants(existing?.participants) !== describeParticipants(settings.participants)
@@ -312,13 +318,15 @@ export function activationProblems(state: AppState, organizationId: string, acti
   // anyone is assigned, but nobody can perform it until then.
   const eligible = new Set(eligibleVerifiers(state.data, organizationId).map((a) => a.id));
   const assigned = activeAssignments(state.data, organizationId, activity.id).some((x) => eligible.has(x.administratorId));
+  const location = locationConfigProblem(activity.locationCheck);
+  if (location) blockers.push(location);
   const org = state.data.organizations.find((o) => o.id === organizationId)!;
   const identity = identityUnavailable(version, org);
   if (identity) blockers.unshift(identity);
   const warnings = v.warnings.map((w) => w.message);
   if (lookupOnlyIdentity(version)) warnings.push('Identity is confirmed only by finding a record from an identifier, which doesn’t prove who is present. Newer activities also require the person’s stated details to match.');
   if (!eligible.size) warnings.push('Nobody in your organization has the Verifier role yet, so nobody can perform this activity. Add one in Settings → Administrators & Roles.');
-  else if (!assigned) warnings.push('No verifiers are assigned to this activity yet, so nobody can perform it. Assigning verifiers is coming soon.');
+  else if (!assigned) warnings.push('No verifiers are assigned to this activity yet, so nobody can perform it. Assign verifiers in Participants & Verifiers.');
   return { blockers: [...new Set(blockers)], warnings };
 }
 

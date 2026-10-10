@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, ChevronRight, MapPin, Save, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, Save, ShieldCheck, UserCheck, Users } from 'lucide-react';
 import { Button, Card, Field, Input, Textarea, useToast } from '@/components/ui';
 import { NoAccess, useAuthorization } from '@/auth/authorization';
+import { LocationCheckEditor, type LocationDraft } from '@/components/verification/LocationCheckEditor';
 import { ParticipantsPicker, useEligibleCount, type Participants } from '@/components/verification/ParticipantsPicker';
-import { IssuesList } from '@/components/verification/parts';
+import { IssuesList, VerifierPicker } from '@/components/verification/parts';
+import { formatCoordinate, formatRadius, locationConfigProblem, type LocationCheckConfig } from '@/domain/location';
 import type { ActivityConfig, ActivityVersion } from '@/domain/types';
 import {
   DEFAULT_OUTCOME, activeAssignments, buildChecks, currentVersion, describeRequirements, identityUnavailable, lookupOnlyIdentity, standardRequirementsFor,
@@ -15,11 +17,10 @@ import { nameProblem, validationContext, type ActivityForm } from '@/store/activ
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { NotFoundPage } from '../NotFoundPage';
 import { activityPath } from './paths';
-import { scheduleText } from './ActivityDetailsPage';
 
-type Step = 'details' | 'participants' | 'review';
+type Step = 'details' | 'people' | 'review';
 const STEPS: { id: Step; label: string }[] = [
-  { id: 'details', label: 'Activity Details' }, { id: 'participants', label: 'Eligible Participants' }, { id: 'review', label: 'Review' },
+  { id: 'details', label: 'Activity Details' }, { id: 'people', label: 'Participants & Verifiers' }, { id: 'review', label: 'Review & Activate' },
 ];
 
 export function ActivityEditorPage() {
@@ -31,25 +32,31 @@ export function ActivityEditorPage() {
   return <Editor key={activity?.id ?? 'new'} activity={activity} />;
 }
 
-const toLocal = (iso?: string) => (iso ? new Date(new Date(iso).getTime() - new Date(iso).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : '');
-const fromLocal = (v: string) => (v ? new Date(v).toISOString() : undefined);
-
 interface FormState {
   name: string;
-  purpose: string;
-  location: string;
-  startsAt: string;
-  endsAt: string;
-  enforced: boolean;
+  description: string;
+  location: LocationDraft;
   participants: Participants;
+  verifierIds: string[];
   /** Only for an existing activity without a participant list whose administrator chooses to add one. */
   addEligibility: boolean;
 }
 
+const DEFAULT_RADIUS = 100;
+
+function toDraft(c?: LocationCheckConfig): LocationDraft {
+  const ok = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return { enabled: !!c?.enabled, lat: ok(c?.lat), lng: ok(c?.lng), radiusM: c?.radiusM ?? DEFAULT_RADIUS, label: c?.label ?? '' };
+}
+
+function toConfig(d: LocationDraft): LocationCheckConfig {
+  return { enabled: d.enabled, lat: d.lat ?? Number.NaN, lng: d.lng ?? Number.NaN, radiusM: d.radiusM, ...(d.label ? { label: d.label } : {}) };
+}
+
 /**
- * Create or edit an activity: what it is, and who is eligible. How people are verified is FixID's job:
- * new activities use the strongest identity method genuinely available to the organization, and
- * existing activities keep the verification configuration they were saved with.
+ * Create or edit a verification activity in three stages: details (with an optional location check),
+ * participants and verifiers, then review. How identity and eligibility are verified is FixID's job:
+ * new activities use the strongest identity method genuinely available, existing ones keep theirs.
  */
 function Editor({ activity }: { activity?: ActivityConfig }) {
   const { state } = useStore();
@@ -64,11 +71,14 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const version = activity ? currentVersion(state.data, activity) : undefined;
 
   const [f, setF] = useState<FormState>(() => ({
-    name: activity?.name ?? '', purpose: activity?.purpose || activity?.description || '', location: activity?.location ?? '',
-    startsAt: toLocal(activity?.schedule?.startsAt), endsAt: toLocal(activity?.schedule?.endsAt), enforced: !!activity?.schedule?.enforced,
-    participants: activity?.participants ?? { groupIds: [], memberIds: [] }, addEligibility: false,
+    name: activity?.name ?? '', description: activity?.description || activity?.purpose || '',
+    location: toDraft(activity?.locationCheck),
+    participants: activity?.participants ?? { groupIds: [], memberIds: [] },
+    verifierIds: activity ? activeAssignments(state.data, organization.id, activity.id).map((v) => v.administratorId) : [],
+    addEligibility: false,
   }));
   const [nameError, setNameError] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[] | null>(null);
   const [busy, setBusy] = useState<'save' | 'activate' | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -79,10 +89,10 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const goto = (s: Step) => setParams((p) => { const n = new URLSearchParams(p); n.set('step', s); return n; }, { replace: true });
 
   const canDetails = isNew ? can('verification.activities.create') : can('verification.activities.edit');
+  const canAssign = can('verification.verifiers.assign');
   const canActivate = can('verification.activities.activate');
 
   // The verification configuration: FixID's standard one for a new activity; an existing activity keeps its own.
-  // Adding a participant list to an existing activity that has none changes only its eligibility requirement.
   const canAddEligibility = !isNew && !!version?.requirements && !version.customized && !version.requirements.eligibility;
   let k = 0;
   const make = (r: NonNullable<ActivityVersion['requirements']>, outcome: ActivityVersion['outcome']) => ({ requirements: r, ...buildChecks(r, organization, () => `new_${++k}`), outcome });
@@ -92,13 +102,13 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const config: Pick<ActivityVersion, 'type' | 'checks' | 'outcome' | 'requirements' | 'customized'> | undefined = generated ?? version;
   const usesParticipants = !!config?.checks.some((c) => c.params.useParticipants);
 
-  const scheduleError = f.startsAt && f.endsAt && f.endsAt <= f.startsAt ? 'The end must be after the start.' : null;
   const name = nameProblem(state, organization.id, f.name, activity?.id);
+  const location = locationConfigProblem(toConfig(f.location));
   const validation = config ? validateConfiguration(config, validationContext(state, organization.id, f.participants)) : null;
   const identity = config ? identityUnavailable(config, organization) : null;
   const blockers = [...new Set([
     ...(name ? [name] : []),
-    ...(scheduleError ? [scheduleError] : []),
+    ...(location ? [location] : []),
     ...(identity ? [identity] : []),
     // The plain identity message replaces the technical provider messages it summarizes.
     ...(validation?.blockers ?? []).filter((b) => !identity || !/unavailable|not configured/i.test(b.message)).map((b) => b.message),
@@ -107,25 +117,24 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const warnings = [...new Set([
     ...(validation?.warnings.map((w) => w.message) ?? []),
     ...(config && lookupOnlyIdentity(config) ? ['Identity is confirmed only by finding a record from an identifier, which doesn’t prove who is present.'] : []),
+    ...(f.verifierIds.length === 0 ? ['No verifiers are assigned, so nobody can perform this activity until you assign some.'] : []),
   ])];
   const live = activity && activity.status !== 'draft';
   const credName = (id: string) => org.credentialTypeById.get(id)?.name ?? '';
+  const adminName = (id: string) => { const a = state.data.administrators.find((x) => x.id === id); return a?.name ?? a?.email ?? 'Former administrator'; };
 
   const save = async (andActivate: boolean) => {
     const err = nameProblem(state, organization.id, f.name, activity?.id);
     if (err) { setNameError(err); goto('details'); return; }
-    if (scheduleError) { goto('details'); return; }
     if (!config) return;
     setBusy(andActivate ? 'activate' : 'save');
     setProblems(null);
     await new Promise((r) => setTimeout(r, 200));
     const common = {
-      name: f.name, description: f.purpose, purpose: f.purpose,
-      location: f.location, schedule: f.startsAt || f.endsAt ? { startsAt: fromLocal(f.startsAt), endsAt: fromLocal(f.endsAt), enforced: f.enforced } : undefined,
-      participants: f.participants,
-      verifierIds: activity ? activeAssignments(state.data, organization.id, activity.id).map((v) => v.administratorId) : [],
+      name: f.name, description: f.description, purpose: f.description,
+      locationCheck: toConfig(f.location), participants: f.participants, verifierIds: f.verifierIds,
     };
-    // Multiple-entry rules and verifier restrictions aren't edited here: existing values are kept (left undefined).
+    // Multiple-entry rules, schedules and other earlier settings aren't edited here: existing values are kept (left undefined).
     const form: ActivityForm = generated
       ? { ...common, type: generated.type, checks: generated.checks, outcome: generated.outcome, requirements: generated.requirements, customized: false }
       : { ...common, type: config.type, checks: config.checks, outcome: config.outcome, keepConfiguration: true };
@@ -150,7 +159,7 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
       if (isNew) navigate(`${activityPath(saved.activityId)}/edit?step=review`, { replace: true });
       return;
     }
-    toast({ tone: 'success', title: live ? 'Changes saved and activated' : 'Activity created and activated', description: `${f.name.trim()} is available to your organization’s verifiers.` });
+    toast({ tone: 'success', title: live ? 'Changes saved and activated' : 'Activity created and activated', description: `${f.name.trim()} is ready for its assigned verifiers.` });
     navigate(activityPath(saved.activityId));
   };
 
@@ -159,9 +168,12 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const next = () => {
     if (step === 'details') {
       if (!f.name.trim()) { setNameError('Enter an activity name.'); return; }
-      goto('participants');
+      if (location) { setLocationError(location); return; }
+      goto('people');
     } else goto('review');
   };
+  const groupNames = f.participants.groupIds.map((id) => org.groupById.get(id)?.name ?? 'Removed group');
+  const userNames = f.participants.memberIds.map((id) => org.memberById.get(id)?.displayName ?? 'Removed user');
 
   return (
     <>
@@ -171,10 +183,10 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
         {activity ? <><Link to={activityPath(activity.id)} className="truncate hover:text-slate-800">{activity.name}</Link><ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /><span className="text-slate-700">Edit</span></>
           : <span className="text-slate-700">Create activity</span>}
       </nav>
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity ? `Edit ${activity.name}` : 'Create activity'}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity ? `Edit ${activity.name}` : 'Create verification activity'}</h1>
       {live && (
         <p className="mt-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
-          This activity is {activity.status}. Details and participants change as soon as you save. Earlier verifications keep the configuration they used.
+          This activity is {activity.status}. Changes apply as soon as you save. Earlier verifications and their history are kept as recorded.
         </p>
       )}
 
@@ -195,76 +207,85 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
           {step === 'details' && (
             <form onSubmit={(e) => { e.preventDefault(); next(); }} noValidate>
               <h2 className="text-lg font-semibold text-slate-900">Activity details</h2>
-              <p className="mb-5 text-sm text-slate-500">What the activity is, and where and when it happens.</p>
+              <p className="mb-5 text-sm text-slate-500">What people are being verified for, e.g. an examination, admission or conference entry.</p>
               <fieldset disabled={!canDetails} className="grid max-w-2xl gap-5">
-                <Field label="Activity name" required error={nameError ?? undefined} hint="e.g. Annual Staff Conference">
+                <Field label="Activity Name" required error={nameError ?? undefined} hint="e.g. CSC 401 Examination Clearance">
                   {(p) => <Input {...p} autoFocus value={f.name} maxLength={100} onChange={(e) => { set('name', e.target.value); setNameError(null); }} />}
                 </Field>
-                <Field label="Description / Purpose" hint="Why verification is needed, e.g. Verify the identity and eligibility of participants before granting entry.">
-                  {(p) => <Textarea {...p} rows={2} value={f.purpose} onChange={(e) => set('purpose', e.target.value)} />}
+                <Field label="Description" hint="Optional">
+                  {(p) => <Textarea {...p} rows={2} value={f.description} onChange={(e) => set('description', e.target.value)} />}
                 </Field>
-                <Field label="Location" hint="Optional and for information only. It isn’t used to track anyone or restrict verification.">
-                  {(p) => (
-                    <div className="relative">
-                      <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                      <Input {...p} className="pl-9" value={f.location} placeholder="Venue name or address" onChange={(e) => set('location', e.target.value)} />
-                    </div>
-                  )}
-                </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Starts" hint="Optional">{(p) => <Input {...p} type="datetime-local" value={f.startsAt} onChange={(e) => set('startsAt', e.target.value)} />}</Field>
-                  <Field label="Ends" hint="Optional" error={scheduleError ?? undefined}>{(p) => <Input {...p} type="datetime-local" value={f.endsAt} onChange={(e) => set('endsAt', e.target.value)} />}</Field>
-                </div>
-                {(f.startsAt || f.endsAt) && (
-                  <label className="flex items-start gap-3 text-sm text-slate-700">
-                    <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" checked={f.enforced} onChange={(e) => set('enforced', e.target.checked)} />
-                    <span>Only allow verification between these times<span className="block text-xs text-slate-500">Off: the schedule is information only, and the activity stays available until you deactivate it.</span></span>
-                  </label>
-                )}
               </fieldset>
+              <div className="mt-6 max-w-2xl border-t border-slate-100 pt-5">
+                <LocationCheckEditor value={f.location} readOnly={!canDetails} error={locationError}
+                  onChange={(v) => { set('location', v); setLocationError(null); }} />
+              </div>
             </form>
           )}
 
-          {step === 'participants' && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Eligible Participants</h2>
-                <p className="text-sm text-slate-500">Choose who is eligible. FixID confirms each person’s identity first; being on this list doesn’t prove who someone is.</p>
-              </div>
-              {usesParticipants ? (
-                <ParticipantsPicker value={f.participants} onChange={(p) => set('participants', p)} readOnly={!canDetails} />
-              ) : config?.requirements?.eligibility === 'external' ? (
-                <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">Eligibility for this activity comes from an external eligibility source, which isn’t connected yet.</p>
-              ) : (
-                <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
-                  This activity doesn’t use a participant list: anyone whose identity is verified meets its conditions.
-                  {canAddEligibility && canDetails && <button type="button" className="ml-2 font-semibold text-brand-600 hover:text-brand-700" onClick={() => set('addEligibility', true)}>Add eligible participants</button>}
-                </p>
-              )}
+          {step === 'people' && (
+            <div className="space-y-8">
+              <section aria-labelledby="participants-heading" className="space-y-3">
+                <div>
+                  <h2 id="participants-heading" className="flex items-center gap-2 text-lg font-semibold text-slate-900"><Users className="h-5 w-5 text-slate-400" aria-hidden="true" />Eligible Participants</h2>
+                  <p className="text-sm text-slate-500">Who can be verified for this activity. FixID confirms each person’s identity first; being on this list doesn’t prove who someone is.</p>
+                </div>
+                {usesParticipants ? (
+                  <ParticipantsPicker value={f.participants} onChange={(p) => set('participants', p)} readOnly={!canDetails} />
+                ) : config?.requirements?.eligibility === 'external' ? (
+                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">Eligibility for this activity comes from an external eligibility source, which isn’t connected yet.</p>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
+                    This activity doesn’t use a participant list: anyone whose identity is verified meets its conditions.
+                    {canAddEligibility && canDetails && <button type="button" className="ml-2 font-semibold text-brand-600 hover:text-brand-700" onClick={() => set('addEligibility', true)}>Add eligible participants</button>}
+                  </p>
+                )}
+              </section>
+              <section aria-labelledby="verifiers-heading" className="space-y-3 border-t border-slate-100 pt-6">
+                <div>
+                  <h2 id="verifiers-heading" className="flex items-center gap-2 text-lg font-semibold text-slate-900"><UserCheck className="h-5 w-5 text-slate-400" aria-hidden="true" />Assigned Verifiers</h2>
+                  <p className="text-sm text-slate-500">The administrators who perform verification for this activity. Only they can verify people for it.</p>
+                </div>
+                <VerifierPicker value={f.verifierIds} onChange={(v) => set('verifierIds', v)} readOnly={!canAssign} />
+                {!canAssign && <p className="text-xs text-slate-500">Your role can’t assign verifiers.</p>}
+              </section>
             </div>
           )}
 
           {step === 'review' && (
             <section className="space-y-5" aria-labelledby="review">
               <div>
-                <h2 id="review" className="text-lg font-semibold text-slate-900">Review</h2>
-                <p className="text-sm text-slate-500">Check the activity before you save or activate it.</p>
+                <h2 id="review" className="text-lg font-semibold text-slate-900">Review & Activate</h2>
+                <p className="text-sm text-slate-500">Check the activity. Use the steps above to change anything.</p>
               </div>
               <IssuesList blockers={problems ?? blockers} warnings={warnings} />
               <dl className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-                <div><dt className="text-slate-500">Activity</dt><dd className="font-medium text-slate-900">{f.name || '—'}</dd></div>
-                <div><dt className="text-slate-500">Purpose</dt><dd className="text-slate-900">{f.purpose || '—'}</dd></div>
-                <div><dt className="text-slate-500">Location</dt><dd className="text-slate-900">{f.location || '—'}</dd></div>
-                <div><dt className="text-slate-500">Schedule</dt><dd className="text-slate-900">{f.startsAt || f.endsAt
-                  ? <>{scheduleText({ startsAt: fromLocal(f.startsAt), endsAt: fromLocal(f.endsAt) })}{f.enforced ? ' (verification only in this window)' : ' (information only)'}</> : 'No schedule'}</dd></div>
-                <div><dt className="text-slate-500">Eligible participants</dt><dd className="text-slate-900">{usesParticipants
-                  ? `${eligibleCount} ${eligibleCount === 1 ? 'person' : 'people'} (${f.participants.groupIds.length} ${f.participants.groupIds.length === 1 ? 'group' : 'groups'}, ${f.participants.memberIds.length} ${f.participants.memberIds.length === 1 ? 'user' : 'users'})`
-                  : config?.requirements?.eligibility === 'external' ? 'External eligibility source' : 'Anyone whose identity is verified'}</dd></div>
-                <div className="sm:col-span-2"><dt className="text-slate-500">How people are verified</dt><dd>
-                  <ul className="mt-0.5 list-disc pl-5 text-slate-900" aria-label="How people are verified">
+                <div><dt className="text-slate-500">Activity Name</dt><dd className="font-medium text-slate-900">{f.name || '—'}</dd></div>
+                <div><dt className="text-slate-500">Description</dt><dd className="text-slate-900">{f.description || '—'}</dd></div>
+                <div>
+                  <dt className="text-slate-500">Eligible participants</dt>
+                  <dd className="text-slate-900">{usesParticipants ? (
+                    <>
+                      <span className="block">{eligibleCount} unique {eligibleCount === 1 ? 'person' : 'people'}</span>
+                      {groupNames.length > 0 && <span className="block text-slate-600">Groups: {groupNames.join(', ')}</span>}
+                      {userNames.length > 0 && <span className="block text-slate-600">Users: {userNames.length <= 5 ? userNames.join(', ') : `${userNames.slice(0, 5).join(', ')} and ${userNames.length - 5} more`}</span>}
+                    </>
+                  ) : config?.requirements?.eligibility === 'external' ? 'External eligibility source' : 'Anyone whose identity is verified'}</dd>
+                </div>
+                <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="text-slate-900">{f.verifierIds.length ? f.verifierIds.map(adminName).join(', ') : 'None yet'}</dd></div>
+                <div>
+                  <dt className="text-slate-500">Location check</dt>
+                  <dd className="text-slate-900">{f.location.enabled ? (
+                    f.location.lat !== null && f.location.lng !== null && !location
+                      ? <>On{f.location.label && <span className="block text-slate-600">{f.location.label}</span>}<span className="block text-slate-600">{formatCoordinate(f.location.lat)}, {formatCoordinate(f.location.lng)} · within {formatRadius(f.location.radiusM)}</span></>
+                      : 'On, but no location selected'
+                  ) : 'Off'}</dd>
+                </div>
+                <div><dt className="text-slate-500">How people are verified</dt><dd>
+                  <ul className="list-disc pl-5 text-slate-900" aria-label="How people are verified">
                     {config ? describeRequirements(config, credName).map((l) => <li key={l}>{l}</li>) : <li>—</li>}
                   </ul>
-                  <p className="mt-1 text-xs text-slate-500">Set by FixID. A successful verification doesn’t record entry; an officer does that separately.</p>
+                  <p className="mt-1 text-xs text-slate-500">Set by FixID. Officers record each entry decision separately.</p>
                 </dd></div>
               </dl>
             </section>

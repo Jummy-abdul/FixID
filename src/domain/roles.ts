@@ -41,7 +41,7 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'verification.activities.create', label: 'Create verification activities', area: 'Verification Activities' },
   { id: 'verification.activities.edit', label: 'Edit activities and their eligible participants', area: 'Verification Activities' },
   { id: 'verification.activities.activate', label: 'Activate and deactivate activities', area: 'Verification Activities' },
-  { id: 'verification.verifiers.assign', label: 'Assign verifiers to activities', area: 'Verification Activities', planned: true },
+  { id: 'verification.verifiers.assign', label: 'Assign verifiers to activities', area: 'Verification Activities' },
   { id: 'verification.execute', label: 'Perform verifications (assigned activities only)', area: 'Verification Activities' },
   { id: 'verification.results.view', label: 'View the organization’s verification history', area: 'Verification History' },
   { id: 'administrators.view', label: 'View administrators and roles', area: 'Administration' },

@@ -4,7 +4,8 @@ import type {
 } from '@/domain/types';
 import { checkById, providersFor } from '@/domain/verification';
 import { actorPermissions, actorRecord } from '@/store/adminOps';
-import { WEB_CLIENT, authorizeExecution, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
+import { WEB_CLIENT, authorizeExecution, denyProblem, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
+import type { DeviceLocation } from '@/services/location';
 import type { Action, AppState } from '@/store/state';
 import type { IdSwitchService } from '@/services/types';
 import {
@@ -28,6 +29,8 @@ export interface VerificationInputs {
   attributes?: Record<string, string>;
   /** Scenarios for labelled demonstration providers only. */
   demo?: { liveness?: LivenessScenario; face?: FaceScenario; holderBinding?: HolderBindingScenario };
+  /** The verifier device's location, captured only when the activity has a location check. */
+  location?: DeviceLocation;
 }
 
 export interface RequiredSteps {
@@ -380,6 +383,7 @@ export function createVerificationService(deps: ServiceDeps) {
           attributes: inputs.attributes ? Object.keys(inputs.attributes).filter((k) => inputs.attributes![k]) : undefined,
           biometric: !!(inputs.demo?.face || inputs.demo?.liveness),
         },
+        location: inputs.location,
       };
       deps.dispatch({ type: 'verify/complete', input: complete });
       const saved = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId)!;
@@ -391,11 +395,22 @@ export function createVerificationService(deps: ServiceDeps) {
     recordEntry(attemptId: string): { ok: true } | { ok: false; error: string } {
       const before = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
       if (!before) return { ok: false, error: 'This verification wasn’t found.' };
-      if (before.entry) return { ok: true };
+      if (before.entry?.status === 'entered') return { ok: true };
       deps.dispatch({ type: 'verify/recordEntry', attemptId, at: now().toISOString() });
       const after = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
-      if (after?.entry) return { ok: true };
+      if (after?.entry?.status === 'entered') return { ok: true };
       return { ok: false, error: entryProblem(deps.getState(), attemptId) ?? 'Entry couldn’t be recorded.' };
+    },
+
+    /** The officer's explicit Deny Entry decision. Never automatic; possible after any completed verification. */
+    denyEntry(attemptId: string, reason?: string): { ok: true } | { ok: false; error: string } {
+      const before = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      if (!before) return { ok: false, error: 'This verification wasn’t found.' };
+      if (before.entry?.status === 'denied') return { ok: true };
+      deps.dispatch({ type: 'verify/denyEntry', attemptId, at: now().toISOString(), reason });
+      const after = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      if (after?.entry?.status === 'denied') return { ok: true };
+      return { ok: false, error: denyProblem(deps.getState(), attemptId) ?? 'The decision couldn’t be recorded.' };
     },
 
     cancelAttempt(attemptId: string): { ok: boolean } {

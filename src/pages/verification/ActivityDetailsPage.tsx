@@ -9,7 +9,10 @@ import { ParticipantsPicker, useEligibleCount, type Participants } from '@/compo
 import { ActivityStatusBadge, ChecksSummary, IssuesList, RulesList } from '@/components/verification/parts';
 import { memberCounts } from '@/domain/groups';
 import type { ActivityConfig, ActivityVersion } from '@/domain/types';
-import { describeRequirements, validateConfiguration } from '@/domain/verification';
+import { activeAssignments, describeRequirements, validateConfiguration } from '@/domain/verification';
+import { formatCoordinate, formatRadius, validCoordinates } from '@/domain/location';
+import { useServices } from '@/services/ServicesProvider';
+import { LocationMap } from '@/components/verification/LocationMap';
 import { useQueryState } from '@/hooks/useQueryState';
 import { cn } from '@/lib/cn';
 import { formatDate, formatDateTime } from '@/lib/dates';
@@ -99,7 +102,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
           <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity.name}<ActivityStatusBadge status={activity.status} /></h1>
           <p className="mt-1 max-w-2xl text-slate-500">{activity.purpose || activity.description || 'No purpose given.'}</p>
           <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-slate-700">
-            {activity.location && <div className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Location</dt><dd>{activity.location}</dd></div>}
+            {activity.locationCheck?.enabled && <div className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Location check</dt><dd>Location check on{activity.locationCheck.label ? ` · ${activity.locationCheck.label.split(',')[0]}` : ''}</dd></div>}
             {when && <div className="flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Schedule</dt><dd>{when}{activity.schedule?.enforced ? ' · verification only in this window' : ''}</dd></div>}
             {usesParticipants && <div className="flex items-center gap-1.5"><Users className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Eligible participants</dt><dd>{eligible} eligible {eligible === 1 ? 'participant' : 'participants'}</dd></div>}
           </dl>
@@ -158,6 +161,9 @@ function Overview({ activity, versions, current, warnings, eligible }: { activit
   const [advanced, setAdvanced] = useState(false);
   const credName = (id: string) => org.credentialTypeById.get(id)?.name ?? '';
   const v = current ? validateConfiguration(current, validationContext(state, organization.id, activity.participants)) : null;
+  const { maps } = useServices();
+  const loc = activity.locationCheck;
+  const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
   return (
     <div className="space-y-6">
       <Card>
@@ -174,15 +180,27 @@ function Overview({ activity, versions, current, warnings, eligible }: { activit
             <dl className="grid gap-y-3 text-sm">
               <div><dt className="text-slate-500">Status</dt><dd className="mt-0.5"><ActivityStatusBadge status={activity.status} /></dd></div>
               <div><dt className="text-slate-500">Eligibility</dt><dd className="text-slate-900">{eligible === null ? 'Not based on a participant list' : `${eligible} eligible ${eligible === 1 ? 'person' : 'people'}, using current group membership at verification time`}</dd></div>
-              <div><dt className="text-slate-500">Who can verify</dt><dd className="text-slate-900">{activity.restrictVerifiers ? 'Only assigned verifiers' : 'Anyone with the Verifier role in the organization'}</dd></div>
-              <div><dt className="text-slate-500">Location</dt><dd className="text-slate-900">{activity.location || '—'}{activity.location && <span className="block text-xs text-slate-500">For information only.</span>}</dd></div>
-              <div><dt className="text-slate-500">Schedule</dt><dd className="text-slate-900">{scheduleText(activity.schedule) ?? 'No schedule: available until deactivated'}{activity.schedule && !activity.schedule.enforced && scheduleText(activity.schedule) && <span className="block text-xs text-slate-500">For information only.</span>}</dd></div>
+              <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="text-slate-900">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet: nobody can perform this activity'}</dd></div>
+              <div><dt className="text-slate-500">Location check</dt><dd className="text-slate-900">{loc?.enabled
+                ? validCoordinates(loc.lat, loc.lng)
+                  ? <>On{loc.label && <span className="block">{loc.label}</span>}<span className="block text-slate-600">{formatCoordinate(loc.lat)}, {formatCoordinate(loc.lng)} · within {formatRadius(loc.radiusM)}</span><span className="block text-xs text-slate-500">Reported in each verification; it doesn’t block verification or entry.</span></>
+                  : 'On, but no location selected'
+                : 'Off'}</dd></div>
+              {activity.location && <div><dt className="text-slate-500">Venue</dt><dd className="text-slate-900">{activity.location}<span className="block text-xs text-slate-500">For information only.</span></dd></div>}
+              {scheduleText(activity.schedule) && <div><dt className="text-slate-500">Schedule</dt><dd className="text-slate-900">{scheduleText(activity.schedule)}{!activity.schedule?.enforced && <span className="block text-xs text-slate-500">For information only.</span>}</dd></div>}
               <div><dt className="text-slate-500">Last updated</dt><dd className="text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
             </dl>
           </section>
         </div>
         {warnings.length > 0 && <div className="px-6 pb-5"><IssuesList blockers={[]} warnings={warnings} /></div>}
       </Card>
+
+      {loc?.enabled && validCoordinates(loc.lat, loc.lng) && maps.available && (
+        <Card className="px-6 py-5">
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">Location check area</h2>
+          <LocationMap maps={maps} center={{ lat: loc.lat, lng: loc.lng }} radiusM={loc.radiusM} label="Location check area map" />
+        </Card>
+      )}
 
       <Card>
         <button type="button" onClick={() => setAdvanced((a) => !a)} aria-expanded={advanced} className="flex w-full items-center gap-2 px-6 py-4 text-left text-sm font-semibold text-slate-800">

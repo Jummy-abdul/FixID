@@ -145,7 +145,7 @@ describe('screens', () => {
     const h = harness(adminVerifier(base()));
     const a = await verify(h, people(h.state).insider);
     const user = renderApp('/verification-history', h.state);
-    expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual(['Date & time', 'Activity', 'Subject', 'Verifier', 'Identity', 'Eligibility', 'Outcome', 'Access', 'Entry']);
+    expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual(['Date & time', 'Activity', 'Subject', 'Verifier', 'Identity', 'Eligibility', 'Outcome', 'Access', 'Location', 'Entry']);
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Annual Staff Conference'))!;
     expect(row).toHaveTextContent('Permitted');
     expect(row).toHaveTextContent('Not recorded');
@@ -154,8 +154,8 @@ describe('screens', () => {
     const panel = screen.getByRole('region', { name: 'Access and entry' });
     expect(panel).toHaveTextContent('Access decision');
     expect(panel).toHaveTextContent('Permitted');
-    await user.click(within(panel).getByRole('button', { name: 'Record Entry' }));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Record Entry' }));
+    await user.click(within(panel).getByRole('button', { name: 'Allow Entry' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Allow Entry' }));
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Access and entry' })).getByText('Entered')).toBeInTheDocument());
     expect(loadState()!.data.verificationAttempts.find((x) => x.id === a.id)!.entry).toBeDefined();
   });
@@ -165,7 +165,7 @@ describe('screens', () => {
     const a = await verify(h, people(h.state).insider);
     renderApp(`/verification-history/${a.id}`, reducer(h.state, { type: 'preview/start', roleId: 'viewer' }));
     expect(screen.getByRole('region', { name: 'Access and entry' })).toHaveTextContent('Permitted');
-    expect(screen.queryByRole('button', { name: 'Record Entry' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allow Entry' })).toBeNull();
   });
 
   it('lets an officer verify and record entry in the Verifier Interface', async () => {
@@ -187,8 +187,8 @@ describe('screens', () => {
     const panel = screen.getByRole('region', { name: 'Access and entry' });
     expect(panel).toHaveTextContent('Permitted');
     expect(panel).toHaveTextContent('Not recorded');
-    await user.click(within(panel).getByRole('button', { name: 'Record Entry' }));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Record Entry' }));
+    await user.click(within(panel).getByRole('button', { name: 'Allow Entry' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Allow Entry' }));
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Access and entry' })).getByText('Entered')).toBeInTheDocument());
   });
 
