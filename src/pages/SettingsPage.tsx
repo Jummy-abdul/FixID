@@ -5,10 +5,9 @@ import { NoAccess, useAuthorization } from '@/auth/authorization';
 import { AdministratorsPanel } from './settings/AdministratorsPanel';
 import { useSession } from '@/store/AppStore';
 import { DemoDataPanel } from './settings/DemoDataPanel';
-import { IntegrationsPanel } from './settings/IntegrationsPanel';
 import { OrganizationForm } from './settings/OrganizationForm';
 
-type Tab = 'organization' | 'admins' | 'integrations' | 'demo';
+type Tab = 'organization' | 'admins' | 'demo';
 
 export function SettingsPage() {
   const { organization } = useSession();
@@ -18,10 +17,10 @@ export function SettingsPage() {
   // Demo data (sample organizations, reset) belongs to the demo account only.
   const tab = rawTab === 'demo' && !isDemo ? 'organization' : rawTab;
   // Each tab needs its own permission; a tab the role can't use isn't shown, and its link falls back to one it can.
+  // Integrations isn't part of the MVP administrator experience: old ?tab=integrations links fall back to Organization.
   const tabs = [
     ...(can('settings.manage') ? [{ value: 'organization' as const, label: 'Organization' }] : []),
     ...(can('administrators.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
-    ...(can('settings.manage') ? [{ value: 'integrations' as const, label: 'Integrations' }] : []),
     ...(isDemo && can('settings.manage') ? [{ value: 'demo' as const, label: 'Demo data' }] : []),
   ];
   const current = (tabs.some((t) => t.value === tab) ? tab : tabs[0]?.value) as Tab | undefined;
@@ -34,7 +33,6 @@ export function SettingsPage() {
       </div>
       {current === 'organization' && <OrganizationForm key={organization.id} organization={organization} />}
       {current === 'admins' && <AdministratorsPanel />}
-      {current === 'integrations' && <IntegrationsPanel key={organization.id} organization={organization} />}
       {current === 'demo' && <DemoDataPanel />}
     </>
   );

@@ -283,10 +283,19 @@ describe('settings', () => {
     expect(await screen.findByText(/Updated organization profile \(name\)/)).toBeInTheDocument();
   });
 
-  it('checks integration health with a loading state', async () => {
+  it('shows only Organization and Administrators & Roles, and old Integrations links fall back to Organization', async () => {
+    const before = createInitialState().data.organizations.map((o) => o.integrations);
     const { user } = renderApp('/settings?tab=integrations');
-    await user.click(screen.getAllByRole('button', { name: /check connection/i })[0]);
-    expect(await screen.findByText(/Connected to tenant ids-tenant-nbu-01/)).toBeInTheDocument();
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
+    expect(tabs).not.toContain('Integrations');
+    expect(tabs.filter((t) => t !== 'Demo data')).toEqual(['Organization', 'Administrators & Roles']);
+    expect(screen.getByRole('tab', { name: 'Organization' })).toHaveAttribute('aria-selected', 'true');
+    for (const gone of [/Identity service/, /Demonstration verification providers/, /Fixiam/, /check connection/i]) expect(screen.queryByText(gone)).toBeNull();
+    // Organization and Administrators & Roles still work; organization configurations are untouched.
+    expect(screen.getByLabelText(/Organization name/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Administrators & Roles' }));
+    expect(await screen.findByRole('button', { name: 'Invite Administrator' })).toBeInTheDocument();
+    expect(loadState()?.data.organizations.map((o) => o.integrations) ?? before).toEqual(before);
   });
 
   it('requires confirmation before resetting demo data', async () => {

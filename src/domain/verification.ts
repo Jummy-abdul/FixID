@@ -160,13 +160,13 @@ export function providersFor(org: Organization): ProviderInfo[] {
   const demo = !!org.integrations.verificationDemo?.enabled;
   const simulated = (name: string) => ({
     name: `${name} (simulated)`, status: 'available' as const, simulated: true,
-    statusNote: 'Demonstration provider, turned on in Settings → Integrations. Results are simulated and aren’t real verification.',
+    statusNote: 'Demonstration provider. Results are simulated and aren’t real verification.',
   });
   return [
     {
       id: 'identity-service', name: 'Identity service', role: 'both', internal: true,
-      description: 'The organization’s identity records, connected in Settings → Integrations.',
-      status: ids ? 'available' : 'unavailable', statusNote: ids ? 'Connected.' : 'Not connected. Connect it in Settings → Integrations.',
+      description: 'The organization’s identity records.',
+      status: ids ? 'available' : 'unavailable', statusNote: ids ? 'Connected.' : 'Not connected. Contact FixID support to connect it.',
     },
     {
       id: 'credential-service', name: 'FixID credential service', role: 'provider', internal: true,
@@ -556,7 +556,7 @@ export function identityUnavailable(version: Pick<ActivityVersion, 'checks'>, or
   const needed = [...new Set(version.checks.filter((c) => c.requirement !== 'optional' && checkById(c.type).category === 'identity' && c.providerId !== 'facial-matching').map((c) => c.providerId))];
   const missing = needed.map((id) => providers.find((p) => p.id === id)).filter((p) => p && p.status !== 'available');
   if (!missing.length) return null;
-  return `FixID can’t verify people’s identity for this organization yet: ${missing.map((p) => p!.name.toLowerCase()).join(' and ')} ${missing.length === 1 ? 'isn’t' : 'aren’t'} connected. An administrator can connect it in Settings → Integrations.`;
+  return `FixID can’t verify people’s identity for this organization yet: ${missing.map((p) => p!.name.toLowerCase()).join(' and ')} ${missing.length === 1 ? 'isn’t' : 'aren’t'} connected. Contact FixID support to connect it.`;
 }
 
 /** An identity check that only finds a record proves nothing about who is present. */

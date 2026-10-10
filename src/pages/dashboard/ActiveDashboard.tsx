@@ -84,8 +84,8 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
         {showResults && <StatCard label="Verifications today" value={m.todayTx.length.toLocaleString()} icon={<ShieldCheck className="h-4 w-4" />} to="/transactions?range=today" tone="violet"
           hint={`${formatPercent(allowRate(m.weekTx))} allowed over 7 days`} />}
         {showCredentials && <StatCard label="Wallet delivery" value={walletConnected ? formatPercent(m.deliveryRate) : 'Not connected'} icon={<Wallet className="h-4 w-4" />} tone="amber"
-          to={walletConnected ? '/credentials/issued?wallet=failed' : '/settings?tab=integrations'}
-          hint={walletConnected ? `${m.walletFailed} failed ${m.walletFailed === 1 ? 'delivery' : 'deliveries'} to Seamfix Wallet` : 'Connect Seamfix Wallet in Settings'} />}
+          to={walletConnected ? '/credentials/issued?wallet=failed' : undefined}
+          hint={walletConnected ? `${m.walletFailed} failed ${m.walletFailed === 1 ? 'delivery' : 'deliveries'} to Seamfix Wallet` : 'Seamfix Wallet isn’t connected for this organization'} />}
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
