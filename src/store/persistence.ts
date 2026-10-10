@@ -9,7 +9,7 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed?.version !== STATE_VERSION || !parsed.data?.organizations?.length) return null;
-    return ensurePrimaryAdmins(withCustomRoles(withVerificationActivities(withGroups(withAdministrators(parsed)))));
+    return ensurePrimaryAdmins(withLogoAssets(withCustomRoles(withVerificationActivities(withGroups(withAdministrators(parsed))))));
   } catch {
     return null;
   }
@@ -46,6 +46,11 @@ function withGroups(state: AppState): AppState {
 function withCustomRoles(state: AppState): AppState {
   if (Array.isArray(state.data.customRoles)) return state;
   return { ...state, data: { ...state.data, customRoles: seedCustomRoles(state.data.organizations, new Date()) } };
+}
+
+/** Saved data from before credential logos: no logos yet. */
+function withLogoAssets(state: AppState): AppState {
+  return Array.isArray(state.data.logoAssets) ? state : { ...state, data: { ...state.data, logoAssets: [] } };
 }
 
 /** Saved data from before Verification Activities: demo organizations get the sample activities. */

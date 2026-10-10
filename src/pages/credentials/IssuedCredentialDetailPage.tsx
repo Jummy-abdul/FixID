@@ -36,7 +36,7 @@ export function credentialReference(c: Credential) {
 export function IssuedCredentialDetailPage() {
   const { credentialId } = useParams();
   const [params] = useSearchParams();
-  const { organization, credentialById, memberById, credentialTypeById, identifierConfigById, audit, transactions, activityById } = useOrgData();
+  const { organization, credentialById, memberById, credentialTypeById, identifierConfigById, audit, transactions, activityById, logoAssetById } = useOrgData();
   const credential = credentialId ? credentialById.get(credentialId) : undefined;
   const member = credential ? memberById.get(credential.memberId) : undefined;
   const portrait = usePortrait(member);
@@ -111,7 +111,7 @@ export function IssuedCredentialDetailPage() {
               <FlippableCredentialCard templateId={look.templateId} organization={organization} label="Credential side"
                 content={{
                   credentialName: look.credentialName, holderName, identifierLabel: look.identifierLabel, identifierValue: credential.identifier,
-                  expiresAt: credential.expiresAt, issuedAt: credential.issuedAt, photoUrl: portrait?.url,
+                  expiresAt: credential.expiresAt, issuedAt: credential.issuedAt, photoUrl: portrait?.url, logoUrl: logoAssetById.get(look.logoAssetId ?? '')?.dataUrl,
                 }} />
             </div>
           </CardBody>

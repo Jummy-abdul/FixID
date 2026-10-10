@@ -93,8 +93,20 @@ describe('Create credential drawer', () => {
     expect(within(gallery).getAllByText('Portrait', { selector: 'span' })).toHaveLength(2);
     expect(tiles[0]).toHaveAttribute('aria-checked', 'true');
     expect(within(gallery).getAllByRole('img', { name: /, front$/ })).toHaveLength(4);
-    await user.click(within(gallery).getByRole('button', { name: 'back' }));
-    expect(within(gallery).getAllByRole('img', { name: /, back$/ })).toHaveLength(4);
+    // No gallery-wide toggle: each template has its own Front/Back control.
+    const sides = within(gallery).getAllByRole('group', { name: /preview side$/ });
+    expect(sides.map((g) => g.getAttribute('aria-label'))).toEqual(['Classic Landscape preview side', 'Modern Landscape preview side', 'Classic Portrait preview side', 'Modern Portrait preview side']);
+    await user.click(within(within(gallery).getByRole('group', { name: 'Modern Landscape preview side' })).getByRole('button', { name: 'back' }));
+    expect(within(gallery).getByRole('img', { name: /Modern Landscape, back$/ })).toBeInTheDocument();
+    expect(within(gallery).getByRole('img', { name: /Classic Landscape, front$/ })).toBeInTheDocument();
+    expect(within(gallery).getAllByRole('img', { name: /, front$/ })).toHaveLength(3);
+    // Switching a preview never selects that template.
+    expect(tiles[0]).toHaveAttribute('aria-checked', 'true');
+    expect(tiles[1]).toHaveAttribute('aria-checked', 'false');
+    await user.click(within(gallery).getByRole('button', { name: 'Flip Classic Portrait' }));
+    expect(within(gallery).getByRole('img', { name: /Classic Portrait, back$/ })).toBeInTheDocument();
+    expect(within(gallery).getByRole('img', { name: /Modern Landscape, back$/ })).toBeInTheDocument();
+    expect(tiles[2]).toHaveAttribute('aria-checked', 'false');
     await user.click(tiles[3]);
     expect(tiles[3]).toHaveAttribute('aria-checked', 'true');
     expect(org().credentialTypes).toHaveLength(0);
@@ -208,15 +220,24 @@ describe('Configuration details, issuance and issued details', () => {
     await user.click(screen.getByRole('radio', { name: /Tunde Bello/ }));
     await user.click(screen.getByRole('button', { name: /^Review/ }));
     expect(await screen.findByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
-    const issue = screen.getByRole('button', { name: /issue digital id/i });
+    expect(screen.queryByText(/Seamfix Wallet/)).toBeNull();
+    const issue = screen.getByRole('button', { name: 'Issue Credential' });
     await user.click(issue);
     await user.dblClick(issue).catch(() => undefined);
-    expect(await screen.findByRole('heading', { name: 'Digital ID issued successfully' }, { timeout: 3000 })).toBeInTheDocument();
+    // Issued directly; a modal confirms it, with no separate confirmation page.
+    const done = await screen.findByRole('dialog', { name: 'Credential issued successfully' }, { timeout: 3000 });
+    expect(done).toHaveTextContent('Student ID has been issued to Tunde Bello.');
+    expect(screen.queryByText('Digital ID issued successfully')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
     expect(org().credentials).toHaveLength(1);
     const cred = org().credentials[0];
     expect(cred).toMatchObject({ memberId: 'mem_1', credentialTypeId: 'ct_1', identifier: `STU/${YEAR}/00002` });
 
-    await user.click(screen.getByRole('link', { name: 'Back to Student ID' }));
+    await user.click(within(done).getByRole('button', { name: 'Close' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Credentials' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Student ID' }).closest('tr')!).toHaveTextContent('1 issued');
+    await user.click(screen.getByRole('link', { name: 'Student ID' }));
+    await user.click(await screen.findByRole('tab', { name: /Issued To/ }));
     const row = (await screen.findByRole('link', { name: 'Tunde Bello' })).closest('tr')!;
     expect(row).toHaveTextContent(`STU/${YEAR}/00002`);
     expect(row).toHaveTextContent('Active');
@@ -257,12 +278,12 @@ describe('Configuration details, issuance and issued details', () => {
     const user = renderApp('/credentials/issue?recipients=mem_0&credential=ct_1&step=review&from=user', s);
     expect(await screen.findByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
     expect(screen.getByText('Choose an expiration date before issuing.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /issue digital id/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Issue Credential' })).toBeDisabled();
     const next = new Date();
     next.setFullYear(next.getFullYear() + 1);
     await user.type(screen.getByLabelText(/expiration date/i), next.toISOString().slice(0, 10));
-    await user.click(screen.getByRole('button', { name: /issue digital id/i }));
-    expect(await screen.findByRole('heading', { name: 'Digital ID issued successfully' }, { timeout: 3000 })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Issue Credential' }));
+    expect(await screen.findByRole('dialog', { name: 'Credential issued successfully' }, { timeout: 3000 })).toBeInTheDocument();
     expect(org().credentials[0].expiresAt?.slice(0, 10)).toBe(next.toISOString().slice(0, 10));
   });
 

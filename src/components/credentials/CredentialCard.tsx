@@ -13,6 +13,8 @@ export interface CredentialCardContent {
   expiresAt?: string | null;
   issuedAt?: string;
   photoUrl?: string;
+  /** Organization logo shown instead of the initials, when the credential has one. */
+  logoUrl?: string;
   /** Marks illustrative data (e.g. while configuring) so it can't be mistaken for a real credential. */
   sample?: boolean;
 }
@@ -79,7 +81,18 @@ function Portrait({ url, name, className, style }: { url?: string; name: string;
   );
 }
 
-function Logo({ org, bg, fg, className }: { org: Organization; bg: string; fg: string; className?: string }) {
+/**
+ * The organization mark in its fixed placeholder: the initials, or an uploaded logo fitted inside the
+ * same box (aspect ratio kept, never stretched), so the template's layout doesn't move.
+ */
+function Logo({ org, bg, fg, className, url }: { org: Organization; bg: string; fg: string; className?: string; url?: string }) {
+  if (url) {
+    return (
+      <span className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-md bg-white p-px', className)}>
+        <img src={url} alt={`${org.name} logo`} className="h-full w-full object-contain" />
+      </span>
+    );
+  }
   return (
     <span className={cn('flex shrink-0 items-center justify-center rounded-md font-bold tracking-tight', className)} style={{ background: bg, color: fg }}>
       {org.shortName.slice(0, 3).toUpperCase()}
@@ -132,7 +145,7 @@ function ClassicLandscape({ side, org, c }: { side: CardSide; org: Organization;
     <div className="relative flex h-full flex-col bg-[#fbfaf6] text-slate-900">
       <Guilloche color={navy} opacity={0.1} />
       <div className="relative flex items-center gap-2 px-4 py-2.5" style={{ background: navy, color: '#fff' }}>
-        <Logo org={org} bg={gold} fg={navy} className="h-7 w-7 text-[10px]" />
+        <Logo org={org} url={c.logoUrl} bg={gold} fg={navy} className="h-7 w-7 text-[10px]" />
         <div className="min-w-0 leading-tight">
           <p className="truncate text-[11px] font-semibold">{org.name}</p>
           <p className="truncate text-[8.5px] uppercase tracking-[0.18em]" style={{ color: gold }}>{c.credentialName}</p>
@@ -187,7 +200,7 @@ function ModernLandscape({ side, org, c }: { side: CardSide; org: Organization; 
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Logo org={org} bg={ink} fg="#fff" className="h-6 w-6 rounded-full text-[8px]" />
+            <Logo org={org} url={c.logoUrl} bg={ink} fg="#fff" className="h-6 w-6 rounded-full text-[8px]" />
             <p className="truncate text-[10px] font-semibold text-slate-700">{org.name}</p>
           </div>
           <span className="rounded-full px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-white" style={{ background: accent }}>{c.credentialName}</span>
@@ -220,7 +233,7 @@ function ClassicPortrait({ side, org, c }: { side: CardSide; org: Organization; 
     return (
       <div className="relative flex h-full flex-col items-center bg-[#f7f8f5] px-4 py-5 text-center text-slate-700">
         <Guilloche color={green} opacity={0.08} />
-        <Logo org={org} bg={green} fg="#fff" className="relative h-7 w-7 text-[9px]" />
+        <Logo org={org} url={c.logoUrl} bg={green} fg="#fff" className="relative h-7 w-7 text-[9px]" />
         <div className="relative mt-4"><PseudoQr value={c.identifierValue || c.holderName} size={104} /></div>
         <p className="relative mt-2 font-mono text-[8px] text-slate-500">{c.identifierValue}</p>
         <p className="relative mt-auto text-[7.5px] leading-snug text-slate-500">
@@ -234,7 +247,7 @@ function ClassicPortrait({ side, org, c }: { side: CardSide; org: Organization; 
     <div className="relative flex h-full flex-col bg-white text-slate-900">
       <Guilloche color={green} opacity={0.07} />
       <div className="relative flex flex-col items-center px-3 pb-6 pt-3 text-center text-white" style={{ background: green }}>
-        <Logo org={org} bg={gold} fg={green} className="h-7 w-7 text-[9px]" />
+        <Logo org={org} url={c.logoUrl} bg={gold} fg={green} className="h-7 w-7 text-[9px]" />
         <p className="mt-1.5 line-clamp-2 text-[10px] font-semibold leading-tight">{org.name}</p>
       </div>
       <div className="relative -mt-4 flex justify-center">
@@ -278,7 +291,7 @@ function ModernPortrait({ side, org, c }: { side: CardSide; org: Organization; c
     <div className="relative flex h-full flex-col items-center p-4 text-center text-white" style={{ background: bg }}>
       <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/10" aria-hidden="true" />
       <div className="relative flex w-full items-center justify-between">
-        <Logo org={org} bg="#fff" fg="#a21caf" className="h-6 w-6 rounded-full text-[8px]" />
+        <Logo org={org} url={c.logoUrl} bg="#fff" fg="#a21caf" className="h-6 w-6 rounded-full text-[8px]" />
         <span className="text-[8px] font-semibold uppercase tracking-[0.18em] text-white/85">{c.credentialName}</span>
       </div>
       <Portrait url={c.photoUrl} name={c.holderName} className="relative mt-4 h-[96px] w-[96px] rounded-full bg-white/25 text-white/80 ring-4 ring-white/40" />
@@ -333,7 +346,7 @@ export function FlippableCredentialCard(props: Omit<Parameters<typeof Credential
   );
 }
 
-export function SideToggle({ side, onChange, label = 'Card side' }: { side: CardSide; onChange: (s: CardSide) => void; label?: string }) {
+export function SideToggle({ side, onChange, label = 'Card side', flipLabel = 'Flip card' }: { side: CardSide; onChange: (s: CardSide) => void; label?: string; flipLabel?: string }) {
   return (
     <div className="flex items-center gap-2">
       <div role="group" aria-label={label} className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-medium">
@@ -344,7 +357,7 @@ export function SideToggle({ side, onChange, label = 'Card side' }: { side: Card
           </button>
         ))}
       </div>
-      <button type="button" onClick={() => onChange(side === 'front' ? 'back' : 'front')} aria-label="Flip card"
+      <button type="button" onClick={() => onChange(side === 'front' ? 'back' : 'front')} aria-label={flipLabel}
         className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
         <RotateCw className="h-4 w-4" aria-hidden="true" />
       </button>

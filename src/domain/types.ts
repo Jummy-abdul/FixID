@@ -222,6 +222,8 @@ export interface CredentialType {
   cardDesignId: string;
   /** Starter template used to render credentials of this type. */
   templateId: TemplateId;
+  /** Optional organization logo shown instead of the initials in the template's logo position. */
+  logoAssetId?: string;
   status: 'active' | 'draft' | 'retired';
   createdAt: ISODate;
   updatedAt?: ISODate;
@@ -268,7 +270,24 @@ export interface Credential {
    * What the configuration looked like when this credential was issued. Later edits to the
    * configuration apply to future issuance only and never rewrite issued credentials.
    */
-  snapshot?: { credentialName: string; templateId: TemplateId; identifierLabel: string };
+  snapshot?: { credentialName: string; templateId: TemplateId; identifierLabel: string; logoAssetId?: string };
+}
+
+/**
+ * A logo an organization uploaded for its credentials, reusable across credential configurations.
+ * Held in the prototype's browser storage as a data URL; production needs organization-scoped file storage.
+ */
+export interface LogoAsset {
+  id: string;
+  organizationId: string;
+  name: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  dataUrl: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  uploadedAt: ISODate;
+  uploadedBy: string;
 }
 
 export type VerificationMethod = 'qr' | 'nfc' | 'face' | 'fingerprint' | 'manual';
@@ -344,6 +363,7 @@ export type AuditAction =
   | 'identifier.updated'
   | 'credential-type.created'
   | 'credential-type.updated'
+  | 'credential-logo.uploaded'
   | 'credential.issued'
   | 'credential.activated'
   | 'credential.suspended'

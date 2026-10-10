@@ -20,7 +20,7 @@ type TabId = 'configuration' | 'issued';
 /** A reusable credential configuration: its rules and template, and everyone it has been issued to. */
 export function CredentialConfigDetailPage() {
   const { typeId } = useParams();
-  const { organization, credentialTypeById, credentials, memberById, identifierConfigById } = useOrgData();
+  const { organization, credentialTypeById, credentials, memberById, identifierConfigById, logoAssetById } = useOrgData();
   const [tab, setTab] = useQueryState('tab', 'configuration');
   const [editing, setEditing] = useState(false);
   const navigate = useNavigate();
@@ -70,7 +70,7 @@ export function CredentialConfigDetailPage() {
               </dl>
               <div className="flex justify-center rounded-2xl bg-slate-50 p-6">
                 <FlippableCredentialCard templateId={type.templateId} organization={organization} label="Template side"
-                  content={{ credentialName: type.name, holderName: 'Sample Holder', identifierLabel: identifierName, identifierValue: 'ABC-00001', expiresAt: sampleExpiry(type.validity), sample: true }} />
+                  content={{ credentialName: type.name, holderName: 'Sample Holder', identifierLabel: identifierName, identifierValue: 'ABC-00001', expiresAt: sampleExpiry(type.validity), sample: true, logoUrl: logoAssetById.get(type.logoAssetId ?? '')?.dataUrl }} />
               </div>
             </div>
           </Card>

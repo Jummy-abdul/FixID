@@ -59,7 +59,7 @@ export function ManualAddUserPage() {
     if (issue) {
       navigate(assignUrl({ recipientIds: [member.id], from: 'new-user' }));
     } else {
-      toast({ tone: 'success', title: `${member.displayName} added`, description: 'You can issue a digital ID from their profile at any time.' });
+      toast({ tone: 'success', title: `${member.displayName} added`, description: 'You can issue a credential from their profile at any time.' });
       navigate('/users');
     }
   };
@@ -87,7 +87,7 @@ export function ManualAddUserPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => finish(false)}>Not now</Button>
-            {canIssue && <Button icon={<BadgeCheck className="h-4 w-4" />} onClick={() => finish(true)}>Yes, issue ID</Button>}
+            {canIssue && <Button icon={<BadgeCheck className="h-4 w-4" />} onClick={() => finish(true)}>Issue Credential</Button>}
           </>
         }>
         {member && memberIdentifier && (
@@ -96,7 +96,7 @@ export function ManualAddUserPage() {
             <p className="font-mono text-base font-semibold text-slate-900">{memberIdentifier.value}</p>
           </div>
         )}
-        <p className="mt-4 text-sm font-medium text-slate-900">Would you like to issue a digital ID for this user?</p>
+        <p className="mt-4 text-sm font-medium text-slate-900">Would you like to issue a credential to this user?</p>
       </Modal>
 
       <ConfirmDialog

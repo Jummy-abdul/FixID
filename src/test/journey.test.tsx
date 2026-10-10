@@ -62,7 +62,8 @@ async function createFirstUser(user: UserEvent, person = { first: 'Amara', last:
 
 async function userCreatedModal() {
   const modal = await screen.findByRole('dialog', { name: 'User created successfully' }, { timeout: 3000 });
-  expect(within(modal).getByText('Would you like to issue a digital ID for this user?')).toBeInTheDocument();
+  expect(within(modal).getByText('Would you like to issue a credential to this user?')).toBeInTheDocument();
+  expect(within(modal).queryByText(/digital ID/i)).toBeNull();
   return modal;
 }
 
@@ -72,7 +73,7 @@ async function notNow(user: UserEvent) {
 }
 
 async function yesIssueId(user: UserEvent, name = 'Amara Okonkwo') {
-  await user.click(button('Yes, issue ID'));
+  await user.click(button('Issue Credential'));
   expect(await screen.findByRole('heading', { level: 1, name: 'Issue credential' })).toBeInTheDocument();
   expect(screen.getByLabelText('Recipient')).toHaveTextContent(`Continuing for ${name}`);
 }
@@ -115,10 +116,22 @@ async function previewCredential(user: UserEvent, identifier: string) {
   return screen.findByRole('region', { name: 'Digital ID preview' });
 }
 
+/** Review and Issue: Issue Credential issues directly, a success modal confirms, Close returns to Credentials. */
 async function reviewAndIssue(user: UserEvent) {
   expect(await screen.findByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
-  await user.click(button(/issue digital id/i));
-  expect(await screen.findByRole('heading', { name: 'Digital ID issued successfully' }, { timeout: 3000 })).toBeInTheDocument();
+  const before = org().credentials.length;
+  await user.click(button('Issue Credential'));
+  const done = await screen.findByRole('dialog', { name: 'Credential issued successfully' }, { timeout: 3000 });
+  expect(done).toHaveTextContent(/has been issued to/);
+  expect(org().credentials).toHaveLength(before + 1);
+  await user.click(within(done).getByRole('button', { name: 'Close' }));
+  expect(await screen.findByRole('heading', { level: 1, name: 'Credentials' })).toBeInTheDocument();
+}
+
+/** Opens a user's page from the primary navigation. */
+async function openUser(user: UserEvent, name: string) {
+  await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
+  await user.click(await screen.findByRole('link', { name }));
 }
 
 beforeEach(() => {
@@ -184,13 +197,13 @@ describe('manual user creation', () => {
     expect(screen.getByText('Select or create a credential to issue to this user.')).toBeInTheDocument();
 
     await createStudentIdAndAssign(user);
-    await waitFor(() => expect(screen.getByText('Available to the holder.')).toBeInTheDocument());
+    await waitFor(() => expect(org().credentials[0]?.wallet.status).toBe('delivered'));
     const o = org();
     expect(o.credentials).toHaveLength(1);
     expect(o.credentials[0]).toMatchObject({ identifier: `STU/${YEAR}/00001`, memberId: o.members[0].id, credentialTypeId: o.credentialTypes[0].id });
     expect(o.members[0].identifier?.value).toBe(`STU/${YEAR}/00001`);
 
-    await user.click(screen.getByRole('link', { name: 'View user' }));
+    await openUser(user, 'Amara Okonkwo');
     expect(await previewCredential(user, `STU/${YEAR}/00001`)).toHaveTextContent(`STU/${YEAR}/00001`);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     await user.click(within(nav).getByRole('link', { name: 'Credentials' }));
@@ -205,7 +218,8 @@ describe('manual user creation', () => {
     await createFirstUser(user);
     await yesIssueId(user);
     await createStudentIdAndAssign(user);
-    await user.click(screen.getByRole('link', { name: /add another user/i }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
+    await startAnotherUser(user);
 
     expect(title()).toHaveTextContent('Select identifier');
     expect(screen.getByRole('radio', { name: /Matric Number/ })).toHaveAttribute('aria-checked', 'true');
@@ -265,7 +279,8 @@ describe('manual user creation', () => {
     await createFirstUser(first.user);
     await yesIssueId(first.user);
     await createStudentIdAndAssign(first.user);
-    await first.user.click(screen.getByRole('link', { name: /add another user/i }));
+    await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
+    await startAnotherUser(first.user);
     await first.user.click(button(/^continue/i));
     await fillPerson(first.user, { first: 'Tunde', last: 'Bello', email: 'tunde@crestfield.example', phone: '0803 555 0101' });
     await first.user.click(button('Create user'));
@@ -279,13 +294,13 @@ describe('manual user creation', () => {
     expect(screen.queryByRole('link', { name: 'Issue Credential' })).toBeNull();
     await user.click(await screen.findByRole('tab', { name: /Credentials/ }));
     expect(screen.getByText('No credentials issued yet')).toBeInTheDocument();
-    expect(screen.getByText("You can issue a digital ID to this user whenever you're ready.")).toBeInTheDocument();
+    expect(screen.getByText(/You can issue a .* to this user whenever you're ready\./)).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Issue Credential' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Issue credential' })).toBeInTheDocument();
     expect(screen.getByLabelText('Recipient')).toHaveTextContent('Issuing to Tunde Bello');
     await user.click(button(/^continue/i));
     await reviewAndIssue(user);
-    await user.click(screen.getByRole('link', { name: 'View user' }));
+    await openUser(user, 'Tunde Bello');
     expect(await previewCredential(user, `STU/${YEAR}/00002`)).toHaveTextContent(`STU/${YEAR}/00002`);
     expect(org().credentialTypes).toHaveLength(1);
   });

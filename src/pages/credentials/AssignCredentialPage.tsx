@@ -1,16 +1,14 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, BadgeCheck, CheckCircle2, CreditCard, LayoutDashboard, Plus, UserRound, Users } from 'lucide-react';
-import { Avatar, Badge, Button, ButtonLink, Field, Input, PageHeader, SearchInput } from '@/components/ui';
+import { ArrowLeft, ArrowRight, BadgeCheck, CheckCircle2, CreditCard, Plus } from 'lucide-react';
+import { Avatar, Badge, Button, ButtonLink, Field, Input, Modal, PageHeader, SearchInput } from '@/components/ui';
 import { CredentialSetup } from '@/components/config/CredentialSetup';
 import { CredentialCard } from '@/components/credentials/CredentialCard';
-import { issuedLook, templateById } from '@/domain/templates';
-import { issuedCredentialPath } from './IssuedCredentialDetailPage';
-import { CredentialStatusBadge, WalletBadge } from '@/components/domain/StatusBadges';
+import { templateById } from '@/domain/templates';
 import { assignUrl, readList, type AssignContext, type AssignOrigin, type AssignStep } from '@/components/issuance/assignment';
 import { validityLabel } from '@/domain/labels';
 import type { CredentialType, Member } from '@/domain/types';
-import { formatDate, formatDateTime } from '@/lib/dates';
+import { formatDate } from '@/lib/dates';
 import { newId } from '@/lib/identifiers';
 import { cn } from '@/lib/cn';
 import { computeValidity } from '@/services/issuance';
@@ -53,7 +51,6 @@ export function AssignCredentialPage() {
   const from = (params.get('from') as AssignOrigin | null) ?? undefined;
   const typeId = params.get('credential') ?? undefined;
   const type = typeId ? org.credentialTypeById.get(typeId) : undefined;
-  const issuedIds = readList(params, 'issued').filter((id) => org.credentialById.has(id));
   const requested = (params.get('step') as AssignStep | null) ?? 'select';
   const step: AssignStep = !type ? 'select' : requested === 'review' && recipients.length === 0 ? 'recipients' : requested;
 
@@ -64,6 +61,8 @@ export function AssignCredentialPage() {
   const [expiryDate, setExpiryDate] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
+  // Set only after issuance has actually succeeded; the success modal reads it.
+  const [done, setDone] = useState<{ credentialIds: string[]; failures: string[] } | null>(null);
   // One idempotency key per recipient for this page visit; holders of an active credential are also blocked.
   const requestIds = useRef(new Map<string, string>());
   const inFlight = useRef(false);
@@ -76,7 +75,7 @@ export function AssignCredentialPage() {
   const checksFor = (t: CredentialType) => recipients.map((m) => ({ member: m, check: issuability(getState(), m.id, t) }));
 
   const issue = async () => {
-    if (!type || inFlight.current) return;
+    if (!type || inFlight.current || done) return;
     inFlight.current = true;
     setIssuing(true);
     setError(null);
@@ -101,10 +100,7 @@ export function AssignCredentialPage() {
     inFlight.current = false;
     setIssuing(false);
     if (failures.length && !issued.length) return setError(failures[0]);
-    const next = new URLSearchParams(params);
-    next.delete('step');
-    next.set('issued', issued.join(','));
-    setParams(next);
+    setDone({ credentialIds: issued, failures });
   };
 
   const fromLabel = from === 'new-user' ? 'Continuing for' : 'Issuing to';
@@ -113,11 +109,11 @@ export function AssignCredentialPage() {
     <PageHeader
       breadcrumbs={[{ label: 'Credentials', to: '/credentials' }, { label: 'Issue credential' }]}
       title="Issue credential"
-      description="Assign a credential configuration to a user and issue their digital ID."
+      description="Select a credential and issue it to a user."
     />
   );
 
-  const contextBanner = single && issuedIds.length === 0 && (
+  const contextBanner = single && (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-5 py-3.5" aria-label="Recipient">
       <Avatar name={single.displayName} size="sm" />
       <div className="min-w-0 flex-1">
@@ -127,67 +123,6 @@ export function AssignCredentialPage() {
       </div>
     </div>
   );
-
-  // ---- Issued -------------------------------------------------------------------------------
-  if (issuedIds.length) {
-    const creds = issuedIds.map((id) => org.credentialById.get(id)!);
-    const first = creds[0];
-    const holder = org.memberById.get(first.memberId)!;
-    const t = org.credentialTypeById.get(first.credentialTypeId)!;
-    const hid = identifierOf(org, holder);
-    const look = issuedLook(first, t, hid?.name);
-    return (
-      <>
-        {header}
-        <section aria-labelledby="issued-title" className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-white to-emerald-50/60 shadow-card">
-          <div className="grid items-center gap-10 px-6 py-10 sm:px-10 lg:grid-cols-2 lg:px-14 lg:py-14">
-            <div>
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500 text-white"><CheckCircle2 className="h-6 w-6" aria-hidden="true" /></span>
-              <h2 id="issued-title" className="mt-6 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Digital ID issued successfully</h2>
-              <p className="mt-3 text-lg text-slate-600">
-                {creds.length === 1 ? `${holder.displayName} now has a ${t.name}.` : `${creds.length} users now have a ${t.name}.`}
-              </p>
-              {creds.length === 1 && (
-                <dl className="mt-8 grid max-w-md grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                  <div><dt className="text-slate-500">{hid?.name ?? t.identifier.label}</dt><dd className="mt-0.5 font-mono font-medium text-slate-900">{first.identifier}</dd></div>
-                  <div><dt className="text-slate-500">Status</dt><dd className="mt-0.5"><CredentialStatusBadge status={first.status} /></dd></div>
-                  <div><dt className="text-slate-500">Issued</dt><dd className="mt-0.5 text-slate-900">{formatDateTime(first.issuedAt)}</dd></div>
-                  <div><dt className="text-slate-500">Expires</dt><dd className="mt-0.5 text-slate-900">{first.expiresAt ? formatDate(first.expiresAt) : 'Never'}</dd></div>
-                  <div className="col-span-2">
-                    <dt className="text-slate-500">Seamfix Wallet</dt>
-                    <dd className="mt-1 flex items-center gap-2" aria-live="polite">
-                      <WalletBadge status={first.wallet.status} />
-                      <span className="text-xs text-slate-500">
-                        {first.wallet.status === 'pending' ? 'Making it available to the holder…' : first.wallet.status === 'delivered' ? 'Available to the holder.'
-                          : first.wallet.status === 'not-sent' ? 'Not sent to a wallet.' : 'Delivery failed. The digital ID is still issued.'}
-                      </span>
-                    </dd>
-                  </div>
-                </dl>
-              )}
-              <div className="mt-10 flex flex-wrap gap-3">
-                {creds.length === 1 && (
-                  <ButtonLink to={issuedCredentialPath(first.id, from === 'config' ? { kind: 'config', id: t.id } : { kind: 'user', id: holder.id })}
-                    variant="primary" icon={<CreditCard className="h-4 w-4" />}>View credential</ButtonLink>
-                )}
-                {creds.length === 1 && from !== 'config' && <ButtonLink to={`/users/${holder.id}`} variant="secondary" icon={<UserRound className="h-4 w-4" />}>View user</ButtonLink>}
-                {from === 'config' && <ButtonLink to={`/credentials/configurations/${t.id}?tab=issued`} variant="secondary" icon={<Users className="h-4 w-4" />}>Back to {t.name}</ButtonLink>}
-                {from === 'new-user'
-                  ? <ButtonLink to="/users/new/manual" variant="ghost" icon={<Users className="h-4 w-4" />}>Add another user</ButtonLink>
-                  : <ButtonLink to="/" variant="ghost" icon={<LayoutDashboard className="h-4 w-4" />}>Return to dashboard</ButtonLink>}
-              </div>
-            </div>
-            <div className="flex justify-center">
-              <CredentialCard templateId={look.templateId} organization={org.organization} content={{
-                credentialName: look.credentialName, holderName: holder.displayName, identifierLabel: look.identifierLabel,
-                identifierValue: first.identifier, expiresAt: first.expiresAt, issuedAt: first.issuedAt,
-              }} />
-            </div>
-          </div>
-        </section>
-      </>
-    );
-  }
 
   const setup = (
     <CredentialSetup open={setupOpen} onClose={() => setSetupOpen(false)} defaultIdentifierConfigId={contextIdentifierConfigId}
@@ -214,9 +149,8 @@ export function AssignCredentialPage() {
           <section className="flex flex-col items-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600"><CreditCard className="h-6 w-6" aria-hidden="true" /></span>
             <h2 className="mt-5 text-xl font-semibold text-slate-900">No credentials configured yet</h2>
-            <p className="mt-1.5 max-w-md text-slate-500">Create a credential configuration to start issuing digital IDs.</p>
+            <p className="mt-1.5 max-w-md text-slate-500">Create a credential to start issuing it to users.</p>
             <Button className="mt-6" icon={<Plus className="h-4 w-4" />} onClick={() => setSetupOpen(true)}>Create credential</Button>
-            <p className="mt-4 text-xs text-slate-400">A default template is ready to use. Creating a credential doesn't issue it to anyone.</p>
           </section>
         ) : (
           <Panel title="Select a credential"
@@ -276,7 +210,8 @@ export function AssignCredentialPage() {
   // ---- Review ------------------------------------------------------------------------------
   if (!type) return null;
   const checks = checksFor(type);
-  const blocked = checks.filter((c) => !c.check.ok);
+  // Once issued, the recipient holds this credential; that's the success, not a problem to report.
+  const blocked = done ? [] : checks.filter((c) => !c.check.ok);
   const template = templateById(type.templateId);
   const effectiveInput = type.effectiveDate === 'custom-date' && effectiveDate ? new Date(`${effectiveDate}T00:00:00`) : undefined;
   const expiryInput = type.validity.kind === 'set-at-issuance' && expiryDate ? new Date(`${expiryDate}T23:59:59`) : undefined;
@@ -293,6 +228,10 @@ export function AssignCredentialPage() {
   };
   const dateInvalid = !!dateErrors.effective || !!dateErrors.expiry;
   const idName = type.identifierConfigId ? org.identifierConfigById.get(type.identifierConfigId)?.name : type.identifier.label;
+  const issuedTo = (ids: string[]) => {
+    const holder = ids.length === 1 ? org.memberById.get(org.credentialById.get(ids[0])?.memberId ?? '') : undefined;
+    return holder ? holder.displayName : `${ids.length} users`;
+  };
   const valueFor = (m: Member) => (type.identifierConfigId ? m.identifier?.value ?? '' : 'Assigned on issue');
 
   return (
@@ -302,10 +241,10 @@ export function AssignCredentialPage() {
       <Panel title="Review and issue" description="Check the details. Nothing is issued until you confirm; the issuance time is recorded automatically."
         footer={
           <>
-            <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} disabled={issuing}
+            <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} disabled={issuing || !!done}
               onClick={() => go({ step: from ? 'select' : 'recipients' })}>Back</Button>
-            <Button onClick={issue} loading={issuing} disabled={blocked.length > 0 || dateInvalid} icon={issuing ? undefined : <BadgeCheck className="h-4 w-4" />}>
-              {issuing ? 'Issuing…' : recipients.length > 1 ? `Issue to ${recipients.length} users` : 'Issue digital ID'}
+            <Button onClick={issue} loading={issuing} disabled={blocked.length > 0 || dateInvalid || !!done} icon={issuing ? undefined : <BadgeCheck className="h-4 w-4" />}>
+              {issuing ? 'Issuing…' : 'Issue Credential'}
             </Button>
           </>
         }>
@@ -334,7 +273,7 @@ export function AssignCredentialPage() {
             {(type.effectiveDate === 'custom-date' || type.validity.kind === 'set-at-issuance') && (
               <div className="grid max-w-md gap-4 sm:grid-cols-2">
                 {type.effectiveDate === 'custom-date' && (
-                  <Field label="Effective from" required error={dateErrors.effective} hint="When this digital ID becomes valid.">
+                  <Field label="Effective from" required error={dateErrors.effective} hint="When this credential becomes valid.">
                     {(p) => <Input {...p} type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />}
                   </Field>
                 )}
@@ -345,7 +284,6 @@ export function AssignCredentialPage() {
                 )}
               </div>
             )}
-            <p className="text-xs text-slate-500">After issuing, FixID makes the digital ID available to Seamfix Wallet. Delivery is tracked separately.</p>
           </div>
           {recipients[0] && (
             <div className="flex justify-center overflow-hidden">
@@ -353,12 +291,19 @@ export function AssignCredentialPage() {
                 <CredentialCard templateId={type.templateId} organization={org.organization} content={{
                   credentialName: type.name, holderName: recipients[0].displayName, identifierLabel: idName ?? 'Identifier',
                   identifierValue: valueFor(recipients[0]), expiresAt: validity.expiresAt ? validity.expiresAt.toISOString() : null,
+                  logoUrl: org.logoAssetById.get(type.logoAssetId ?? '')?.dataUrl,
                 }} />
               </div>
             </div>
           )}
         </div>
       </Panel>
+      <Modal open={!!done} onClose={() => navigate('/credentials')} size="sm"
+        title={<span className="flex flex-col gap-4"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500 text-white"><CheckCircle2 className="h-5 w-5" aria-hidden="true" /></span>Credential issued successfully</span>}
+        description={done && `${type.name} has been issued to ${issuedTo(done.credentialIds)}.`}
+        footer={<Button onClick={() => navigate('/credentials')} data-autofocus>Close</Button>}>
+        {done && done.failures.length > 0 && <ul role="alert" className="list-disc pl-5 text-sm text-amber-800">{done.failures.map((f) => <li key={f}>{f}</li>)}</ul>}
+      </Modal>
     </>
   );
 }

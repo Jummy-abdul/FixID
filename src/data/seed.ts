@@ -1,6 +1,6 @@
 import { METHOD_ASSURANCE, meetsAssurance } from '@/domain/rules';
 import type {
-  CustomRole,
+  CustomRole, LogoAsset,
   AdminUser,
   AuditEvent,
   CardDesign,
@@ -59,6 +59,8 @@ export interface SeedData {
   verificationAttempts: VerificationAttempt[];
   /** Custom roles, each owned by one organization. */
   customRoles: CustomRole[];
+  /** Credential logos uploaded by each organization. */
+  logoAssets: LogoAsset[];
 }
 
 const DAY = 86_400_000;
@@ -770,6 +772,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today),
     verificationAttempts: [],
     customRoles: seedCustomRoles(organizations, today),
+    logoAssets: [],
   };
 }
 

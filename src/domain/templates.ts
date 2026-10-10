@@ -35,15 +35,16 @@ export function templateForDesign(design: Pick<CardDesign, 'layout'> | undefined
   return design?.layout === 'vertical' ? 'classic-portrait' : 'classic-landscape';
 }
 
-/** The template, name and identifier label an issued credential was issued with. */
+/** The template, name, identifier label and logo an issued credential was issued with. */
 export function issuedLook(
-  credential: { snapshot?: { credentialName: string; templateId: TemplateId; identifierLabel: string } },
-  type: Pick<CredentialType, 'name' | 'templateId' | 'identifier'> | undefined,
+  credential: { snapshot?: { credentialName: string; templateId: TemplateId; identifierLabel: string; logoAssetId?: string } },
+  type: Pick<CredentialType, 'name' | 'templateId' | 'identifier' | 'logoAssetId'> | undefined,
   identifierLabel?: string,
-) {
+): { credentialName: string; templateId: TemplateId; identifierLabel: string; logoAssetId?: string } {
   return credential.snapshot ?? {
     credentialName: type?.name ?? 'Digital ID',
     templateId: type?.templateId ?? DEFAULT_TEMPLATE_ID,
     identifierLabel: identifierLabel ?? type?.identifier.label ?? 'ID number',
+    logoAssetId: type?.logoAssetId,
   };
 }

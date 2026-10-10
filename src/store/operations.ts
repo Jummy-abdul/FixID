@@ -1,5 +1,7 @@
 import { generateIdentifier, validateManualValue, validatePattern, type PatternErrors } from '@/domain/identifierPattern';
 import { STARTER_TEMPLATES } from '@/domain/templates';
+import { checkLogo, dataUrlToBytes } from '@/domain/logo';
+import type { LogoAsset } from '@/domain/types';
 import type {
   AuditEvent, Credential, CredentialStatus, CredentialType, EffectiveDateRule, TemplateId, IdentifierConfig, IdentifierSegment, Member, ValidityRule,
 } from '@/domain/types';
@@ -326,6 +328,53 @@ export interface CredentialConfigInput {
   effectiveDate: Extract<EffectiveDateRule, 'on-issue' | 'custom-date'>;
   validity: ValidityRule;
   renewable: boolean;
+  /** A saved logo of this organization, or empty to show the organization's initials. */
+  logoAssetId?: string;
+}
+
+export interface LogoUploadInput {
+  organizationId: string;
+  at: string;
+  id: string;
+  name: string;
+  /** The image as a base64 data URL. Its bytes are validated again here, not trusted from the client. */
+  dataUrl: string;
+}
+
+/**
+ * Saves an uploaded logo as a reusable asset of one organization. Re-validates the image's real
+ * format, size and dimensions from its bytes. The same image uploaded twice is stored once.
+ */
+export function applyUploadLogo(state: AppState, input: LogoUploadInput): Result<{ logoAssetId: string }> {
+  const decoded = dataUrlToBytes(input.dataUrl);
+  if (!decoded) return { ok: false, errors: { logo: 'This file isn’t a valid PNG, JPEG or WebP image.' } };
+  const check = checkLogo(decoded.bytes, decoded.mimeType);
+  if (!check.ok) return { ok: false, errors: { logo: check.error } };
+  if (!state.data.organizations.some((o) => o.id === input.organizationId)) return { ok: false, errors: { logo: 'This organization wasn’t found.' } };
+  const logos = state.data.logoAssets ?? [];
+  const same = logos.find((l) => l.organizationId === input.organizationId && l.dataUrl === input.dataUrl);
+  if (same) return { ok: true, logoAssetId: same.id, state };
+  const asset: LogoAsset = {
+    id: input.id, organizationId: input.organizationId, name: input.name.trim().slice(0, 80) || 'Logo',
+    mimeType: check.mimeType, dataUrl: input.dataUrl, width: check.width, height: check.height, sizeBytes: decoded.bytes.length,
+    uploadedAt: input.at, uploadedBy: state.data.admin.name,
+  };
+  return {
+    ok: true,
+    logoAssetId: asset.id,
+    state: {
+      ...state,
+      data: {
+        ...state.data,
+        logoAssets: [...logos, asset],
+        audit: withAudit(state, [{
+          organizationId: input.organizationId, action: 'credential-logo.uploaded', actor: state.data.admin.name, actorType: 'admin',
+          resourceType: 'organization', resourceId: input.organizationId, result: 'success', occurredAt: input.at,
+          summary: `Uploaded credential logo "${asset.name}"`,
+        }]),
+      },
+    },
+  };
 }
 
 export function validateCredentialConfig(state: AppState, c: Omit<CredentialConfigInput, 'at'>, now = new Date()) {
@@ -341,6 +390,10 @@ export function validateCredentialConfig(state: AppState, c: Omit<CredentialConf
     errors.identifierConfigId = 'Choose the identifier shown on this credential.';
   }
   if (!STARTER_TEMPLATES.some((t) => t.id === c.templateId)) errors.templateId = 'Choose a template.';
+  // Only this organization's own logos can be used.
+  if (c.logoAssetId && !(state.data.logoAssets ?? []).some((l) => l.id === c.logoAssetId && l.organizationId === c.organizationId)) {
+    errors.logoAssetId = 'Choose one of your organization’s saved logos, or use its initials.';
+  }
   if (c.validity.kind === 'duration' && !(Number.isInteger(c.validity.months) && c.validity.months >= 1 && c.validity.months <= 600)) {
     errors.validity = 'Enter a validity period between 1 month and 50 years.';
   }
@@ -367,6 +420,7 @@ export function applyCredentialConfig(state: AppState, input: CredentialConfigIn
     // Only whether it can be renewed is stored; renewal windows aren't part of this release.
     renewal: { allowed: input.renewable, windowDays: 0 },
     templateId: input.templateId,
+    logoAssetId: input.logoAssetId || undefined,
   };
   const type: CredentialType = existing
     ? { ...existing, ...rules, lifecycle: { ...existing.lifecycle, autoExpire: input.validity.kind !== 'no-expiry' }, updatedAt: input.at }
@@ -511,6 +565,7 @@ export function applyIssuance(state: AppState, input: IssuanceInput): Result<{ c
     snapshot: {
       credentialName: type.name,
       templateId: type.templateId,
+      ...(type.logoAssetId ? { logoAssetId: type.logoAssetId } : {}),
       identifierLabel: type.identifierConfigId ? d.identifierConfigs.find((c) => c.id === type.identifierConfigId)?.name ?? type.identifier.label : type.identifier.label,
     },
   };

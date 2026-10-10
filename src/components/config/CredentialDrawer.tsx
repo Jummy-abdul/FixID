@@ -8,6 +8,7 @@ import type { CredentialType, TemplateId, ValidityRule } from '@/domain/types';
 import { newId } from '@/lib/identifiers';
 import { cn } from '@/lib/cn';
 import { useActions, useOrgData } from '@/store/AppStore';
+import { CredentialLogoField } from './CredentialLogoField';
 import { DiscardBar } from './DiscardBar';
 import { useSaveIdentifier } from './IdentifierDrawer';
 import { IdentifierConfigForm, initialIdentifierForm, type IdentifierFormValue } from './IdentifierConfigForm';
@@ -24,6 +25,7 @@ interface CredentialForm {
   dateMode: 'fixed' | 'at-issuance';
   fixedDate: string;
   renewable: boolean;
+  logoAssetId: string;
 }
 
 function toValidity(f: CredentialForm): ValidityRule {
@@ -47,6 +49,7 @@ function fromType(t: CredentialType): CredentialForm {
     dateMode: v.kind === 'set-at-issuance' ? 'at-issuance' : 'fixed',
     fixedDate: v.kind === 'fixed-date' ? v.date.slice(0, 10) : '',
     renewable: t.renewal.allowed,
+    logoAssetId: t.logoAssetId ?? '',
   };
 }
 
@@ -108,7 +111,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
   existing?: CredentialType;
 }) {
   const org = useOrgData();
-  const { organization, identifierConfigs, identifierConfigById, credentials } = org;
+  const { organization, identifierConfigs, identifierConfigById, credentials, logoAssetById } = org;
   const { saveCredentialConfig } = useActions();
   const saveIdentifier = useSaveIdentifier();
   const toast = useToast();
@@ -118,13 +121,15 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
     const idc = defaultIdentifierConfigId ?? (identifierConfigs.length === 1 ? identifierConfigs[0].id : '');
     return {
       templateId: DEFAULT_TEMPLATE_ID, name: suggestName(identifierConfigById.get(idc)?.name ?? ''), identifierConfigId: idc,
-      effectiveDate: 'on-issue', expiry: 'duration', durationValue: 1, durationUnit: 'years', dateMode: 'fixed', fixedDate: '', renewable: true,
+      effectiveDate: 'on-issue', expiry: 'duration', durationValue: 1, durationUnit: 'years', dateMode: 'fixed', fixedDate: '', renewable: true, logoAssetId: '',
     };
   };
   const [form, setForm] = useState<CredentialForm>(blank);
   const [initial, setInitial] = useState(form);
   const [step, setStep] = useState<1 | 2>(existing ? 2 : 1);
   const [side, setSide] = useState<CardSide>('front');
+  // Each template card previews its own side independently.
+  const [templateSides, setTemplateSides] = useState<Partial<Record<TemplateId, CardSide>>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   // Nested identifier view (same drawer surface; no stacked drawers). The credential draft is kept meanwhile.
@@ -138,6 +143,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
     setInitial(f);
     setStep(existing ? 2 : 1);
     setSide('front');
+    setTemplateSides({});
     setErrors({});
     setNested(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,7 +161,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
     const r = saveCredentialConfig({
       organizationId: organization.id, at: new Date().toISOString(), id: existing?.id ?? newId('ct'), editing: !!existing,
       name: form.name, identifierConfigId: form.identifierConfigId, templateId: form.templateId,
-      effectiveDate: form.effectiveDate, validity: toValidity(form), renewable: form.renewable,
+      effectiveDate: form.effectiveDate, validity: toValidity(form), renewable: form.renewable, logoAssetId: form.logoAssetId || undefined,
     });
     setSaving(false);
     if (!r.ok) {
@@ -197,7 +203,7 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
     : 'ID-00001';
   const sample = (name: string) => ({
     credentialName: name || 'Digital ID', holderName: 'Sample Holder', identifierLabel: idConfig?.name ?? 'Identifier',
-    identifierValue: sampleId, expiresAt: sampleExpiry(toValidity(form)), sample: true,
+    identifierValue: sampleId, expiresAt: sampleExpiry(toValidity(form)), sample: true, logoUrl: logoAssetById.get(form.logoAssetId)?.dataUrl,
   });
   const issuedCount = existing ? credentials.filter((c) => c.credentialTypeId === existing.id).length : 0;
 
@@ -217,22 +223,24 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
   return (
     <Drawer open={open} onClose={guard.requestClose} width="2xl"
       title={existing ? `Edit ${existing.name}` : step === 1 ? 'Choose template' : 'Configure credential'}
-      description={step === 1 ? 'Pick the design for this digital ID. You can preview both sides.' : undefined}
+      description={step === 1 ? 'Pick the design for this credential. You can preview both sides of each template.' : undefined}
       footer={footer}>
       {!existing && <Steps step={step} />}
 
       {step === 1 && (
         <section aria-label="Templates">
-          <div className="mb-4 flex justify-end"><SideToggle side={side} onChange={setSide} label="Preview side" /></div>
           <div role="radiogroup" aria-label="Template" className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {STARTER_TEMPLATES.map((t) => {
               const selected = form.templateId === t.id;
+              const cardSide = templateSides[t.id] ?? 'front';
               return (
-                <button key={t.id} type="button" role="radio" aria-checked={selected} onClick={() => set('templateId', t.id)}
-                  className={cn('flex flex-col rounded-2xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-                    selected ? 'border-brand-500 bg-brand-50/50 ring-1 ring-brand-500' : 'border-slate-200 hover:border-slate-300')}>
+                // The Front/Back control sits beside the selectable area, not inside it, so it never selects the template.
+                <div key={t.id} className={cn('relative flex flex-col rounded-2xl border transition-colors',
+                  selected ? 'border-brand-500 bg-brand-50/50 ring-1 ring-brand-500' : 'border-slate-200 hover:border-slate-300')}>
+                <button type="button" role="radio" aria-checked={selected} onClick={() => set('templateId', t.id)}
+                  className="flex flex-1 flex-col rounded-2xl p-4 pb-12 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
                   <span className="flex h-[230px] items-center justify-center rounded-xl bg-slate-50">
-                    <CredentialCard templateId={t.id} side={side} organization={organization} content={sample(form.name)}
+                    <CredentialCard templateId={t.id} side={cardSide} organization={organization} content={sample(form.name)}
                       scale={t.orientation === 'landscape' ? 0.8 : 0.62} />
                   </span>
                   <span className="mt-3 flex items-center gap-2">
@@ -245,6 +253,10 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
                   </span>
                   <span className="mt-1 pl-6 text-xs text-slate-500">{t.description}</span>
                 </button>
+                <div className="absolute bottom-3 right-4">
+                  <SideToggle side={cardSide} onChange={(v) => setTemplateSides((x) => ({ ...x, [t.id]: v }))} label={`${t.name} preview side`} flipLabel={`Flip ${t.name}`} />
+                </div>
+                </div>
               );
             })}
           </div>
@@ -295,6 +307,8 @@ export function CredentialDrawer({ open, onClose, onSaved, defaultIdentifierConf
               {errors.identifierConfigId && <p role="alert" className="mt-2 text-sm text-red-600">{errors.identifierConfigId}</p>}
               <p className="mt-2 text-xs text-slate-500">Each credential shows the identifier already assigned to the user.</p>
             </section>
+
+            <CredentialLogoField value={form.logoAssetId} onChange={(id) => set('logoAssetId', id)} error={errors.logoAssetId} />
 
             <section>
               <p id="cred-effective" className="mb-2 text-sm font-medium text-slate-700">Effective date</p>

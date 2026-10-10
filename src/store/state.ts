@@ -2,8 +2,8 @@ import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
 import type { AdminUser, AuditEvent, CardDesign, Credential, Organization } from '@/domain/types';
 import {
-  applyCreateUser, applyImportSummary, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate,
-  type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser, type ImportSummaryInput,
+  applyCreateUser, applyImportSummary, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate, applyUploadLogo,
+  type CredentialConfigInput, type LogoUploadInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser, type ImportSummaryInput,
 } from './operations';
 import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
 import { findRole, permissionsFor, type Permission, type RoleId } from '@/domain/roles';
@@ -51,6 +51,7 @@ export type Action =
   | { type: 'organization/updateProfile'; organizationId: string; changes: OrganizationProfileUpdate; at: string }
   | { type: 'config/identifier'; input: IdentifierConfigInput }
   | { type: 'config/credential'; input: CredentialConfigInput }
+  | { type: 'logos/upload'; input: LogoUploadInput }
   | { type: 'users/create'; prepared: PreparedUser }
   | { type: 'users/importSummary'; input: ImportSummaryInput }
   | { type: 'issuance/issue'; input: IssuanceInput }
@@ -113,6 +114,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'organization/updateProfile': ['settings.manage'],
   'config/identifier': ['users.create', 'users.import', 'credentials.manage'],
   'config/credential': ['credentials.manage'],
+  'logos/upload': ['credentials.manage'],
   'users/create': ['users.create', 'users.import'],
   'users/importSummary': ['users.import'],
   'users/status': ['users.edit'],
@@ -245,6 +247,10 @@ export function reducer(state: AppState, action: Action): AppState {
       const r = applyCredentialConfig(state, action.input);
       return r.ok ? r.state : state;
     }
+    case 'logos/upload': {
+      const r = applyUploadLogo(state, action.input);
+      return r.ok ? r.state : state;
+    }
     case 'users/create': {
       const r = applyCreateUser(state, action.prepared);
       return r.ok ? r.state : state;
@@ -293,6 +299,7 @@ export function reducer(state: AppState, action: Action): AppState {
           verifierAssignments: keep(n.verifierAssignments, d.verifierAssignments),
           verificationAttempts: keep(n.verificationAttempts, d.verificationAttempts),
           customRoles: keep(n.customRoles, d.customRoles),
+          logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
         },
       };
     }

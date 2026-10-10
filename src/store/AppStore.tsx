@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
-  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, ActivityConfig, ActivityVersion, VerifierAssignment, Member, Organization, Transaction, VerificationActivity,
+  AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, ActivityConfig, ActivityVersion, VerifierAssignment, Member, Organization, Transaction, VerificationActivity, LogoAsset,
 } from '@/domain/types';
 import {
   applyEnrollmentInvite, applyMemberStatus, type EnrollmentInviteInput, type MemberStatusInput,
-  applyCreateUser, applyImportSummary, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser,
+  applyCreateUser, applyImportSummary, applyCredentialConfig, applyIdentifierConfig, applyIssuance, prepareCreateUser, applyUploadLogo, type LogoUploadInput,
   type CreateUserInput, type ImportSummaryInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
 import {
@@ -84,6 +84,9 @@ export interface OrgData {
   activityConfigs: ActivityConfig[];
   activityVersions: ActivityVersion[];
   verifierAssignments: VerifierAssignment[];
+  /** This organization's saved credential logos. Other organizations' logos are never included. */
+  logoAssets: LogoAsset[];
+  logoAssetById: Map<string, LogoAsset>;
   memberById: Map<string, Member>;
   groupById: Map<string, Group>;
   credentialById: Map<string, Credential>;
@@ -120,6 +123,8 @@ export function selectOrgData(state: AppState, organizationId?: string): OrgData
     activityConfigs: scope(d.activityConfigs),
     activityVersions: scope(d.activityVersions),
     verifierAssignments: scope(d.verifierAssignments),
+    logoAssets: scope(d.logoAssets ?? []),
+    logoAssetById: new Map(scope(d.logoAssets ?? []).map((x) => [x.id, x])),
     memberById: new Map(members.map((x) => [x.id, x])),
     groupById: new Map(scope(d.groups).map((x) => [x.id, x])),
     credentialById: new Map(credentials.map((x) => [x.id, x])),
@@ -163,6 +168,22 @@ export function useActions() {
         if (denied) return { ok: false as const, errors: { form: denied } };
         const result = applyCredentialConfig(getState(), input);
         if (result.ok) dispatch({ type: 'config/credential', input });
+        return result;
+      },
+      /**
+       * Saves an uploaded credential logo for reuse in this organization. Fails, rather than appearing to
+       * succeed, when the browser can't store it (this prototype has no server file storage).
+       */
+      uploadLogo: (input: LogoUploadInput) => {
+        const state = getState();
+        const denied = authorizeAction(state, 'logos/upload') ?? (input.organizationId !== state.session.currentOrganizationId ? 'Logos can only be added to the organization you’re working in.' : null);
+        if (denied) return { ok: false as const, errors: { logo: denied } };
+        const result = applyUploadLogo(state, input);
+        if (!result.ok) return result;
+        if (result.state !== state && !saveState(result.state)) {
+          return { ok: false as const, errors: { logo: 'The logo couldn’t be saved because this browser’s storage is full or unavailable. Try a smaller image.' } };
+        }
+        dispatch({ type: 'logos/upload', input });
         return result;
       },
       /** Creates a user and assigns their identifier, atomically. Idempotent per requestId. */
