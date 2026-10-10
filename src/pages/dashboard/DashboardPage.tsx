@@ -3,6 +3,10 @@ import { Eye } from 'lucide-react';
 import { getSetupProgress } from '@/domain/setupProgress';
 import { SAMPLE_ORGANIZATION_ID } from '@/data/seed';
 import { useAuth } from '@/auth/AuthProvider';
+import { useAuthorization } from '@/auth/authorization';
+import type { Permission } from '@/domain/roles';
+import { VerifierDashboard } from '../verifier/VerifierHome';
+import { WorkspaceHome } from './WorkspaceHome';
 import { selectOrgData, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { ActiveDashboard } from './ActiveDashboard';
 import { FirstTimeDashboard } from './FirstTimeDashboard';
@@ -21,11 +25,21 @@ function PreviewControl({ value, onChange }: { value: DashboardPreview; onChange
   );
 }
 
+/** Permissions that come with an organization overview. Without any, the dashboard is role-focused. */
+const OVERVIEW: Permission[] = ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'audit.view'];
+
+/** Chooses the dashboard from what the administrator may see, so a new custom role never needs its own. */
+export function DashboardPage() {
+  const { can } = useAuthorization();
+  if (!OVERVIEW.some(can)) return can('verification.execute') ? <VerifierDashboard /> : <WorkspaceHome />;
+  return <OrganizationDashboard />;
+}
+
 /**
- * Dashboard container. In production the state follows setup progress ("automatic");
+ * Organization dashboard container. In production the state follows setup progress ("automatic");
  * the prototype preview can force either state without touching organization data.
  */
-export function DashboardPage() {
+function OrganizationDashboard() {
   const { admin } = useSession();
   const org = useOrgData();
   const { state } = useStore();

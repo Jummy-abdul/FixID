@@ -5,7 +5,7 @@ import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { DEMO_SESSION } from '@/auth/authCore';
 import { DEMO_ADMIN, SAMPLE_ORGANIZATION_ID } from '@/data/seed';
-import { PERMISSIONS, ROLES, editableRuleLayers, permissionsFor } from '@/domain/roles';
+import { PERMISSIONS, ROLES, editableRuleLayers, permissionsFor, rolesFor } from '@/domain/roles';
 import { authorizeVerifier } from '@/domain/verification';
 import { actorPermissions, actorRecord, adminsOf, applySetRoles } from '@/store/adminOps';
 import { loadState, saveState } from '@/store/persistence';
@@ -70,29 +70,29 @@ describe('current prototype account', () => {
 describe('verification governance and verifiers', () => {
   it('lets only rule managers change organization rules, never platform or governing-authority rules', () => {
     expect(editableRuleLayers(permissionsFor(['organization-admin']))).toEqual(['organization']);
-    expect(editableRuleLayers(permissionsFor(['verification-manager']))).toEqual(['organization']);
+    expect(editableRuleLayers(permissionsFor(['verification-manager'], rolesFor(sampleState().data.customRoles, SAMPLE_ORGANIZATION_ID)))).toEqual(['organization']);
     expect(editableRuleLayers(permissionsFor(['verifier']))).toEqual([]);
     expect(editableRuleLayers(permissionsFor(['viewer']))).toEqual([]);
     const verifier = ROLES.find((r) => r.id === 'verifier')!;
     expect(verifier.permissions).not.toContain('verification.verifiers.assign');
-    expect(verifier.permissions).not.toContain('verification.rules.manage');
+    expect(verifier.permissions).toEqual(['verification.execute']);
   });
 
-  it('authorizes organization verifiers for active activities, and assigned ones only when restricted', () => {
+  it('authorizes a verifier only for active activities they’re assigned to', () => {
     const s = sampleState();
     const activity = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.status === 'active')!;
     const verifier = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('verifier') && a.status === 'active')!;
     const assignment = { organizationId: SAMPLE_ORGANIZATION_ID, activityId: activity.id, administratorId: verifier.id, status: 'active' as const, assignedAt: AT, assignedBy: 'x' };
     const input = { organizationId: SAMPLE_ORGANIZATION_ID, activityId: activity.id, administratorId: verifier.id };
-    expect(authorizeVerifier(s.data, input)).toEqual({ authorized: true });
+    // The role authorizes the operation; the assignment decides the activity.
+    expect(authorizeVerifier(s.data, input)).toMatchObject({ authorized: false, reason: 'Not assigned to this activity.' });
+    const assigned = { ...s.data, verifierAssignments: [...s.data.verifierAssignments, assignment] };
+    expect(authorizeVerifier(assigned, input)).toEqual({ authorized: true });
     const other = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.id !== activity.id && a.status !== 'active')!;
-    expect(authorizeVerifier(s.data, { ...input, activityId: other.id })).toMatchObject({ authorized: false });
-    const demoted = { ...s.data, administrators: s.data.administrators.map((a) => (a.id === verifier.id ? { ...a, roleIds: ['viewer'] } : a)) };
+    expect(authorizeVerifier({ ...assigned, verifierAssignments: [...assigned.verifierAssignments, { ...assignment, activityId: other.id }] }, { ...input, activityId: other.id })).toMatchObject({ authorized: false });
+    const demoted = { ...assigned, administrators: s.data.administrators.map((a) => (a.id === verifier.id ? { ...a, roleIds: ['viewer'] } : a)) };
     expect(authorizeVerifier(demoted, input)).toMatchObject({ authorized: false, reason: expect.stringMatching(/role/) });
-    const restricted = { ...s.data, activityConfigs: s.data.activityConfigs.map((a) => (a.id === activity.id ? { ...a, restrictVerifiers: true } : a)) };
-    expect(authorizeVerifier(restricted, input)).toMatchObject({ authorized: false, reason: 'Not assigned to this activity.' });
-    expect(authorizeVerifier({ ...restricted, verifierAssignments: [assignment] }, input)).toEqual({ authorized: true });
-    expect(authorizeVerifier({ ...restricted, verifierAssignments: [{ ...assignment, status: 'removed' }] }, input)).toMatchObject({ authorized: false });
+    expect(authorizeVerifier({ ...s.data, verifierAssignments: [{ ...assignment, status: 'removed' }] }, input)).toMatchObject({ authorized: false });
     // An Organization Admin isn't a verifier unless explicitly authorized.
     const owner = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('organization-admin'))!;
     expect(authorizeVerifier(s.data, { ...input, administratorId: owner.id })).toMatchObject({ authorized: false });
@@ -127,7 +127,7 @@ describe('Role Preview', () => {
   it('previews a restricted role from the account menu and exits back to full access', async () => {
     const user = renderApp('/', sampleState());
     await user.click(screen.getByRole('button', { name: `Account menu for ${DEMO_ADMIN.name}` }));
-    await user.click(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: 'Credential Manager' }));
+    await user.click(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: /^Credential Manager/ }));
     const banner = await screen.findByRole('region', { name: 'Role preview' });
     expect(banner).toHaveTextContent('Role preview: Credential Manager');
     const nav = screen.getAllByRole('navigation')[0];
@@ -137,7 +137,8 @@ describe('Role Preview', () => {
     expect(actorRecord(loadState()!, SAMPLE_ORGANIZATION_ID)!.roleIds).toEqual(['organization-admin']);
 
     await user.selectOptions(within(banner).getByLabelText('Preview role'), 'verifier');
-    expect(await screen.findByRole('heading', { name: 'This role has no portal access' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'My Dashboard' })).toBeInTheDocument();
+    expect(within(screen.getAllByRole('navigation')[0]).getAllByRole('link').map((l) => l.textContent)).toEqual(['Dashboard', 'My Verification Activities', 'My Verification History']);
     await user.click(within(screen.getByRole('region', { name: 'Role preview' })).getByRole('button', { name: 'Exit preview' }));
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Role preview' })).toBeNull());
     expect(within(screen.getAllByRole('navigation')[0]).getByRole('link', { name: /Audit Log/ })).toBeInTheDocument();
@@ -148,11 +149,10 @@ describe('Role Preview', () => {
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
   });
 
-  it('shows a read-only role its view of administrators, without management actions', async () => {
+  it('keeps the Viewer out of administrators and settings, and exiting restores them', async () => {
     const s = reducer(sampleState(), { type: 'preview/start', roleId: 'viewer' });
     const user = renderApp('/settings?tab=admins', s);
-    expect(await screen.findByText('Kwame Mensah')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Invite Administrator' })).toBeNull();
+    expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Exit preview' }));
     expect(await screen.findByRole('button', { name: 'Invite Administrator' })).toBeInTheDocument();
   });

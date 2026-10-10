@@ -42,24 +42,10 @@ export function RequireApp() {
   if (account.onboarding !== 'complete') return <Navigate to={homeFor(account)} replace />;
   // Never render another organization's data while the workspace is being switched.
   if (state.data.admin.id !== (isDemo ? DEMO_ADMIN.id : account.id)) return null;
-  // Access follows the administrator record: deactivated or verifier-only administrators can't use the portal.
+  // Access follows the administrator record: deactivated administrators, or roles without any permission, can't enter.
   if (!record) return <PortalBlocked reason="no-membership" onSignOut={signOut} />;
   if (record.status === 'deactivated') return <PortalBlocked reason="deactivated" onSignOut={signOut} />;
   if (!portalAccess) return <PortalBlocked reason={previewRole ? 'preview-no-portal' : 'no-portal'} onSignOut={signOut} />;
-  return <Outlet />;
-}
-
-/**
- * Signed-in route guard for the Verifier Interface. Same sign-in and workspace rules as the portal, but
- * administrators without portal access (Verifiers) may enter; what they can do is decided per activity.
- */
-export function RequireVerifierApp() {
-  const { account, isDemo } = useAuth();
-  const { state } = useStore();
-  const location = useLocation();
-  if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
-  if (account.onboarding !== 'complete') return <Navigate to={homeFor(account)} replace />;
-  if (state.data.admin.id !== (isDemo ? DEMO_ADMIN.id : account.id)) return null;
   return <Outlet />;
 }
 

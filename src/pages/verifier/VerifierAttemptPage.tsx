@@ -12,7 +12,7 @@ import { useSession, useStore } from '@/store/AppStore';
 import type { VerificationInputs } from '@/verification/engine';
 import { FACE_SCENARIOS, HOLDER_SCENARIOS, LIVENESS_SCENARIOS } from '@/verification/simulatedProviders';
 import { useVerificationService } from '@/verification/useVerificationService';
-import { AttemptBadge } from './VerifierLayout';
+import { AttemptBadge } from '@/components/verification/attemptParts';
 import { AccessAndEntry, EligibilityBadge, IdentityResultBadge } from '@/components/verification/attemptParts';
 
 /** Starting from a link: the service authorizes it, so an unassigned activity ID is simply refused. */

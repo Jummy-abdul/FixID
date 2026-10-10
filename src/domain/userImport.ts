@@ -266,7 +266,7 @@ export async function runImport(
       const made = deps.createUser({
         requestId, organizationId: job.organizationId, at: new Date().toISOString(), identifierConfigId: job.config.id,
         identifierValue: r.person.identifierValue, person: { givenName: r.person.givenName, familyName: r.person.familyName },
-        identity, memberId: newId('mem'),
+        identity, memberId: newId('mem'), source: 'import',
       });
       results.push(made.ok
         ? { ...base, status: 'created', memberId: made.memberId, identifier: made.identifier }

@@ -12,7 +12,7 @@ import {
 } from './activityOps';
 import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from './groupOps';
-import { applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, type InviteInput } from './adminOps';
+import { applyDeleteRole, applyInvite, applyResendInvite, applyRevokeInvite, applySaveRole, applySetAdminStatus, applySetRoles, type InviteInput, type RoleInput } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
 import { authorizeAction, createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
@@ -215,6 +215,16 @@ export function useActions() {
       setAdminRoles: (organizationId: string, adminId: string, roleIds: string[]) => {
         const at = new Date().toISOString();
         return run(() => applySetRoles(getState(), { organizationId, adminId, roleIds, at }), { type: 'admins/roles', organizationId, adminId, roleIds, at });
+      },
+      /** Creates or updates a custom role in an organization. Returns field errors without changing anything. */
+      saveRole: (input: Omit<RoleInput, 'at'>) => {
+        const at = new Date().toISOString();
+        return run(() => applySaveRole(getState(), { ...input, at }), { type: 'roles/save', input: { ...input, at } });
+      },
+      /** Deletes a custom role nobody holds. */
+      deleteRole: (organizationId: string, roleId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyDeleteRole(getState(), { organizationId, roleId, at }), { type: 'roles/delete', organizationId, roleId, at });
       },
       setAdminStatus: (organizationId: string, adminId: string, status: 'active' | 'deactivated') => {
         const at = new Date().toISOString();

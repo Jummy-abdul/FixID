@@ -50,8 +50,8 @@ function Details({ activity }: { activity: ActivityConfig }) {
   const problems = activationProblems(state, organization.id, activity);
   const eligible = useEligibleCount(activity.participants);
   const attempts = state.data.verificationAttempts.filter((a) => a.activityId === activity.id);
-  const canManage = can('verification.activities.manage');
-  const canEdit = canManage;
+  const canManage = can('verification.activities.activate');
+  const canEdit = can('verification.activities.edit');
   const usesParticipants = !!current?.checks.some((c) => c.params.useParticipants);
   const tabs = [
     { value: 'overview' as const, label: 'Overview' },
@@ -81,8 +81,8 @@ function Details({ activity }: { activity: ActivityConfig }) {
         navigate(activityPath((r as { activityId: string }).activityId));
       },
     }] : []),
-    ...(can('verification.rules.manage') && draft && active ? [{ key: 'discard', label: 'Discard Draft Changes', icon: <Undo2 className="h-4 w-4" />, onSelect: () => setPending('discard') }] : []),
-    ...(canManage && activity.status === 'draft' && !active ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending('remove') }] : []),
+    ...(canEdit && draft && active ? [{ key: 'discard', label: 'Discard Draft Changes', icon: <Undo2 className="h-4 w-4" />, onSelect: () => setPending('discard') }] : []),
+    ...(canEdit && activity.status === 'draft' && !active ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending('remove') }] : []),
   ];
   const needsActivation = activity.status !== 'active' || !!draft;
   const when = scheduleText(activity.schedule);
@@ -224,7 +224,7 @@ function ParticipantsTab({ activity, uses }: { activity: ActivityConfig; uses: b
   const p = activity.participants ?? { groupIds: [], memberIds: [] };
   const counts = useMemo(() => memberCounts(state.data, organization.id), [state.data, organization.id]);
   const total = useEligibleCount(p);
-  const canManage = can('verification.activities.manage');
+  const canManage = can('verification.activities.edit');
   const version = state.data.activityVersions.find((v) => v.id === (activity.draftVersionId ?? activity.activeVersionId));
 
   const save = (next: Participants) => {

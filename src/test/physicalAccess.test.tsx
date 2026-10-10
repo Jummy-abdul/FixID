@@ -12,7 +12,7 @@ import { loadState } from '@/store/persistence';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService } from '@/verification/engine';
-import { statedDetails } from './helpers/identity';
+import { assign, statedDetails } from './helpers/identity';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
@@ -29,11 +29,12 @@ function harness(initial: AppState, opts: { outage?: boolean } = {}) {
 
 const base = () => { const s = createInitialState(new Date()); s.session.currentOrganizationId = ORG; return s; };
 const halima = (s: AppState) => adminsOf(s, ORG).find((a) => a.roleIds.includes('verifier') && a.status === 'active')!;
-const asHalima = (s: AppState): AppState => ({ ...s, data: { ...s.data, admin: { ...s.data.admin, id: halima(s).userId! } } });
-/** The demo Organization Admin, also given the Verifier role (portal access and verification). */
+/** Signed in as Halima (a Verifier) and assigned to the conference. */
+const asHalima = (s: AppState): AppState => assign({ ...s, data: { ...s.data, admin: { ...s.data.admin, id: halima(s).userId! } } }, halima(s).id, [conference(s).id]);
+/** The demo Organization Admin, also given the Verifier role and assigned to the conference. */
 const adminVerifier = (s: AppState): AppState => {
   const me = adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
-  return reducer(s, { type: 'admins/roles', organizationId: ORG, adminId: me.id, roleIds: [...me.roleIds, 'verifier'], at: AT });
+  return assign(reducer(s, { type: 'admins/roles', organizationId: ORG, adminId: me.id, roleIds: [...me.roleIds, 'verifier'], at: AT }), me.id, [conference(s).id]);
 };
 const conference = (s: AppState) => s.data.activityConfigs.find((a) => a.organizationId === ORG && a.name === 'Annual Staff Conference')!;
 const withPolicy = (s: AppState, entryPolicy: 'off' | 'flag' | 'deny'): AppState => ({ ...s, data: { ...s.data, activityConfigs: s.data.activityConfigs.map((a) => (a.id === conference(s).id ? { ...a, entryPolicy } : a)) } });

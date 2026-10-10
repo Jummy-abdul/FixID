@@ -200,7 +200,6 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
 
   if (!existing) {
     if (!need('verification.activities.create')) return { ok: false, error: DENIED };
-    if (form.checks.length && !need('verification.rules.manage')) return { ok: false, error: "You don't have permission to configure verification rules." };
     const activity: ActivityConfig = {
       id: input.ids.activityId, organizationId, ...details, ...settings, status: 'draft', draftVersionId: input.ids.versionId,
       createdAt: at, createdBy: by, updatedAt: at, updatedBy: by,
@@ -246,9 +245,9 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   const configChanged = !!(cfg.added.length || cfg.removed.length || cfg.rules.length || cfg.providerChanges.length)
     || !sameChecks(base?.checks, nextChecks)
     || (!form.keepConfiguration && form.requirements !== undefined && JSON.stringify(base?.requirements ?? null) !== JSON.stringify(form.requirements));
-  if (detailChanges.length && !need('verification.activities.manage')) return { ok: false, error: DENIED };
-  if (participantsChanged && !need('verification.activities.manage')) return { ok: false, error: DENIED };
-  if (configChanged && !need('verification.rules.manage')) return { ok: false, error: "You don't have permission to configure verification rules." };
+  if (detailChanges.length && !need('verification.activities.edit')) return { ok: false, error: DENIED };
+  if (participantsChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
+  if (configChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   if (!detailChanges.length && !participantsChanged && !configChanged && !diff.add.length && !diff.remove.length) return { ok: true, state, activityId: existing.id };
 
   let versions = state.data.activityVersions;
@@ -309,17 +308,17 @@ export function activationProblems(state: AppState, organizationId: string, acti
   if (!version) return { blockers: [...blockers, 'Configure the activity’s checks.'], warnings: [] };
   const v = validateConfiguration(version, validationContext(state, organizationId, activity.participants ?? { groupIds: [], memberIds: [] }));
   blockers.push(...v.blockers.map((b) => b.message));
-  // Verifiers come from the Verifier role. Only an activity restricted to assigned verifiers needs assignments.
+  // Verifiers perform only the activities they're assigned to. An activity can be activated before
+  // anyone is assigned, but nobody can perform it until then.
   const eligible = new Set(eligibleVerifiers(state.data, organizationId).map((a) => a.id));
-  if (activity.restrictVerifiers && !activeAssignments(state.data, organizationId, activity.id).some((x) => eligible.has(x.administratorId))) {
-    blockers.push('This activity is limited to assigned verifiers. Assign at least one, or allow any Verifier.');
-  }
+  const assigned = activeAssignments(state.data, organizationId, activity.id).some((x) => eligible.has(x.administratorId));
   const org = state.data.organizations.find((o) => o.id === organizationId)!;
   const identity = identityUnavailable(version, org);
   if (identity) blockers.unshift(identity);
   const warnings = v.warnings.map((w) => w.message);
   if (lookupOnlyIdentity(version)) warnings.push('Identity is confirmed only by finding a record from an identifier, which doesn’t prove who is present. Newer activities also require the person’s stated details to match.');
   if (!eligible.size) warnings.push('Nobody in your organization has the Verifier role yet, so nobody can perform this activity. Add one in Settings → Administrators & Roles.');
+  else if (!assigned) warnings.push('No verifiers are assigned to this activity yet, so nobody can perform it. Assigning verifiers is coming soon.');
   return { blockers: [...new Set(blockers)], warnings };
 }
 
@@ -329,7 +328,7 @@ function find(state: AppState, organizationId: string, activityId: string) {
 
 /** Activates a draft activity, publishes pending changes, or reactivates an inactive one, only when valid. */
 export function applyActivate(state: AppState, input: { organizationId: string; activityId: string; at: string }): Result {
-  if (!actorPermissions(state, input.organizationId).has('verification.activities.manage')) return { ok: false, error: DENIED };
+  if (!actorPermissions(state, input.organizationId).has('verification.activities.activate')) return { ok: false, error: DENIED };
   const activity = find(state, input.organizationId, input.activityId);
   if (!activity) return { ok: false, error: 'This activity no longer exists.' };
   if (activity.status === 'active' && !activity.draftVersionId) return { ok: true, state, activityId: activity.id };
@@ -358,7 +357,7 @@ export function applyActivate(state: AppState, input: { organizationId: string; 
 }
 
 export function applyDeactivate(state: AppState, input: { organizationId: string; activityId: string; at: string }): Result {
-  if (!actorPermissions(state, input.organizationId).has('verification.activities.manage')) return { ok: false, error: DENIED };
+  if (!actorPermissions(state, input.organizationId).has('verification.activities.activate')) return { ok: false, error: DENIED };
   const activity = find(state, input.organizationId, input.activityId);
   if (!activity) return { ok: false, error: 'This activity no longer exists.' };
   if (activity.status !== 'active') return { ok: false, error: 'Only active activities can be deactivated.' };
@@ -374,7 +373,7 @@ export function applyDeactivate(state: AppState, input: { organizationId: string
 
 /** Throws away unpublished changes to an active or inactive activity. */
 export function applyDiscardDraft(state: AppState, input: { organizationId: string; activityId: string; at: string }): Result {
-  if (!actorPermissions(state, input.organizationId).has('verification.rules.manage')) return { ok: false, error: DENIED };
+  if (!actorPermissions(state, input.organizationId).has('verification.activities.edit')) return { ok: false, error: DENIED };
   const activity = find(state, input.organizationId, input.activityId);
   if (!activity?.draftVersionId || !activity.activeVersionId) return { ok: false, error: 'There are no pending changes to discard.' };
   const draft = state.data.activityVersions.find((v) => v.id === activity.draftVersionId)!;
@@ -416,7 +415,7 @@ export function applyDuplicate(state: AppState, input: { organizationId: string;
 
 /** Removes an activity that has never been activated, with its draft and assignments. */
 export function applyRemoveDraft(state: AppState, input: { organizationId: string; activityId: string; at: string }): Result {
-  if (!actorPermissions(state, input.organizationId).has('verification.activities.manage')) return { ok: false, error: DENIED };
+  if (!actorPermissions(state, input.organizationId).has('verification.activities.edit')) return { ok: false, error: DENIED };
   const activity = find(state, input.organizationId, input.activityId);
   if (!activity) return { ok: false, error: 'This activity no longer exists.' };
   if (activity.status !== 'draft' || activity.activeVersionId) return { ok: false, error: 'Only draft activities that were never activated can be removed. Deactivate it instead.' };

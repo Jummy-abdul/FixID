@@ -6,6 +6,7 @@ import type {
 import { formatIdentifier } from '@/lib/identifiers';
 import { computeValidity } from '@/services/issuance';
 import type { AppState } from './state';
+import { actorPermissions } from './adminOps';
 
 type Result<T> = ({ ok: true; state: AppState } & T) | { ok: false; errors: Record<string, string> };
 
@@ -100,6 +101,8 @@ export interface CreateUserInput {
   person: { givenName: string; familyName: string };
   identity: { idSwitchId: string; resolution: Member['resolution'] };
   memberId: string;
+  /** Bulk import needs `users.import`; adding one user needs `users.create`. */
+  source?: 'import';
 }
 
 /** A create request with its identifier already assigned, so the reducer stays deterministic. */
@@ -118,6 +121,7 @@ export const OTHER_ORGANIZATION = 'You can only add users to the organization yo
 
 export function prepareCreateUser(state: AppState, input: CreateUserInput, random: () => number = Math.random): PrepareResult {
   if (input.organizationId !== state.session.currentOrganizationId) return { ok: false, errors: { form: OTHER_ORGANIZATION } };
+  if (!actorPermissions(state, input.organizationId).has(input.source === 'import' ? 'users.import' : 'users.create')) return { ok: false, errors: { form: "You don't have permission to do this." } };
   const prior = state.data.members.find((m) => m.creationRequestId === input.requestId && m.organizationId === input.organizationId);
   if (prior) return { ok: true, prepared: { ...input, assigned: { value: prior.identifier?.value ?? '', nextSequence: null } }, duplicateRequest: { memberId: prior.id } };
 
@@ -144,6 +148,7 @@ export function prepareCreateUser(state: AppState, input: CreateUserInput, rando
 export function applyCreateUser(state: AppState, p: PreparedUser): Result<{ memberId: string; duplicateRequest?: boolean }> {
   // Users are only ever added to the organization the administrator is working in.
   if (p.organizationId !== state.session.currentOrganizationId) return { ok: false, errors: { form: OTHER_ORGANIZATION } };
+  if (!actorPermissions(state, p.organizationId).has(p.source === 'import' ? 'users.import' : 'users.create')) return { ok: false, errors: { form: "You don't have permission to do this." } };
   const prior = state.data.members.find((m) => m.creationRequestId === p.requestId && m.organizationId === p.organizationId);
   if (prior) return { ok: true, state, memberId: prior.id, duplicateRequest: true };
   const config = state.data.identifierConfigs.find((c) => c.id === p.identifierConfigId && c.organizationId === p.organizationId);

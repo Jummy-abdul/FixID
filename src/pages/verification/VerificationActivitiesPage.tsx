@@ -33,8 +33,8 @@ export function VerificationActivitiesPage() {
   useEffect(() => { const t = setTimeout(() => setLoading(false), 200); return () => clearTimeout(t); }, []);
 
   const canCreate = can('verification.activities.create');
-  const canManage = can('verification.activities.manage');
-  const canEdit = canManage || can('verification.rules.manage') || can('verification.verifiers.assign');
+  const canManage = can('verification.activities.activate');
+  const canEdit = can('verification.activities.edit');
 
   const rows = useMemo(() => state.data.activityConfigs
     .filter((a) => a.organizationId === organization.id)
@@ -79,7 +79,7 @@ export function VerificationActivitiesPage() {
     ...(canManage && a.status !== 'active' ? [{ key: 'activate', label: 'Activate', icon: <Power className="h-4 w-4" />, onSelect: () => setPending({ kind: 'activate', activity: a }) }] : []),
     ...(canManage && a.status === 'active' ? [{ key: 'deactivate', label: 'Deactivate', icon: <PowerOff className="h-4 w-4" />, onSelect: () => setPending({ kind: 'deactivate', activity: a }) }] : []),
     ...(canCreate ? [{ key: 'duplicate', label: 'Duplicate Activity', icon: <Copy className="h-4 w-4" />, onSelect: () => duplicate(a) }] : []),
-    ...(canManage && a.status === 'draft' && !a.activeVersionId ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending({ kind: 'remove', activity: a }) }] : []),
+    ...(canEdit && a.status === 'draft' && !a.activeVersionId ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending({ kind: 'remove', activity: a }) }] : []),
   ];
 
   const create = canCreate ? <ButtonLink to="/verification-activities/new" variant="primary" icon={<Plus className="h-4 w-4" />}>Create Activity</ButtonLink> : undefined;

@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Eye, Mail, MailX, Pencil, ShieldCheck, ShieldOff, UserCheck, UserPlus, UserX } from 'lucide-react';
+import { ArrowLeft, Check, Eye, Lock, Mail, MailX, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, UserCheck, UserPlus, UserX } from 'lucide-react';
 import {
   Badge, Button, Card, ConfirmDialog, DataTable, Drawer, EmptyState, Field, FilterSelect, Input, OverflowMenu, SearchInput, Skeleton, useToast,
   type OverflowMenuItem,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { NoAccess } from '@/auth/authorization';
-import { PERMISSIONS, ROLES, canGrantRoles, coversRoles, permissionsFor, roleById, type Permission, type Role } from '@/domain/roles';
+import {
+  CUSTOM_ROLE_PERMISSIONS, PERMISSIONS, PERMISSION_AREAS, canGrantPermission, canGrantRoles, coversRoles, permissionsFor, type Permission, type Role,
+} from '@/domain/roles';
 import type { OrgAdministrator } from '@/domain/types';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { newId } from '@/lib/identifiers';
 import { cn } from '@/lib/cn';
 import { useQueryState } from '@/hooks/useQueryState';
-import { adminsOf, invitationExpired, inviteProblem } from '@/store/adminOps';
+import { adminsOf, invitationExpired, inviteProblem, orgRoles, roleHolders, roleProblems, type RoleErrors } from '@/store/adminOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
 import { useNavigate } from 'react-router-dom';
 
@@ -25,20 +27,26 @@ function StatusBadge({ admin }: { admin: OrgAdministrator }) {
   return admin.status === 'active' ? <Badge tone="success" dot>Active</Badge> : <Badge tone="neutral" dot>Deactivated</Badge>;
 }
 
+/** The roles that exist in the current organization: system roles and its own custom roles. */
+function useOrgRoles(): Role[] {
+  const { state } = useStore();
+  return orgRoles(state, state.session.currentOrganizationId);
+}
+
 function RoleBadges({ roleIds }: { roleIds: string[] }) {
+  const roles = useOrgRoles();
   return (
     <span className="flex flex-wrap gap-1">
-      {roleIds.map((id) => <Badge key={id} tone="brand">{roleById(id)?.name ?? id}</Badge>)}
+      {roleIds.map((id) => <Badge key={id} tone="brand">{roles.find((r) => r.id === id)?.name ?? 'Unknown role'}</Badge>)}
     </span>
   );
 }
 
 /** Permissions granted by a set of roles, grouped by area. */
-function PermissionList({ permissions, compact, scopes }: { permissions: Set<Permission>; compact?: boolean; scopes?: Role['scopes'] }) {
-  const areas = [...new Set(PERMISSIONS.map((p) => p.area))];
+function PermissionList({ permissions, compact }: { permissions: Set<Permission>; compact?: boolean }) {
   return (
     <div className={cn('grid gap-4', compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-4')}>
-      {areas.map((area) => (
+      {PERMISSION_AREAS.map((area) => (
         <div key={area}>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{area}</p>
           <ul className="mt-1.5 space-y-1">
@@ -49,7 +57,7 @@ function PermissionList({ permissions, compact, scopes }: { permissions: Set<Per
                   {on ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" /> : <span className="mt-2 h-px w-3.5 shrink-0 bg-slate-300" aria-hidden="true" />}
                   <span>
                     {p.label}<span className="sr-only">{on ? ' (allowed)' : ' (not allowed)'}</span>
-                    {on && scopes?.[p.id] === 'assigned-activities' && <span className="block text-xs text-slate-500">Assigned activities only</span>}
+                    {on && p.planned && <span className="block text-xs text-slate-500">Workflow coming soon</span>}
                   </span>
                 </li>
               );
@@ -63,11 +71,12 @@ function PermissionList({ permissions, compact, scopes }: { permissions: Set<Per
 
 /** Role picker that only offers roles the signed-in administrator may grant. */
 function RolePicker({ value, onChange, grantable }: { value: string[]; onChange: (ids: string[]) => void; grantable: (id: string) => boolean }) {
+  const roles = useOrgRoles();
   return (
     <fieldset>
       <legend className="mb-2 text-sm font-medium text-slate-700">Roles <span className="text-red-500">*</span></legend>
       <div className="space-y-2">
-        {ROLES.map((r) => {
+        {roles.map((r) => {
           const checked = value.includes(r.id);
           const allowed = grantable(r.id);
           return (
@@ -77,7 +86,7 @@ function RolePicker({ value, onChange, grantable }: { value: string[]; onChange:
                 onChange={(e) => onChange(e.target.checked ? [...value, r.id] : value.filter((x) => x !== r.id))} />
               <span className="min-w-0">
                 <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
-                  {r.name}{!r.portalAccess && <Badge tone="neutral">No portal access</Badge>}
+                  {r.name}{!r.system && <Badge tone="violet">Custom</Badge>}
                 </span>
                 <span className="block text-sm text-slate-500">{r.description}</span>
                 {!allowed && <span className="block text-xs text-slate-400">You can't grant this role.</span>}
@@ -93,9 +102,8 @@ function RolePicker({ value, onChange, grantable }: { value: string[]; onChange:
 export function AdministratorsPanel() {
   const { can } = useAuthorization();
   const [view, setView] = useQueryState('view', 'administrators');
-  const tabs = ([['administrators', 'Administrators'], ['roles', 'Roles & Permissions']] as const)
-    .filter(([id]) => can(id === 'roles' ? 'roles.view' : 'administrators.view'));
-  if (tabs.length === 0) return <NoAccess />;
+  if (!can('administrators.view')) return <NoAccess />;
+  const tabs = [['administrators', 'Administrators'], ['roles', 'Roles & Permissions']] as const;
   const current: View = tabs.some(([id]) => id === view) ? (view as View) : tabs[0][0];
   return (
     <div>
@@ -113,11 +121,11 @@ export function AdministratorsPanel() {
 }
 
 /** What the current administrator may do to another administrator. Mirrors the checks in the store. */
-function adminAllowed(can: (p: Permission) => boolean, permissions: Set<Permission>) {
+function adminAllowed(can: (p: Permission) => boolean, permissions: Set<Permission>, roles: Role[]) {
   return (a: OrgAdministrator) => {
-    const covers = coversRoles(permissions, a.roleIds);
+    const covers = coversRoles(permissions, a.roleIds, roles);
     return {
-      roles: can('roles.assign') && canGrantRoles(permissions, a.roleIds) && a.status !== 'deactivated',
+      roles: can('roles.assign') && canGrantRoles(permissions, a.roleIds, roles) && a.status !== 'deactivated',
       invitation: can('administrators.invite') && covers && a.status === 'invited',
       access: can('administrators.manage') && covers && a.status !== 'invited',
     };
@@ -134,7 +142,8 @@ function AdministratorsTab() {
   const { can, permissions } = useAuthorization();
   const actions = useActions();
   const toast = useToast();
-  const canInvite = can('administrators.invite') && can('roles.assign');
+  const canInvite = can('administrators.invite');
+  const roles = useOrgRoles();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [role, setRole] = useState('all');
@@ -154,7 +163,7 @@ function AdministratorsTab() {
       .sort((a, b) => (a.status === b.status ? (a.name ?? a.email).localeCompare(b.name ?? b.email) : ['active', 'invited', 'deactivated'].indexOf(a.status) - ['active', 'invited', 'deactivated'].indexOf(b.status)));
   }, [admins, q, status, role]);
 
-  const allowed = adminAllowed(can, permissions);
+  const allowed = adminAllowed(can, permissions, roles);
   const menu = (a: OrgAdministrator): OverflowMenuItem[] => {
     const items: OverflowMenuItem[] = [{ key: 'view', label: 'View Administrator', icon: <Eye className="h-4 w-4" />, onSelect: () => setViewing(a.id) }];
     const may = allowed(a);
@@ -196,7 +205,7 @@ function AdministratorsTab() {
         <SearchInput value={q} onChange={setQ} placeholder="Search name or email" className="sm:w-72" label="Search administrators" />
         <FilterSelect label="Status" value={status} onChange={setStatus}
           options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'invited', label: 'Invited' }, { value: 'deactivated', label: 'Deactivated' }]} />
-        <FilterSelect label="Role" value={role} onChange={setRole} options={[{ value: 'all', label: 'All roles' }, ...ROLES.map((r) => ({ value: r.id, label: r.name }))]} />
+        <FilterSelect label="Role" value={role} onChange={setRole} options={[{ value: 'all', label: 'All roles' }, ...roles.map((r) => ({ value: r.id, label: r.name }))]} />
         {canInvite && <Button className="sm:ml-auto" icon={<UserPlus className="h-4 w-4" />} onClick={() => setInviteOpen(true)}>Invite Administrator</Button>}
       </div>
       {loading ? (
@@ -238,6 +247,7 @@ function InviteDrawer({ open, onClose }: { open: boolean; onClose: () => void })
   const { state } = useStore();
   const { permissions } = useAuthorization();
   const { inviteAdmin } = useActions();
+  const roles = useOrgRoles();
   const toast = useToast();
   const [step, setStep] = useState<'details' | 'review'>('details');
   const [email, setEmail] = useState('');
@@ -266,7 +276,7 @@ function InviteDrawer({ open, onClose }: { open: boolean; onClose: () => void })
     toast({ tone: 'success', title: 'Invitation created', description: `${email.trim()} can join by signing up with this email address within 7 days. No email was sent.` });
   };
 
-  const perms = permissionsFor(roleIds);
+  const perms = permissionsFor(roleIds, roles);
   return (
     <Drawer open={open} onClose={onClose} width="xl" title={step === 'details' ? 'Invite administrator' : 'Review invitation'}
       onBack={step === 'review' ? () => setStep('details') : undefined}
@@ -289,7 +299,7 @@ function InviteDrawer({ open, onClose }: { open: boolean; onClose: () => void })
           </Field>
           <div>
             <RolePicker value={roleIds} onChange={(v) => { setRoleIds(v); setErrors((x) => ({ ...x, roles: undefined })); }}
-              grantable={(id) => canGrantRoles(permissions, [id])} />
+              grantable={(id) => coversRoles(permissions, [id], roles)} />
             {errors.roles && <p role="alert" className="mt-2 text-sm text-red-600">{errors.roles}</p>}
           </div>
         </div>
@@ -320,6 +330,7 @@ function AdminDrawer({ adminId, onClose, onAction }: {
   const { state } = useStore();
   const { can, permissions } = useAuthorization();
   const { setAdminRoles } = useActions();
+  const roles = useOrgRoles();
   const toast = useToast();
   const a = adminId ? adminsOf(state, organization.id).find((x) => x.id === adminId) : undefined;
   const [roleIds, setRoleIds] = useState<string[]>([]);
@@ -327,13 +338,13 @@ function AdminDrawer({ adminId, onClose, onAction }: {
   useEffect(() => { if (a) { setRoleIds(a.roleIds); setError(null); } }, [a?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!a) return null;
-  const may = adminAllowed(can, permissions)(a);
+  const may = adminAllowed(can, permissions, roles)(a);
   const editable = may.roles;
   const dirty = [...roleIds].sort().join() !== [...a.roleIds].sort().join();
   const save = () => {
     const r = setAdminRoles(organization.id, a.id, roleIds);
     if (!r.ok) return setError(r.error);
-    toast({ tone: 'success', title: 'Roles updated', description: `${a.name ?? a.email} now has ${roleIds.map((id) => roleById(id)?.name).join(', ')}.` });
+    toast({ tone: 'success', title: 'Roles updated', description: `${a.name ?? a.email} now has ${roleIds.map((id) => roles.find((r) => r.id === id)?.name).join(', ')}.` });
     onClose();
   };
 
@@ -363,13 +374,13 @@ function AdminDrawer({ adminId, onClose, onAction }: {
         </dl>
         {error && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
         {editable ? (
-          <RolePicker value={roleIds} onChange={(v) => { setRoleIds(v); setError(null); }} grantable={(id) => canGrantRoles(permissions, [id])} />
+          <RolePicker value={roleIds} onChange={(v) => { setRoleIds(v); setError(null); }} grantable={(id) => canGrantRoles(permissions, [id], roles)} />
         ) : (
           <div><p className="mb-2 text-sm font-medium text-slate-700">Roles</p><RoleBadges roleIds={a.roleIds} /></div>
         )}
         <div>
           <p className="mb-3 text-sm font-medium text-slate-700">Permissions{editable && dirty ? ' after saving' : ''}</p>
-          <PermissionList permissions={permissionsFor(editable ? roleIds : a.roleIds)} compact />
+          <PermissionList permissions={permissionsFor(editable ? roleIds : a.roleIds, roles)} compact />
         </div>
       </div>
     </Drawer>
@@ -378,46 +389,176 @@ function AdminDrawer({ adminId, onClose, onAction }: {
 
 function RolesTab() {
   const { organization } = useSession();
-  const { canPreview } = useAuthorization();
-  const { startRolePreview } = useActions();
+  const { canPreview, can } = useAuthorization();
+  const { startRolePreview, deleteRole } = useActions();
+  const toast = useToast();
   const navigate = useNavigate();
   const { state } = useStore();
-  const admins = adminsOf(state, organization.id);
+  const roles = useOrgRoles();
+  const canManageRoles = can('roles.manage');
+  const [editing, setEditing] = useState<Role | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<Role | null>(null);
+  const preview = (id: string) => { startRolePreview(id); navigate('/'); };
+  const custom = roles.filter((r) => !r.system);
+
+  const remove = () => {
+    if (!deleting) return;
+    const r = deleteRole(organization.id, deleting.id);
+    setDeleting(null);
+    toast(r.ok ? { tone: 'success', title: 'Role deleted', description: deleting.name } : { tone: 'error', title: 'Role not deleted', description: r.error });
+  };
+
   return (
     <div className="space-y-4">
-      {ROLES.map((r) => {
-        const count = admins.filter((a) => a.status !== 'deactivated' && a.roleIds.includes(r.id)).length;
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-0 flex-1 text-sm text-slate-500">An administrator’s access is everything their roles allow together. System roles can’t be changed; custom roles belong to {organization.name} only.</p>
+        {canPreview && (
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <Eye className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <span>Preview as role</span>
+            <select aria-label="Preview as role" value="" onChange={(e) => e.target.value && preview(e.target.value)}
+              className="h-9 rounded-lg border-slate-300 py-0 pl-2.5 pr-8 text-sm text-slate-800 focus:border-brand-500 focus:ring-brand-500">
+              <option value="">Choose a role…</option>
+              {roles.filter((r) => r.id !== 'organization-admin').map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </label>
+        )}
+        {canManageRoles && <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button>}
+      </div>
+
+      {roles.map((r) => {
+        const holders = roleHolders(state, organization.id, r.id).filter((a) => a.status !== 'deactivated').length;
         return (
           <Card key={r.id}>
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
-              <div>
+              <div className="min-w-0">
                 <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-slate-900">
                   {r.name}
-                  {!r.portalAccess && <Badge tone="neutral">No portal access</Badge>}
+                  {r.system ? <Badge tone="neutral"><Lock className="h-3 w-3" aria-hidden="true" />System role</Badge> : <Badge tone="violet">Custom role</Badge>}
                 </h3>
-                <p className="mt-0.5 text-sm text-slate-500">{r.description}</p>
+                <p className="mt-0.5 text-sm text-slate-500">{r.description || 'No description.'}</p>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-500">{count} {count === 1 ? 'administrator' : 'administrators'}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-slate-500">{holders} {holders === 1 ? 'administrator' : 'administrators'}</span>
                 {canPreview && r.id !== 'organization-admin' && (
-                  <Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} aria-label={`Preview as ${r.name}`}
-                    onClick={() => { startRolePreview(r.id); navigate('/'); }}>Preview</Button>
+                  <Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} aria-label={`Preview as ${r.name}`} onClick={() => preview(r.id)}>Preview</Button>
+                )}
+                {canManageRoles && !r.system && (
+                  <>
+                    <Button size="sm" variant="secondary" icon={<Pencil className="h-4 w-4" />} aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}>Edit</Button>
+                    <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</Button>
+                  </>
                 )}
               </div>
             </div>
-            <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-              <div>
+            <div className={cn('grid gap-6 px-6 py-5', r.highlights && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
+              {r.highlights && (
                 <ul className="space-y-1.5 text-sm text-slate-700">
                   {r.highlights.map((h) => <li key={h} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />{h}</li>)}
                   {r.limits?.map((h) => <li key={h} className="flex gap-2 text-slate-500"><ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{h}</li>)}
                 </ul>
-              </div>
-              <PermissionList permissions={new Set(r.permissions)} scopes={r.scopes} compact />
+              )}
+              <PermissionList permissions={new Set(r.permissions)} compact />
             </div>
           </Card>
         );
       })}
-      <p className="text-sm text-slate-500">Built-in roles can't be edited. Verifiers work through approved verifier apps and can perform their organization’s active verification activities; an activity can optionally be limited to specific verifiers. Verification rules set by FixID, or by a governing authority in future, can't be changed by any organization role.</p>
+      {custom.length === 0 && (
+        <Card><EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No custom roles yet"
+          description="Create a role for a specific responsibility, such as a records officer who manages users but not credentials or settings."
+          action={canManageRoles ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button> : undefined} /></Card>
+      )}
+
+      {editing && <RoleDrawer role={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {deleting && (() => {
+        const holders = roleHolders(state, organization.id, deleting.id);
+        return holders.length ? (
+          <ConfirmDialog open title={`${deleting.name} can’t be deleted yet`} confirmLabel="OK" onCancel={() => setDeleting(null)} onConfirm={() => setDeleting(null)}
+            description={`It’s assigned to ${holders.length} ${holders.length === 1 ? 'administrator' : 'administrators'}: ${holders.map((a) => a.name ?? a.email).join(', ')}. Give them other roles in the Administrators tab first, so nobody loses or keeps access by accident.`} />
+        ) : (
+          <ConfirmDialog open tone="danger" title={`Delete ${deleting.name}?`} confirmLabel="Delete Role" onCancel={() => setDeleting(null)} onConfirm={remove}
+            description="Nobody has this role. It will be removed from your organization. This can’t be undone." />
+        );
+      })()}
     </div>
+  );
+}
+
+/** Create or edit a custom role. Permissions are grouped by area; Organization Admin privileges can’t be chosen. */
+function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void }) {
+  const { organization } = useSession();
+  const { state } = useStore();
+  const { permissions: mine } = useAuthorization();
+  const { saveRole } = useActions();
+  const toast = useToast();
+  const [name, setName] = useState(role?.name ?? '');
+  const [description, setDescription] = useState(role?.description ?? '');
+  const [perms, setPerms] = useState<Permission[]>(role?.permissions ?? []);
+  const [errors, setErrors] = useState<RoleErrors>({});
+  const id = useMemo(() => role?.id ?? newId('role'), [role]);
+  const holders = role ? roleHolders(state, organization.id, role.id).filter((a) => a.status !== 'deactivated').length : 0;
+  const toggle = (p: Permission) => { setPerms((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p])); setErrors((e) => ({ ...e, permissions: undefined })); };
+
+  const save = () => {
+    const input = { organizationId: organization.id, id, name, description, permissions: perms };
+    const e = roleProblems(state, input);
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    const r = saveRole(input);
+    if (!r.ok) { setErrors({ form: r.error, ...(r.errors as RoleErrors | undefined) }); return; }
+    toast({ tone: 'success', title: role ? 'Role updated' : 'Role created', description: role && holders ? `Changes apply now to ${holders} ${holders === 1 ? 'administrator' : 'administrators'}.` : name.trim() });
+    onClose();
+  };
+
+  return (
+    <Drawer open onClose={onClose} width="xl" title={role ? `Edit ${role.name}` : 'Create custom role'}
+      description="Choose what people with this role can see and do in this organization."
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={save}>{role ? 'Save Role' : 'Create Role'}</Button></>}>
+      <div className="space-y-6">
+        {errors.form && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{errors.form}</p>}
+        {role && holders > 0 && (
+          <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
+            {holders} {holders === 1 ? 'administrator has' : 'administrators have'} this role. Changes apply to them as soon as you save, including removed permissions.
+          </p>
+        )}
+        <Field label="Role name" required error={errors.name} hint="e.g. Student Records Officer">
+          {(p) => <Input {...p} autoFocus value={name} maxLength={60} onChange={(e) => { setName(e.target.value); setErrors((x) => ({ ...x, name: undefined })); }} />}
+        </Field>
+        <Field label="Description" hint="Optional">
+          {(p) => <Input {...p} value={description} maxLength={160} onChange={(e) => setDescription(e.target.value)} />}
+        </Field>
+        <fieldset>
+          <legend className="text-sm font-medium text-slate-700">Permissions <span className="text-red-500">*</span></legend>
+          {errors.permissions && <p role="alert" className="mt-1 text-sm text-red-600">{errors.permissions}</p>}
+          <div className="mt-3 grid gap-5 sm:grid-cols-2">
+            {PERMISSION_AREAS.map((area) => (
+              <div key={area} role="group" aria-label={area}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{area}</p>
+                <ul className="mt-2 space-y-1.5">
+                  {PERMISSIONS.filter((p) => p.area === area).map((p) => {
+                    const locked = !CUSTOM_ROLE_PERMISSIONS.includes(p.id);
+                    const grantable = canGrantPermission(mine, p.id);
+                    return (
+                      <li key={p.id}>
+                        <label className={cn('flex items-start gap-2.5 text-sm', locked || !grantable ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-800')}>
+                          <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" checked={perms.includes(p.id)}
+                            disabled={locked || (!grantable && !perms.includes(p.id))} onChange={() => toggle(p.id)} />
+                          <span>
+                            {p.label}
+                            {locked && <span className="block text-xs">Organization Admin only</span>}
+                            {!locked && p.sensitive && <span className="block text-xs text-amber-700">Sensitive</span>}
+                            {!locked && p.planned && <span className="block text-xs text-slate-500">Workflow coming soon</span>}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+    </Drawer>
   );
 }

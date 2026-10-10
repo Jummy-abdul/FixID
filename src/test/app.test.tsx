@@ -37,14 +37,16 @@ describe('navigation', () => {
   it('has the approved sidebar structure and order', () => {
     expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'My Verification Activities', 'Verification History', 'My Verification History', 'Audit Log', 'Settings',
     ]);
   });
 
-  it('every sidebar item routes to its page and is highlighted as active', async () => {
+  it('every sidebar item an Organization Admin can use routes to its page and is highlighted as active', async () => {
     const { user } = renderApp('/');
     const nav = screen.getByRole('navigation', { name: 'Primary' });
-    for (const item of items) {
+    // Performing verifications is the Verifier's job, so the verifier workspace items aren't shown.
+    expect(within(nav).queryByRole('link', { name: 'My Verification Activities' })).toBeNull();
+    for (const item of items.filter((i) => i.permission !== 'verification.execute')) {
       const link = within(nav).getByRole('link', { name: item.label });
       await user.click(link);
       expect(await screen.findByRole('heading', { level: 1, name: headings[item.to] })).toBeInTheDocument();
@@ -142,7 +144,7 @@ describe('top bar', () => {
     await user.click(screen.getByRole('button', { name: 'Account menu for Tobyson TE' }));
     const menu = screen.getByRole('menu', { name: 'Account' });
     expect(within(menu).getByText('Tobyson TE')).toBeInTheDocument();
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['My Profile', 'Verifier Interface', 'Credential Manager', 'Verification Manager', 'Verifier', 'Viewer / Auditor', 'Sign out']);
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['My Profile', 'Organization AdminYou', 'Verifier', 'Viewer', 'Credential Managercustom', 'Verification Managercustom', 'Sign out']);
     await user.click(within(menu).getByRole('menuitem', { name: 'My Profile' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'My Profile' })).toBeInTheDocument();
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();

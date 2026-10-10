@@ -4,7 +4,7 @@ import { actorPermissions } from './adminOps';
 import type { AppState } from './state';
 
 /**
- * Group management. Each operation re-checks `groups.manage` from state and validates against current
+ * Group management. Each operation re-checks `groups.manage` (or `groups.members` for membership) from state and validates against current
  * data, so a hidden button is never the only protection. Membership is a relationship only: it never
  * creates users, issues credentials or grants administrative access. Production must enforce the same
  * rules on the server.
@@ -15,8 +15,8 @@ type Result = { ok: true; state: AppState } | Fail;
 
 const DENIED = "You don't have permission to manage groups.";
 
-function guard(state: AppState, organizationId: string): string | null {
-  return actorPermissions(state, organizationId).has('groups.manage') ? null : DENIED;
+function guard(state: AppState, organizationId: string, permission: 'groups.manage' | 'groups.members' = 'groups.manage'): string | null {
+  return actorPermissions(state, organizationId).has(permission) ? null : permission === 'groups.manage' ? DENIED : "You don't have permission to change group members.";
 }
 
 function withEvent(
@@ -116,7 +116,7 @@ const related = (members: Member[]) => members.map((m) => ({ id: m.id, name: m.d
  * are skipped, so a membership is never duplicated and no user record is created.
  */
 export function applyAddMembers(state: AppState, input: { organizationId: string; groupId: string; memberIds: string[]; at: string }): Result & { added?: number; skipped?: number } {
-  const denied = guard(state, input.organizationId);
+  const denied = guard(state, input.organizationId, 'groups.members');
   if (denied) return { ok: false, error: denied };
   const group = findGroup(state.data, input.organizationId, input.groupId);
   if (!group) return { ok: false, error: 'This group no longer exists.' };
@@ -141,7 +141,7 @@ export function applyAddMembers(state: AppState, input: { organizationId: string
 
 /** Removes memberships only. The users stay in FixID and keep their credentials. */
 export function applyRemoveMembers(state: AppState, input: { organizationId: string; groupId: string; memberIds: string[]; at: string }): Result & { removed?: number } {
-  const denied = guard(state, input.organizationId);
+  const denied = guard(state, input.organizationId, 'groups.members');
   if (denied) return { ok: false, error: denied };
   const group = findGroup(state.data, input.organizationId, input.groupId);
   if (!group) return { ok: false, error: 'This group no longer exists.' };

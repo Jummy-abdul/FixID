@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { AppLayout } from './layout/AppLayout';
 import { RequirePermission } from './auth/authorization';
 import {
-  CreatePasswordPage, ForgotPasswordPage, PublicOnly, RequireApp, RequireVerifierApp, RequireOnboarding, SignInPage, SignUpPage, VerifyEmailPage,
+  CreatePasswordPage, ForgotPasswordPage, PublicOnly, RequireApp, RequireOnboarding, SignInPage, SignUpPage, VerifyEmailPage,
 } from './pages/auth/AuthPages';
 import { OnboardingOrganizationPage, OnboardingPersonalPage } from './pages/auth/OnboardingPages';
 import { AuditPage } from './pages/AuditPage';
@@ -21,8 +21,7 @@ import { IdentifiersPage } from './pages/IdentifiersPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
-import { VerifierLayout } from './pages/verifier/VerifierLayout';
-import { VerifierHome } from './pages/verifier/VerifierHome';
+import { VerifierHistoryPage, VerifierHome } from './pages/verifier/VerifierHome';
 import { VerifierAttemptPage, VerifierStartPage } from './pages/verifier/VerifierAttemptPage';
 import { VerificationActivitiesPage } from './pages/verification/VerificationActivitiesPage';
 import { ActivityDetailsPage } from './pages/verification/ActivityDetailsPage';
@@ -81,20 +80,18 @@ export function AppRoutes() {
         <Route path="onboarding/personal" element={<OnboardingPersonalPage />} />
         <Route path="onboarding/organization" element={<OnboardingOrganizationPage />} />
       </Route>
-      <Route element={<RequireVerifierApp />}>
-        <Route element={<VerifierLayout />}>
-          <Route path="verify" element={<VerifierHome />} />
-          <Route path="verify/activities/:activityId" element={<VerifierStartPage />} />
-          <Route path="verify/attempts/:attemptId" element={<VerifierAttemptPage />} />
-        </Route>
-      </Route>
       <Route element={<RequireApp />}>
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
+        {/* Verifier workspace: the home explains what's needed when the role doesn't include verifying. */}
+        <Route path="verify" element={<VerifierHome />} />
+        <Route path="verify/history" element={<RequirePermission permission="verification.execute"><VerifierHistoryPage /></RequirePermission>} />
+        <Route path="verify/activities/:activityId" element={<RequirePermission permission="verification.execute"><VerifierStartPage /></RequirePermission>} />
+        <Route path="verify/attempts/:attemptId" element={<RequirePermission permission={['verification.execute', 'verification.results.view']}><VerifierAttemptPage /></RequirePermission>} />
         <Route path="users" element={<RequirePermission permission="users.view"><PeoplePage /></RequirePermission>} />
-        <Route path="users/new" element={<RequirePermission permission="users.manage"><AddUserEntryPage /></RequirePermission>} />
-        <Route path="users/new/manual" element={<RequirePermission permission="users.manage"><ManualAddUserPage /></RequirePermission>} />
-        <Route path="users/import" element={<RequirePermission permission="users.manage"><ImportUsersPage /></RequirePermission>} />
+        <Route path="users/new" element={<RequirePermission permission={['users.create', 'users.import']}><AddUserEntryPage /></RequirePermission>} />
+        <Route path="users/new/manual" element={<RequirePermission permission="users.create"><ManualAddUserPage /></RequirePermission>} />
+        <Route path="users/import" element={<RequirePermission permission="users.import"><ImportUsersPage /></RequirePermission>} />
         <Route path="users/:personId" element={<RequirePermission permission="users.view"><PersonDetailPage /></RequirePermission>} />
         <Route path="users/:personId/issue" element={<UserIssueRedirect />} />
         <Route path="groups" element={<RequirePermission permission="groups.view"><GroupsPage /></RequirePermission>} />
@@ -117,7 +114,7 @@ export function AppRoutes() {
         <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><VerificationHistoryPage /></RequirePermission>} />
         <Route path="verification-history/:recordId" element={<RequirePermission permission="verification.results.view"><VerificationRecordPage /></RequirePermission>} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<RequirePermission permission={['settings.manage', 'administrators.view']}><SettingsPage /></RequirePermission>} />
         <Route path="profile" element={<ProfilePage />} />
         {RENAMED.flatMap(([from, to]) => [
           <Route key={from} path={from} element={<RenamedRoute to={to} />} />,

@@ -78,8 +78,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const stepIndex = STEPS.findIndex((s) => s.id === step);
   const goto = (s: Step) => setParams((p) => { const n = new URLSearchParams(p); n.set('step', s); return n; }, { replace: true });
 
-  const canDetails = isNew ? can('verification.activities.create') : can('verification.activities.manage');
-  const canActivate = can('verification.activities.manage');
+  const canDetails = isNew ? can('verification.activities.create') : can('verification.activities.edit');
+  const canActivate = can('verification.activities.activate');
 
   // The verification configuration: FixID's standard one for a new activity; an existing activity keeps its own.
   // Adding a participant list to an existing activity that has none changes only its eligibility requirement.

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Info, Lock, XCircle } from 'lucide-react';
 import { Badge, EmptyState, Field, Select } from '@/components/ui';
-import { roleById } from '@/domain/roles';
+import { findRole } from '@/domain/roles';
 import type { ActivityCheck, ActivityConfig, ActivityVersion } from '@/domain/types';
 import {
   CHECKS, CATEGORY_LABEL, TYPE_INFO, checkById, eligibleVerifiers, providersFor, rulesSummary, type ProviderInfo,
@@ -176,7 +176,7 @@ export function VerifierPicker({ value, onChange, readOnly }: { value: string[];
                   className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-slate-900">{a.name ?? a.email}</span>
-                  <span className="block text-xs text-slate-500">{a.email} · {a.roleIds.map((r) => roleById(r)?.name).join(', ')}</span>
+                  <span className="block text-xs text-slate-500">{a.email} · {a.roleIds.map((r) => findRole(state.data.customRoles ?? [], a.organizationId, r)?.name).filter(Boolean).join(', ')}</span>
                 </span>
               </label>
             </li>

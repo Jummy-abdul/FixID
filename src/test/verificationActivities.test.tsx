@@ -102,9 +102,9 @@ describe('lifecycle and versions', () => {
     expect(bad.state.data.activityConfigs.find((a) => a.id === id1.activityId)).toMatchObject({ status: 'draft', draftVersionId: id1.versionId });
     expect(bad.state.data.audit[0]).toMatchObject({ action: 'verification-activity.created', summary: 'Tobyson TE created the Front Desk Check activity as a draft.' });
     expect(applyActivate(bad.state, { organizationId: ORG, activityId: id1.activityId, at: AT })).toMatchObject({ ok: false, problems: ['Add at least one verification check.'] });
-    // Restricting to assigned verifiers (advanced) needs at least one; otherwise no assignment is needed.
-    const restricted = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [], restrictVerifiers: true }), at: AT }));
-    expect(applyActivate(restricted.state, { organizationId: ORG, activityId: id1.activityId, at: AT })).toMatchObject({ ok: false, problems: ['This activity is limited to assigned verifiers. Assign at least one, or allow any Verifier.'] });
+    // An activity can be activated before verifiers are assigned; it says nobody can perform it yet.
+    const unassigned = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [] }), at: AT }));
+    expect(activationProblems(unassigned.state, ORG, unassigned.state.data.activityConfigs.find((a) => a.id === id1.activityId)!).warnings).toContain('No verifiers are assigned to this activity yet, so nobody can perform it. Assigning verifiers is coming soon.');
 
     s = ok(applySaveActivity(s, { organizationId: ORG, ids: id1, form: identityForm(s, { verifierIds: [] }), at: AT })).state;
     expect(s.data.verifierAssignments.some((v) => v.activityId === id1.activityId)).toBe(false);
@@ -186,24 +186,20 @@ describe('permissions', () => {
     expect(authorizeAction(preview, 'vactivities/save')).toMatch(/read-only/);
   });
 
-  it('authorizes every organization verifier by default; assignments only matter when the activity is restricted', () => {
+  it('authorizes a verifier only for activities they’re assigned to; removing the assignment stops them', () => {
     let s = sampleState();
     const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'active')!;
     const [vid] = eligibleVerifiers(s.data, ORG).map((a) => a.id);
-    expect(s.data.verifierAssignments.filter((v) => v.activityId === activity.id)).toHaveLength(0);
-    expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toEqual({ authorized: true });
+    expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toMatchObject({ authorized: false, reason: 'Not assigned to this activity.' });
     const version = s.data.activityVersions.find((v) => v.id === activity.activeVersionId)!;
     const form = { name: activity.name, description: activity.description, purpose: activity.purpose, type: version.type, checks: version.checks, outcome: version.outcome };
-    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [vid], restrictVerifiers: true } })).state;
+    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [vid] } })).state;
+    expect(s.data.audit[0]).toMatchObject({ action: 'verification-activity.verifier-assigned' });
     expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toEqual({ authorized: true });
-    expect(s.data.audit.some((e) => e.action === 'verification-activity.updated' && e.changes?.some((c) => c.field === 'Who can verify'))).toBe(true);
     s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [] } })).state;
     expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toMatchObject({ authorized: false });
     expect(s.data.audit[0]).toMatchObject({ action: 'verification-activity.verifier-removed' });
     expect(s.data.activityConfigs.find((a) => a.id === activity.id)!.draftVersionId).toBeUndefined();
-    // Back to any Verifier: the leftover (removed) assignment history blocks nobody.
-    s = ok(applySaveActivity(s, { organizationId: ORG, activityId: activity.id, ids: ids(), at: AT, form: { ...form, verifierIds: [], restrictVerifiers: false } })).state;
-    expect(authorizeVerifier(s.data, { organizationId: ORG, activityId: activity.id, administratorId: vid })).toEqual({ authorized: true });
   });
 });
 

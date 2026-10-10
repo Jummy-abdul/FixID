@@ -1,5 +1,6 @@
 import { METHOD_ASSURANCE, meetsAssurance } from '@/domain/rules';
 import type {
+  CustomRole,
   AdminUser,
   AuditEvent,
   CardDesign,
@@ -28,6 +29,7 @@ import { addDays, addMonths, startOfDay } from '@/lib/dates';
 import { formatIdentifier } from '@/lib/identifiers';
 import { templateForDesign } from '@/domain/templates';
 import { buildChecks } from '@/domain/verification';
+import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -55,6 +57,8 @@ export interface SeedData {
   verifierAssignments: VerifierAssignment[];
   /** Verification attempts performed through the verification service (Verifier Interface or approved apps). */
   verificationAttempts: VerificationAttempt[];
+  /** Custom roles, each owned by one organization. */
+  customRoles: CustomRole[];
 }
 
 const DAY = 86_400_000;
@@ -755,7 +759,14 @@ export function buildSeed(now: Date = new Date()): SeedData {
     issuanceBatches: [],
     ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today),
     verificationAttempts: [],
+    customRoles: seedCustomRoles(organizations, today),
   };
+}
+
+/** Each demo organization's own copies of the roles that used to be built in, so existing assignments keep working. */
+export function seedCustomRoles(organizations: Pick<Organization, 'id'>[], today: Date): CustomRole[] {
+  const at = today.toISOString();
+  return organizations.flatMap((o) => LEGACY_ROLE_TEMPLATES.map((t) => ({ ...t, system: false as const, organizationId: o.id, createdAt: at, createdBy: 'FixID', updatedAt: at, updatedBy: 'FixID' })));
 }
 
 /**

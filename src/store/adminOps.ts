@@ -1,6 +1,8 @@
 import { DEMO_ADMIN } from '@/data/seed';
-import { INVITATION_TTL_DAYS, canGrantRoles, coversRoles, permissionsFor, roleById, type Permission } from '@/domain/roles';
-import type { AuditEvent, OrgAdministrator } from '@/domain/types';
+import {
+  CUSTOM_ROLE_PERMISSIONS, INVITATION_TTL_DAYS, PERMISSIONS, canGrantPermission, coversRoles, findRole, permissionInfo, permissionsFor, rolesFor, type Permission, type Role,
+} from '@/domain/roles';
+import type { AuditEvent, CustomRole, OrgAdministrator } from '@/domain/types';
 import type { AppState } from './state';
 
 /**
@@ -26,16 +28,23 @@ export function actorRecord(state: AppState, organizationId: string, userId = st
   return state.data.administrators.find((a) => a.organizationId === organizationId && a.userId === userId);
 }
 
+/** The roles that exist in an organization: the system roles and its own custom roles. */
+export const orgRoles = (state: AppState, organizationId: string): Role[] => rolesFor(state.data.customRoles ?? [], organizationId);
+
+/** An administrator's effective permissions: the union of their roles, resolved within their organization. */
+export const adminPermissions = (state: AppState, a: Pick<OrgAdministrator, 'organizationId' | 'roleIds'>) => permissionsFor(a.roleIds, orgRoles(state, a.organizationId));
+
 /** Real permissions from the stored role assignment: only active administrators have any. Role preview never changes these. */
 export function actorPermissions(state: AppState, organizationId: string, userId = state.data.admin.id): Set<Permission> {
   const rec = actorRecord(state, organizationId, userId);
-  return rec && rec.status === 'active' ? permissionsFor(rec.roleIds) : new Set();
+  return rec && rec.status === 'active' ? adminPermissions(state, rec) : new Set();
 }
 
 const activeOrgAdmins = (list: OrgAdministrator[]) => list.filter((a) => a.status === 'active' && a.roleIds.includes(ORG_ADMIN));
 const LAST_ADMIN = 'Your organization needs at least one active Organization Admin.';
 
-const roleNames = (ids: readonly string[]) => ids.map((id) => roleById(id)?.name ?? id).join(', ');
+/** Role names for audit text, from the organization's roles. */
+const roleNamesIn = (state: AppState, organizationId: string, ids: readonly string[]) => ids.map((id) => orgRoles(state, organizationId).find((r) => r.id === id)?.name ?? id).join(', ');
 const label = (a: OrgAdministrator) => a.name ?? a.email;
 
 type EventInput = Pick<AuditEvent, 'organizationId' | 'action' | 'occurredAt'> & {
@@ -63,15 +72,16 @@ function guard(state: AppState, organizationId: string, needs: Permission[], rol
   if (!needs.every((p) => perms.has(p))) return DENIED;
   if (roleIds) {
     if (roleIds.length === 0) return 'Choose at least one role.';
-    if (roleIds.some((id) => !roleById(id))) return 'Choose a valid role.';
-    if (!canGrantRoles(perms, roleIds)) return "You can't grant permissions you don't have yourself.";
+    // Only this organization's roles: another organization's custom role doesn't exist here.
+    if (roleIds.some((id) => !findRole(state.data.customRoles ?? [], organizationId, id))) return 'Choose a valid role.';
+    if (!coversRoles(perms, roleIds, orgRoles(state, organizationId))) return "You can't grant permissions you don't have yourself.";
   }
   return null;
 }
 
 /** Nobody can act on an administrator with access they don't have themselves. */
 const outranked = (state: AppState, organizationId: string, target: OrgAdministrator) =>
-  !coversRoles(actorPermissions(state, organizationId), target.roleIds) ? "You can't change an administrator who has permissions you don't have." : null;
+  !coversRoles(actorPermissions(state, organizationId), target.roleIds, orgRoles(state, organizationId)) ? "You can't change an administrator who has permissions you don't have." : null;
 
 export interface InviteInput { organizationId: string; id: string; email: string; roleIds: string[]; at: string }
 
@@ -86,8 +96,9 @@ export function inviteProblem(state: AppState, input: Omit<InviteInput, 'id' | '
 }
 
 export function applyInvite(state: AppState, input: InviteInput): Result {
-  const blocked = guard(state, input.organizationId, ['administrators.invite', 'roles.assign'], input.roleIds) ?? inviteProblem(state, input, new Date(input.at));
+  const blocked = guard(state, input.organizationId, ['administrators.invite'], input.roleIds) ?? inviteProblem(state, input, new Date(input.at));
   if (blocked) return { ok: false, error: blocked };
+  const roleNames = (ids: readonly string[]) => roleNamesIn(state, input.organizationId, ids);
   const email = input.email.trim().toLowerCase();
   const at = new Date(input.at);
   // An expired invitation for the same email is replaced rather than duplicated.
@@ -166,6 +177,7 @@ export function applySetRoles(state: AppState, input: { organizationId: string; 
   }
   const next = update(state, input.organizationId, target.id, (a) => ({ ...a, roleIds: input.roleIds }));
   if (activeOrgAdmins(next.filter((a) => a.organizationId === input.organizationId)).length === 0) return { ok: false, error: LAST_ADMIN };
+  const roleNames = (ids: readonly string[]) => roleNamesIn(state, input.organizationId, ids);
   const added = input.roleIds.filter((id) => !target.roleIds.includes(id));
   const removed = target.roleIds.filter((id) => !input.roleIds.includes(id));
   const name = label(target);
@@ -214,6 +226,7 @@ export function pendingInvitation(state: AppState, email: string, now = new Date
 export function applyAcceptInvite(state: AppState, input: { adminId: string; userId: string; name: string; at: string }): Result {
   const target = state.data.administrators.find((a) => a.id === input.adminId);
   if (!target || target.status !== 'invited') return { ok: false, error: 'This invitation is no longer available.' };
+  const roleNames = (ids: readonly string[]) => roleNamesIn(state, target.organizationId, ids);
   if (invitationExpired(target, new Date(input.at))) return { ok: false, error: 'This invitation has expired. Ask an administrator to resend it.' };
   const joined = { ...target, status: 'active' as const, userId: input.userId, name: input.name, lastActiveAt: input.at };
   // The event is by the new administrator, not whoever was last signed in.
@@ -256,4 +269,108 @@ export function ensurePrimaryAdmins(state: AppState): AppState {
     }
   }
   return changed ? { ...state, data: { ...state.data, administrators: admins } } : state;
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom roles                                                        */
+/* ------------------------------------------------------------------ */
+
+export interface RoleInput { organizationId: string; id: string; name: string; description: string; permissions: Permission[]; at: string }
+export type RoleErrors = { name?: string; permissions?: string; form?: string };
+
+/** Administrators (active, invited or deactivated) who hold a role in an organization. */
+export const roleHolders = (state: AppState, organizationId: string, roleId: string) =>
+  adminsOf(state, organizationId).filter((a) => a.roleIds.includes(roleId));
+
+/** Validation for a custom role. Protected Organization Admin privileges can never be included. */
+export function roleProblems(state: AppState, input: Omit<RoleInput, 'at'>): RoleErrors {
+  const e: RoleErrors = {};
+  const name = input.name.trim();
+  if (!name) e.name = 'Enter a role name.';
+  else if (name.length > 60) e.name = 'Use 60 characters or fewer.';
+  else if (orgRoles(state, input.organizationId).some((r) => r.id !== input.id && ci(r.name) === ci(name))) e.name = 'A role with this name already exists.';
+  const perms = [...new Set(input.permissions)];
+  if (!perms.length) e.permissions = 'Choose at least one permission.';
+  else if (perms.some((p) => !PERMISSIONS.some((x) => x.id === p))) e.permissions = 'Choose valid permissions.';
+  else if (perms.some((p) => !CUSTOM_ROLE_PERMISSIONS.includes(p))) e.permissions = `${perms.filter((p) => !CUSTOM_ROLE_PERMISSIONS.includes(p)).map((p) => permissionInfo(p).label).join(', ')} can only be granted by the Organization Admin role.`;
+  else {
+    const actor = actorPermissions(state, input.organizationId);
+    if (perms.some((p) => !canGrantPermission(actor, p))) e.permissions = "You can't grant permissions you don't have yourself.";
+  }
+  return e;
+}
+
+function roleEvent(state: AppState, roles: CustomRole[], e: { organizationId: string; action: 'role.created' | 'role.updated' | 'role.deleted'; role: Role; at: string; summary: string; changes?: AuditEvent['changes'] }): AppState {
+  const max = state.data.audit.reduce((m, x) => Math.max(m, Number(x.id.replace(/\D/g, '')) || 0), 0);
+  const event: AuditEvent = {
+    id: `AUD-${String(max + 1).padStart(5, '0')}`, organizationId: e.organizationId, action: e.action, occurredAt: e.at,
+    actor: state.data.admin.name, actorType: 'admin', resourceType: 'role', resourceId: e.role.id, subject: { id: e.role.id, name: e.role.name },
+    result: 'success', summary: e.summary, changes: e.changes, href: '/settings?tab=admins&view=roles',
+  };
+  return { ...state, data: { ...state.data, customRoles: roles, audit: [event, ...state.data.audit] } };
+}
+
+const permissionLabels = (ps: Permission[]) => ps.map((p) => permissionInfo(p).label).join('; ') || '—';
+
+/** Creates or updates a custom role. Changes apply immediately to everyone who holds the role. */
+export function applySaveRole(state: AppState, input: RoleInput): { ok: true; state: AppState; roleId: string } | { ok: false; error: string; errors?: RoleErrors } {
+  if (!actorPermissions(state, input.organizationId).has('roles.manage')) return { ok: false, error: DENIED };
+  if (findRole([], input.organizationId, input.id)) return { ok: false, error: 'System roles can’t be changed.' };
+  const roles = state.data.customRoles ?? [];
+  const existing = roles.find((r) => r.id === input.id);
+  if (existing && existing.organizationId !== input.organizationId) return { ok: false, error: 'This role doesn’t exist in this organization.' };
+  const errors = roleProblems(state, input);
+  if (Object.keys(errors).length) return { ok: false, error: Object.values(errors)[0]!, errors };
+  const by = state.data.admin.name;
+  const ordered = PERMISSIONS.map((p) => p.id).filter((p) => input.permissions.includes(p));
+  const role: CustomRole = {
+    id: input.id, organizationId: input.organizationId, name: input.name.trim(), description: input.description.trim(), permissions: ordered, system: false,
+    createdAt: existing?.createdAt ?? input.at, createdBy: existing?.createdBy ?? by, updatedAt: input.at, updatedBy: by,
+  };
+  if (!existing) {
+    return {
+      ok: true, roleId: role.id,
+      state: roleEvent(state, [...roles, role], {
+        organizationId: input.organizationId, action: 'role.created', role, at: input.at,
+        summary: `${by} created the custom role ${role.name}.`, changes: [{ field: 'Permissions', from: '—', to: permissionLabels(ordered) }],
+      }),
+    };
+  }
+  const added = ordered.filter((p) => !existing.permissions.includes(p));
+  const removed = existing.permissions.filter((p) => !ordered.includes(p));
+  const changes: NonNullable<AuditEvent['changes']> = [
+    ...(existing.name !== role.name ? [{ field: 'Name', from: existing.name, to: role.name }] : []),
+    ...(existing.description !== role.description ? [{ field: 'Description', from: existing.description || '—', to: role.description || '—' }] : []),
+    ...(added.length ? [{ field: 'Permissions added', from: '—', to: permissionLabels(added) }] : []),
+    ...(removed.length ? [{ field: 'Permissions removed', from: permissionLabels(removed), to: '—' }] : []),
+  ];
+  if (!changes.length) return { ok: true, state, roleId: role.id };
+  const holders = roleHolders(state, input.organizationId, role.id).length;
+  return {
+    ok: true, roleId: role.id,
+    state: roleEvent(state, roles.map((r) => (r.id === role.id ? role : r)), {
+      organizationId: input.organizationId, action: 'role.updated', role, at: input.at, changes,
+      summary: `${by} updated the custom role ${role.name}${holders ? ` (applies to ${holders} ${holders === 1 ? 'administrator' : 'administrators'})` : ''}.`,
+    }),
+  };
+}
+
+/** Deletes a custom role that nobody holds. System roles and assigned roles can't be deleted. */
+export function applyDeleteRole(state: AppState, input: { organizationId: string; roleId: string; at: string }): Result {
+  if (!actorPermissions(state, input.organizationId).has('roles.manage')) return { ok: false, error: DENIED };
+  if (findRole([], input.organizationId, input.roleId)) return { ok: false, error: 'System roles can’t be deleted.' };
+  const roles = state.data.customRoles ?? [];
+  const role = roles.find((r) => r.id === input.roleId && r.organizationId === input.organizationId);
+  if (!role) return { ok: false, error: 'This role doesn’t exist in this organization.' };
+  const holders = roleHolders(state, input.organizationId, role.id);
+  if (holders.length) {
+    return { ok: false, error: `${role.name} is assigned to ${holders.length} ${holders.length === 1 ? 'administrator' : 'administrators'} (${holders.map(label).join(', ')}). Give them other roles first.` };
+  }
+  return {
+    ok: true,
+    state: roleEvent(state, roles.filter((r) => r.id !== role.id), {
+      organizationId: input.organizationId, action: 'role.deleted', role, at: input.at,
+      summary: `${state.data.admin.name} deleted the custom role ${role.name}.`, changes: [{ field: 'Permissions', from: permissionLabels(role.permissions), to: '—' }],
+    }),
+  };
 }

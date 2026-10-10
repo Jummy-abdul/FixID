@@ -1,3 +1,4 @@
+import type { Role } from './roles';
 /**
  * FixID domain model.
  *
@@ -135,6 +136,16 @@ export type AdministratorStatus = 'invited' | 'active' | 'deactivated';
  * Someone authorized to operate FixID for an organization. Separate from Member (a person whose
  * identity and credentials are managed); the same person may be both, linked via `memberId`.
  */
+/** A role an organization created for itself. It exists only in that organization. */
+export interface CustomRole extends Role {
+  organizationId: string;
+  system: false;
+  createdAt: ISODate;
+  createdBy: string;
+  updatedAt: ISODate;
+  updatedBy: string;
+}
+
 export interface OrgAdministrator {
   id: string;
   organizationId: string;
@@ -369,6 +380,9 @@ export type AuditAction =
   | 'verification.entry-recorded'
   | 'integration.demo-providers'
   | 'admin.role-removed'
+  | 'role.created'
+  | 'role.updated'
+  | 'role.deleted'
   | 'admin.roles-changed'
   | 'admin.deactivated'
   | 'admin.reactivated'
@@ -382,7 +396,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others. */
   result: 'success' | 'partial' | 'failure';

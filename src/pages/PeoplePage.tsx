@@ -20,7 +20,8 @@ export function PeoplePage() {
   const [relationship, setRelationship] = useQueryState('relationship', 'all');
   const [page, setPage] = usePageParam();
   const { menuItems, dialogs, openBulk } = useUserActions();
-  const canManage = useAuthorization().can('users.manage');
+  const { can } = useAuthorization();
+  const canManage = can('users.edit');
 
   const kpis = useMemo(() => ({
     total: members.length,
@@ -70,10 +71,10 @@ export function PeoplePage() {
     <>
       <PageHeader
         title="Users"
-        actions={canManage ? (
+        actions={can('users.create') || can('users.import') ? (
           <>
-            <ButtonLink to="/users/import" variant="secondary" icon={<FileSpreadsheet className="h-4 w-4" />}>Import Users</ButtonLink>
-            <ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>
+            {can('users.import') && <ButtonLink to="/users/import" variant="secondary" icon={<FileSpreadsheet className="h-4 w-4" />}>Import Users</ButtonLink>}
+            {can('users.create') && <ButtonLink to="/users/new" variant="primary" icon={<UserPlus className="h-4 w-4" />}>Add user</ButtonLink>}
           </>
         ) : undefined}
       />

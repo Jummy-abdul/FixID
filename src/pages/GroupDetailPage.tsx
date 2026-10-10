@@ -100,7 +100,7 @@ function MembersTab({ group }: { group: Group }) {
   const { state } = useStore();
   const { memberById, identifierConfigById } = useOrgData();
   const { can } = useAuthorization();
-  const canManage = can('groups.manage');
+  const canManage = can('groups.members');
   const canViewUsers = can('users.view');
   const { removeGroupMembers } = useActions();
   const toast = useToast();

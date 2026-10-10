@@ -6,9 +6,9 @@ import {
   type CredentialConfigInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser, type ImportSummaryInput,
 } from './operations';
 import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
-import { permissionsFor, roleById, type Permission, type RoleId } from '@/domain/roles';
+import { findRole, permissionsFor, type Permission, type RoleId } from '@/domain/roles';
 import {
-  actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, ownerRecord, type InviteInput,
+  actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, applySaveRole, applyDeleteRole, ownerRecord, type InviteInput, type RoleInput,
 } from './adminOps';
 import {
   applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
@@ -63,6 +63,8 @@ export type Action =
   | { type: 'admins/resend'; organizationId: string; adminId: string; at: string }
   | { type: 'admins/revoke'; organizationId: string; adminId: string; at: string }
   | { type: 'admins/roles'; organizationId: string; adminId: string; roleIds: string[]; at: string }
+  | { type: 'roles/save'; input: RoleInput }
+  | { type: 'roles/delete'; organizationId: string; roleId: string; at: string }
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string }
   | { type: 'groups/create'; input: GroupInput & { id: string } }
@@ -108,12 +110,12 @@ export function createInitialState(now: Date = new Date()): AppState {
  */
 const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'organization/updateProfile': ['settings.manage'],
-  'config/identifier': ['users.manage', 'credentials.manage'],
+  'config/identifier': ['users.create', 'users.import', 'credentials.manage'],
   'config/credential': ['credentials.manage'],
-  'users/create': ['users.manage'],
-  'users/importSummary': ['users.manage'],
-  'users/status': ['users.manage'],
-  'users/enrollmentInvite': ['users.manage'],
+  'users/create': ['users.create', 'users.import'],
+  'users/importSummary': ['users.import'],
+  'users/status': ['users.edit'],
+  'users/enrollmentInvite': ['users.edit'],
   'issuance/issue': ['credentials.issue'],
   'issuance/group': ['credentials.issue'],
   'verify/start': ['verification.execute'],
@@ -123,17 +125,19 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'verify/refer': ['verification.execute'],
   'verify/recordEntry': ['verification.execute'],
   'organization/verificationDemo': ['settings.manage'],
-  'vactivities/save': ['verification.activities.create', 'verification.activities.manage', 'verification.rules.manage', 'verification.verifiers.assign'],
-  'vactivities/activate': ['verification.activities.manage'],
-  'vactivities/deactivate': ['verification.activities.manage'],
-  'vactivities/discardDraft': ['verification.rules.manage'],
+  'vactivities/save': ['verification.activities.create', 'verification.activities.edit'],
+  'vactivities/activate': ['verification.activities.activate'],
+  'vactivities/deactivate': ['verification.activities.activate'],
+  'vactivities/discardDraft': ['verification.activities.edit'],
   'vactivities/duplicate': ['verification.activities.create'],
-  'vactivities/remove': ['verification.activities.manage'],
+  'vactivities/remove': ['verification.activities.edit'],
   'groups/create': ['groups.manage'],
   'groups/update': ['groups.manage'],
   'groups/remove': ['groups.manage'],
-  'groups/addMembers': ['groups.manage'],
-  'groups/removeMembers': ['groups.manage'],
+  'groups/addMembers': ['groups.members'],
+  'groups/removeMembers': ['groups.members'],
+  'roles/save': ['roles.manage'],
+  'roles/delete': ['roles.manage'],
 };
 
 /** Actions that don't change workspace data, so they remain available during Role Preview. */
@@ -146,16 +150,21 @@ export function canPreviewRoles(state: AppState): boolean {
   return ROLE_PREVIEW_ENABLED && rec?.status === 'active' && rec.roleIds.includes('organization-admin');
 }
 
+/** The role being previewed, resolved within the current organization. */
+export function previewedRole(state: AppState) {
+  const id = state.session.previewRoleId;
+  return id ? findRole(state.data.customRoles ?? [], state.session.currentOrganizationId, id) : undefined;
+}
+
 /**
- * Permissions the screens use: the real ones, narrowed to the previewed role while previewing.
- * Intersecting means a preview can only ever show less than the administrator really has.
+ * Permissions the screens use to decide what to show: the real ones, or the previewed role's while
+ * previewing. Preview is display only: every change is refused while previewing (see authorizeAction),
+ * and the store's own checks always use the real permissions (actorPermissions), never these.
  */
 export function effectivePermissions(state: AppState): Set<Permission> {
-  const real = actorPermissions(state, state.session.currentOrganizationId);
-  const preview = state.session.previewRoleId;
-  if (!preview) return real;
-  const role = permissionsFor([preview]);
-  return new Set([...real].filter((p) => role.has(p)));
+  if (!state.session.previewRoleId) return actorPermissions(state, state.session.currentOrganizationId);
+  const role = previewedRole(state);
+  return role ? permissionsFor([role.id], [role]) : new Set();
 }
 
 /** Null when allowed, otherwise the reason. */
@@ -174,13 +183,28 @@ function nextAuditId(audit: AuditEvent[]): string {
   return `AUD-${String(max + 1).padStart(5, '0')}`;
 }
 
+/** Actions that legitimately name another organization (signing in, switching, joining, creating one). */
+const CROSS_ORGANIZATION = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'organization/create', 'demo/reset', 'admins/accept']);
+
+/** The organization an action changes, when it names one. */
+function targetOrganization(action: Action): string | undefined {
+  const a = action as { organizationId?: string; input?: { organizationId?: string }; prepared?: { organizationId?: string } };
+  return a.organizationId ?? a.input?.organizationId ?? a.prepared?.organizationId;
+}
+
 export function reducer(state: AppState, action: Action): AppState {
   if (authorizeAction(state, action.type)) return state;
+  // Permissions are checked in the organization being worked in, so changes are only accepted there.
+  const target = targetOrganization(action);
+  if (target && target !== state.session.currentOrganizationId && !CROSS_ORGANIZATION.has(action.type)) return state;
   switch (action.type) {
     case 'session/switchOrganization': {
       const allowed = state.data.admin.organizationIds.includes(action.organizationId);
       if (!allowed || state.session.currentOrganizationId === action.organizationId) return state;
-      return { ...state, session: { ...state.session, currentOrganizationId: action.organizationId } };
+      // A previewed custom role belongs to the organization being left; the preview ends rather than carry over.
+      const keepPreview = state.session.previewRoleId && findRole(state.data.customRoles ?? [], action.organizationId, state.session.previewRoleId);
+      const { previewRoleId: _p, ...rest } = state.session;
+      return { ...state, session: { ...rest, currentOrganizationId: action.organizationId, ...(keepPreview ? { previewRoleId: state.session.previewRoleId } : {}) } };
     }
     case 'organization/updateProfile': {
       const org = state.data.organizations.find((o) => o.id === action.organizationId);
@@ -266,6 +290,7 @@ export function reducer(state: AppState, action: Action): AppState {
           activityVersions: keep(n.activityVersions, d.activityVersions),
           verifierAssignments: keep(n.verifierAssignments, d.verifierAssignments),
           verificationAttempts: keep(n.verificationAttempts, d.verificationAttempts),
+          customRoles: keep(n.customRoles, d.customRoles),
         },
       };
     }
@@ -306,7 +331,7 @@ export function reducer(state: AppState, action: Action): AppState {
       });
     }
     case 'preview/start': {
-      if (!roleById(action.roleId) || !canPreviewRoles(state)) return state;
+      if (!findRole(state.data.customRoles ?? [], state.session.currentOrganizationId, action.roleId) || !canPreviewRoles(state)) return state;
       // Previewing your own full role is the same as not previewing.
       if (action.roleId === 'organization-admin') return reducer(state, { type: 'preview/stop' });
       return { ...state, session: { ...state.session, previewRoleId: action.roleId } };
@@ -316,6 +341,8 @@ export function reducer(state: AppState, action: Action): AppState {
       const { previewRoleId: _, ...session } = state.session;
       return { ...state, session };
     }
+    case 'roles/save': return orKeep(state, applySaveRole(state, action.input));
+    case 'roles/delete': return orKeep(state, applyDeleteRole(state, action));
     case 'admins/invite': return orKeep(state, applyInvite(state, action.input));
     case 'admins/resend': return orKeep(state, applyResendInvite(state, action));
     case 'admins/revoke': return orKeep(state, applyRevokeInvite(state, action));

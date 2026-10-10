@@ -2,7 +2,7 @@ import type {
   ActivityCheck, ActivityConfig, ActivityVersion, CheckTypeId, CredentialType, Group, IdentifierConfig, Organization, OrgAdministrator,
   OutcomePolicy, StandardRequirements, VerificationOutcome, VerificationType, VerifierAssignment,
 } from './types';
-import { permissionsFor } from './roles';
+import { permissionsFor, rolesFor, type Role } from './roles';
 
 /**
  * Verification Activities: a reusable catalog of checks, the services that can run them, and the
@@ -393,11 +393,17 @@ export interface VerificationData {
   activityVersions: ActivityVersion[];
   verifierAssignments: VerifierAssignment[];
   administrators: OrgAdministrator[];
+  /** Organizations' custom roles; a role only applies in its own organization. */
+  customRoles?: Role[];
 }
 
+/** Whether an administrator's roles, resolved within their organization, allow performing verifications. */
+const canExecute = (d: Pick<VerificationData, 'customRoles'>, a: OrgAdministrator) =>
+  permissionsFor(a.roleIds, rolesFor(d.customRoles ?? [], a.organizationId)).has('verification.execute');
+
 /** Administrators who can be assigned: active, in this organization, with permission to perform verifications. */
-export function eligibleVerifiers(d: Pick<VerificationData, 'administrators'>, organizationId: string): OrgAdministrator[] {
-  return d.administrators.filter((a) => a.organizationId === organizationId && a.status === 'active' && permissionsFor(a.roleIds).has('verification.execute'));
+export function eligibleVerifiers(d: Pick<VerificationData, 'administrators' | 'customRoles'>, organizationId: string): OrgAdministrator[] {
+  return d.administrators.filter((a) => a.organizationId === organizationId && a.status === 'active' && canExecute(d, a));
 }
 
 export const activeAssignments = (d: Pick<VerificationData, 'verifierAssignments'>, organizationId: string, activityId: string) =>
@@ -414,10 +420,10 @@ export function authorizeVerifier(d: VerificationData, input: { organizationId: 
   if (activity.status !== 'active' || !activity.activeVersionId) return { authorized: false, reason: 'The activity isn’t active.' };
   const admin = d.administrators.find((a) => a.id === input.administratorId && a.organizationId === input.organizationId);
   if (!admin || admin.status !== 'active') return { authorized: false, reason: 'Not an active administrator of this organization.' };
-  if (!permissionsFor(admin.roleIds).has('verification.execute')) return { authorized: false, reason: 'Their role doesn’t allow performing verifications.' };
-  // Any Verifier in the organization may perform its active activities, unless the activity is restricted
-  // to assigned verifiers (advanced). Old assignments don't restrict anyone on their own.
-  if (activity.restrictVerifiers && !activeAssignments(d, input.organizationId, activity.id).some((v) => v.administratorId === admin.id)) {
+  if (!canExecute(d, admin)) return { authorized: false, reason: 'Their role doesn’t allow performing verifications.' };
+  // The Verifier role authorizes performing verifications; which activities is decided by assignment.
+  // Without an active assignment to this activity, nobody may perform it.
+  if (!activeAssignments(d, input.organizationId, activity.id).some((v) => v.administratorId === admin.id)) {
     return { authorized: false, reason: 'Not assigned to this activity.' };
   }
   const now = input.now ?? new Date();

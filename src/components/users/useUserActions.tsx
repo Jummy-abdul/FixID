@@ -20,7 +20,7 @@ type Contact = { status: 'loading' } | { status: 'ready'; email: string } | { st
 /** Row actions for a user (view, activate/deactivate, enrollment link) and the confirmations they open. */
 export function useUserActions() {
   const navigate = useNavigate();
-  const canManage = useAuthorization().can('users.manage');
+  const canManage = useAuthorization().can('users.edit');
   const [pending, setPending] = useState<Pending | null>(null);
 
   const menuItems = useCallback((m: Member): OverflowMenuItem[] => {

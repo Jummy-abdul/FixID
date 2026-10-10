@@ -2,10 +2,10 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, Lock, LogOut, ShieldOff, X } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { ROLES, hasPortalAccess, roleById, type Permission, type RoleId } from '@/domain/roles';
-import { actorRecord } from '@/store/adminOps';
+import type { Permission, Role } from '@/domain/roles';
+import { actorRecord, orgRoles } from '@/store/adminOps';
 import { useActions, useStore } from '@/store/AppStore';
-import { canPreviewRoles, effectivePermissions } from '@/store/state';
+import { canPreviewRoles, effectivePermissions, previewedRole } from '@/store/state';
 
 /**
  * The signed-in administrator's effective permissions in the current organization, derived from their
@@ -17,24 +17,30 @@ export function useAuthorization() {
   const { state } = useStore();
   const record = actorRecord(state, state.session.currentOrganizationId);
   const active = record?.status === 'active';
-  const previewRole = state.session.previewRoleId ? roleById(state.session.previewRoleId) : undefined;
+  const previewRole = previewedRole(state);
   const permissions: Set<Permission> = effectivePermissions(state);
   return {
     record,
     permissions,
     can: (p: Permission) => permissions.has(p),
-    portalAccess: active && (previewRole ? previewRole.portalAccess : hasPortalAccess(record.roleIds)),
+    /** Any permission opens the workspace; navigation and pages then follow the permissions. */
+    portalAccess: active && permissions.size > 0,
     /** The role being previewed, if any. */
     previewRole,
     canPreview: canPreviewRoles(state),
   };
 }
 
-const PREVIEWABLE = ROLES.filter((r) => r.id !== 'organization-admin');
+/** Roles an Organization Admin can preview: the system roles and the organization's own custom roles. */
+export function usePreviewableRoles(): Role[] {
+  const { state } = useStore();
+  return orgRoles(state, state.session.currentOrganizationId);
+}
 
 /** Visible whenever Role Preview is on: says what's happening, switches role, and exits. */
 export function RolePreviewBanner() {
   const { previewRole } = useAuthorization();
+  const roles = usePreviewableRoles();
   const { startRolePreview, stopRolePreview } = useActions();
   if (!previewRole) return null;
   return (
@@ -43,13 +49,13 @@ export function RolePreviewBanner() {
         <Eye className="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
         <p className="min-w-0 flex-1">
           <span className="font-semibold">Role preview: {previewRole.name}.</span>{' '}
-          <span className="hidden sm:inline">You're seeing what this role can see. Changes are disabled and your own role is unchanged.</span>
+          <span className="hidden sm:inline">You're seeing what this role would see. Nothing can be changed while previewing, and your own roles and permissions are unchanged.</span>
           <span className="sm:hidden">Read-only. Your role is unchanged.</span>
         </p>
         <label className="sr-only" htmlFor="preview-role">Preview role</label>
-        <select id="preview-role" value={previewRole.id} onChange={(e) => startRolePreview(e.target.value as RoleId)}
+        <select id="preview-role" value={previewRole.id} onChange={(e) => startRolePreview(e.target.value)}
           className="h-8 rounded-lg border-amber-300 bg-white py-0 pl-2.5 pr-8 text-sm text-slate-800 focus:border-amber-500 focus:ring-amber-500">
-          {PREVIEWABLE.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          {roles.map((r) => <option key={r.id} value={r.id}>{r.name}{r.system ? '' : ' (custom)'}</option>)}
         </select>
         <button type="button" onClick={stopRolePreview}
           className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-amber-900 px-3 text-sm font-semibold text-white hover:bg-amber-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
@@ -60,7 +66,6 @@ export function RolePreviewBanner() {
   );
 }
 
-export { PREVIEWABLE as PREVIEWABLE_ROLES };
 
 /** Shown in place of a screen the current administrator isn't allowed to use. */
 export function NoAccess({ title = "You don't have access to this page", description = 'Ask an Organization Admin if you need this access.' }: { title?: string; description?: string }) {
@@ -74,19 +79,19 @@ export function NoAccess({ title = "You don't have access to this page", descrip
   );
 }
 
-/** Route wrapper: renders children only with the permission. */
-export function RequirePermission({ permission, children }: { permission: Permission; children: ReactNode }) {
+/** Route wrapper: renders children only with the permission (or any of several). Direct links are refused the same way. */
+export function RequirePermission({ permission, children }: { permission: Permission | Permission[]; children: ReactNode }) {
   const { can } = useAuthorization();
-  return can(permission) ? <>{children}</> : <NoAccess />;
+  return (Array.isArray(permission) ? permission.some(can) : can(permission)) ? <>{children}</> : <NoAccess />;
 }
 
 /** Full-screen message for administrators who can't use the portal (deactivated, or verifier-only roles). */
 export function PortalBlocked({ reason, onSignOut }: { reason: 'deactivated' | 'no-portal' | 'no-membership' | 'preview-no-portal'; onSignOut: () => void }) {
   const { stopRolePreview } = useActions();
   const copy = {
-    'preview-no-portal': { title: 'This role has no portal access', body: 'People with only this role perform verifications through an approved verifier application, so they would see this screen if they signed in here.' },
+    'preview-no-portal': { title: 'This role has no permissions', body: 'Someone with only this role would see this screen: it doesn’t give access to anything yet.' },
     deactivated: { title: 'Your access has been removed', body: 'An administrator has deactivated your access to this organization. Contact them if you think this is a mistake.' },
-    'no-portal': { title: 'This portal isn\'t part of your role', body: 'Your role lets you perform verifications through an approved verifier app. Contact an administrator if you also need portal access.' },
+    'no-portal': { title: 'Your roles don’t give you access to anything yet', body: 'Ask an Organization Admin to give you a role with the access you need.' },
     'no-membership': { title: "You're not an administrator here", body: 'Your account doesn\'t have administrative access to this organization.' },
   }[reason];
   return (

@@ -11,7 +11,7 @@ import { OUTCOME_LABEL, checkById, providersFor } from '@/domain/verification';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDateTime } from '@/lib/dates';
 import { useOrgData, useSession, useStore } from '@/store/AppStore';
-import { AttemptBadge } from '../verifier/VerifierLayout';
+import { AttemptBadge } from '@/components/verification/attemptParts';
 import { TransactionDetailPage } from '../TransactionDetailPage';
 import { activityPath } from './paths';
 

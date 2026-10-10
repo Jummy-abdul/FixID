@@ -1,4 +1,4 @@
-import { seedAdministrators, seedGroups, seedVerificationActivities } from '@/data/seed';
+import { seedAdministrators, seedCustomRoles, seedGroups, seedVerificationActivities } from '@/data/seed';
 import { ensurePrimaryAdmins } from './adminOps';
 import { STATE_VERSION, STORAGE_KEY, type AppState } from './state';
 
@@ -9,7 +9,7 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed?.version !== STATE_VERSION || !parsed.data?.organizations?.length) return null;
-    return ensurePrimaryAdmins(withVerificationActivities(withGroups(withAdministrators(parsed))));
+    return ensurePrimaryAdmins(withCustomRoles(withVerificationActivities(withGroups(withAdministrators(parsed)))));
   } catch {
     return null;
   }
@@ -37,6 +37,15 @@ function withGroups(state: AppState): AppState {
   if (Array.isArray(state.data.groups) && Array.isArray(state.data.groupMemberships)) return state;
   const demo = state.data.organizations.filter((o) => !o.ownerAccountId);
   return { ...state, data: { ...state.data, ...seedGroups(demo, state.data.members, new Date()) } };
+}
+
+/**
+ * Saved data from before custom roles: the former built-in Credential Manager and Verification Manager
+ * roles become each organization's own custom roles with the same IDs, so assignments keep their access.
+ */
+function withCustomRoles(state: AppState): AppState {
+  if (Array.isArray(state.data.customRoles)) return state;
+  return { ...state, data: { ...state.data, customRoles: seedCustomRoles(state.data.organizations, new Date()) } };
 }
 
 /** Saved data from before Verification Activities: demo organizations get the sample activities. */

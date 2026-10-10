@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { ArrowLeft, BadgeCheck } from 'lucide-react';
 import { Button, Field, Input, Select } from '@/components/ui';
 import { useAuth } from '@/auth/AuthProvider';
-import { roleById } from '@/domain/roles';
+import { findRole } from '@/domain/roles';
 import { pendingInvitation } from '@/store/adminOps';
 import { useStore } from '@/store/AppStore';
 import { DEFAULT_COUNTRY, countryByCode } from '@/data/countries';
@@ -59,7 +59,7 @@ export function OnboardingPersonalPage() {
       <form onSubmit={submit} noValidate className="space-y-5">
         {invitation && invitingOrg && (
           <p role="status" className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900 ring-1 ring-inset ring-brand-200">
-            You've been invited to join <span className="font-semibold">{invitingOrg.name}</span> as {invitation.roleIds.map((id) => roleById(id)?.name ?? id).join(', ')}.
+            You've been invited to join <span className="font-semibold">{invitingOrg.name}</span> as {invitation.roleIds.map((id) => findRole(state.data.customRoles ?? [], invitingOrg.id, id)?.name ?? 'a role').join(', ')}.
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">

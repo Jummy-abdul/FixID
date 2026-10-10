@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CheckCircle2, DoorOpen, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
 import { useAuthorization } from '@/auth/authorization';
 import { Badge, Button, ConfirmDialog, useToast } from '@/components/ui';
-import type { VerificationAttempt } from '@/domain/types';
+import type { VerificationAttempt, VerificationOutcome } from '@/domain/types';
 import { OUTCOME_LABEL } from '@/domain/verification';
 import { cn } from '@/lib/cn';
 import { formatDateTime } from '@/lib/dates';
@@ -93,4 +93,15 @@ export function AccessAndEntry({ attempt }: { attempt: VerificationAttempt }) {
         }} />
     </section>
   );
+}
+
+const OUTCOME_TONE: Record<VerificationOutcome, 'success' | 'danger' | 'warning' | 'violet'> = {
+  verified: 'success', 'not-verified': 'danger', 'unable-to-verify': 'warning', 'pending-review': 'violet',
+};
+
+export function AttemptBadge({ attempt }: { attempt: Pick<VerificationAttempt, 'status' | 'outcome'> }) {
+  if (attempt.status === 'completed' && attempt.outcome) return <Badge tone={OUTCOME_TONE[attempt.outcome]} dot>{OUTCOME_LABEL[attempt.outcome]}</Badge>;
+  const map = { 'in-progress': ['info', 'In progress'], cancelled: ['neutral', 'Cancelled'], expired: ['neutral', 'Interrupted'], error: ['danger', 'System error'], completed: ['neutral', 'Completed'] } as const;
+  const [tone, label] = map[attempt.status];
+  return <Badge tone={tone} dot>{label}</Badge>;
 }

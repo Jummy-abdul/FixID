@@ -120,7 +120,7 @@ describe('Administrators & Roles', () => {
     expect(within(drawer).getByText('Enter an email address.')).toBeInTheDocument();
     expect(within(drawer).getByText('Choose at least one role.')).toBeInTheDocument();
     await user.type(within(drawer).getByLabelText(/email address/i), kwame.email.toUpperCase());
-    await user.click(within(drawer).getByRole('checkbox', { name: /Viewer \/ Auditor/ }));
+    await user.click(within(drawer).getByRole('checkbox', { name: /^Viewer/ }));
     await user.click(within(drawer).getByRole('button', { name: 'Review invitation' }));
     expect(within(drawer).getByText('This person is already an administrator.')).toBeInTheDocument();
     await user.clear(within(drawer).getByLabelText(/email address/i));
@@ -130,7 +130,7 @@ describe('Administrators & Roles', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Review invitation' }));
     const review = screen.getByRole('dialog', { name: 'Review invitation' });
     expect(review).toHaveTextContent('ops.lead@example.org');
-    expect(review).toHaveTextContent('Issue and manage issued credentials (allowed)');
+    expect(review).toHaveTextContent('Issue credentials (allowed)');
     await user.click(within(review).getByRole('button', { name: 'Create invitation' }));
     expect(await screen.findByText('Invitation created')).toBeInTheDocument();
     expect(screen.getByText(/can join by signing up with this email address/)).toBeInTheDocument();
@@ -146,14 +146,14 @@ describe('Administrators & Roles', () => {
     await user.click(within(rowFor('Kwame Mensah')).getByRole('button', { name: 'Actions for Kwame Mensah' }));
     await user.click(screen.getByRole('menuitem', { name: 'Edit Role Assignment' }));
     const drawer = screen.getByRole('dialog', { name: 'Kwame Mensah' });
-    await user.click(within(drawer).getByRole('checkbox', { name: /Viewer \/ Auditor/ }));
+    await user.click(within(drawer).getByRole('checkbox', { name: /^Viewer/ }));
     expect(within(drawer).getByText('Permissions after saving')).toBeInTheDocument();
     await user.click(within(drawer).getByRole('button', { name: 'Save roles' }));
     expect(await screen.findByText('Roles updated')).toBeInTheDocument();
-    expect(rowFor('Kwame Mensah')).toHaveTextContent('Viewer / Auditor');
+    expect(rowFor('Kwame Mensah')).toHaveTextContent('Viewer');
     expect(loadState()!.data.audit[0]).toMatchObject({
-      action: 'admin.role-assigned', summary: 'Tobyson TE assigned Viewer / Auditor to Kwame Mensah.', subject: { name: 'Kwame Mensah' },
-      changes: [{ field: 'Roles', from: 'Verification Manager', to: 'Verification Manager, Viewer / Auditor' }], result: 'success',
+      action: 'admin.role-assigned', summary: 'Tobyson TE assigned Viewer to Kwame Mensah.', subject: { name: 'Kwame Mensah' },
+      changes: [{ field: 'Roles', from: 'Verification Manager', to: 'Verification Manager, Viewer' }], result: 'success',
     });
 
     await user.click(within(rowFor('Kwame Mensah')).getByRole('button', { name: 'Actions for Kwame Mensah' }));
@@ -176,15 +176,18 @@ describe('Administrators & Roles', () => {
     expect(loadState()!.data.audit.slice(0, 4).map((e) => e.action)).toEqual(['admin.invitation-revoked', 'admin.reactivated', 'admin.deactivated', 'admin.role-assigned']);
   });
 
-  it('shows the five roles with structured permissions; the Verifier has no portal access', async () => {
+  it('shows the three protected system roles and the organization’s custom roles with their permissions', async () => {
     renderApp('/settings?tab=admins&view=roles', sampleState());
-    for (const name of ['Organization Admin', 'Credential Manager', 'Verification Manager', 'Verifier', 'Viewer / Auditor']) {
-      expect(screen.getByRole('heading', { level: 3, name: new RegExp(`^${name.replace('/', '\\/')}`) })).toBeInTheDocument();
+    for (const [name, kind] of [['Organization Admin', 'System role'], ['Verifier', 'System role'], ['Viewer', 'System role'], ['Credential Manager', 'Custom role'], ['Verification Manager', 'Custom role']]) {
+      expect(screen.getByRole('heading', { level: 3, name: `${name} ${kind}` })).toBeInTheDocument();
     }
-    const verifier = screen.getByRole('heading', { level: 3, name: /^Verifier/ }).closest('.rounded-xl')!;
-    expect(verifier).toHaveTextContent('No portal access');
+    const verifier = screen.getByRole('heading', { level: 3, name: "Verifier System role" }).closest('.rounded-xl')!;
     const allowed = within(verifier as HTMLElement).getAllByRole('listitem').filter((li) => li.textContent?.includes('(allowed)')).map((li) => li.textContent);
-    expect(allowed).toEqual(['Perform verifications (allowed)Assigned activities only', 'View verification results and history (allowed)Assigned activities only']);
+    expect(allowed).toEqual(['Perform verifications (assigned activities only) (allowed)']);
+    // System roles can't be edited or deleted; custom ones can.
+    expect(screen.queryByRole('button', { name: 'Edit Verifier' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete Organization Admin' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit Credential Manager' })).toBeInTheDocument();
   });
 });
 
@@ -226,9 +229,8 @@ describe('invitations, permissions and revoked access', () => {
     expect(screen.queryByRole('link', { name: /add user/i })).toBeNull();
     await user.click(within(nav).getByRole('link', { name: 'Credentials' }));
     expect(await screen.findByRole('button', { name: 'Create credential' })).toBeInTheDocument();
-    await user.click(within(nav).getByRole('link', { name: 'Settings' }));
-    expect(screen.queryByRole('tab', { name: 'Administrators & Roles' })).toBeNull();
-    expect(screen.getByText(/Only administrators who manage settings can change them/)).toBeInTheDocument();
+    // No settings or administrator permissions: Settings isn't offered, and its link is refused.
+    expect(within(nav).queryByRole('link', { name: 'Settings' })).toBeNull();
   }, 20_000);
 
   it('blocks direct navigation to screens without permission', async () => {
@@ -243,15 +245,18 @@ describe('invitations, permissions and revoked access', () => {
     expect(await screen.findByRole('heading', { name: "You don't have access to this page" })).toBeInTheDocument();
   }, 20_000);
 
-  it('a Verifier signs up but has no access to the administration portal', async () => {
+  it('a Verifier signs up and sees only the focused verifier workspace', async () => {
     const s = createInitialState(new Date());
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_ver', email: 'verifier@example.org', roleIds: ['verifier'], at: AT });
     if (!invited.ok) throw new Error(invited.error);
     const { user } = renderApp('/signup', invited.state, false);
     await acceptInvite(user, 'verifier@example.org', 'Femi', 'Lawal');
-    expect(await screen.findByRole('heading', { name: "This portal isn't part of your role" }, { timeout: 3000 })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Sign out' }));
-    await screen.findByRole('heading', { level: 1, name: 'Welcome back' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'My Dashboard' }, { timeout: 3000 })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: 'Primary' });
+    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Dashboard', 'My Verification Activities', 'My Verification History']);
+    expect(screen.getByText(/You aren’t assigned to any verification activities yet/)).toBeInTheDocument();
+    await user.click(within(nav).getByRole('link', { name: 'My Verification Activities' }));
+    expect(await screen.findByText('No activities assigned to you yet')).toBeInTheDocument();
   }, 20_000);
 
   it('deactivation takes effect for the affected administrator', async () => {
