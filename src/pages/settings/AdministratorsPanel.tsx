@@ -507,6 +507,44 @@ function RolesTab() {
     toast(r.ok ? { tone: 'success', title: 'Role deleted', description: deleting.name } : { tone: 'error', title: 'Role not deleted', description: r.error });
   };
 
+  const roleCard = (r: Role) => {
+    const holders = roleHolders(state, organization.id, r.id).filter((a) => a.status !== 'deactivated').length;
+    return (
+      <Card key={r.id}>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="min-w-0">
+            <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-slate-900">
+              {r.name}
+              {r.system ? <Badge tone="neutral"><Lock className="h-3 w-3" aria-hidden="true" />System role</Badge> : <Badge tone="violet">Custom role</Badge>}
+            </h3>
+            <p className="mt-0.5 text-sm text-slate-500">{r.description || 'No description.'}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-slate-500">{holders} {holders === 1 ? 'administrator' : 'administrators'}</span>
+            {canPreview && r.id !== 'organization-admin' && (
+              <Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} aria-label={`Preview as ${r.name}`} onClick={() => preview(r.id)}>Preview</Button>
+            )}
+            {canManageRoles && !r.system && (
+              <>
+                <Button size="sm" variant="secondary" icon={<Pencil className="h-4 w-4" />} aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}>Edit</Button>
+                <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</Button>
+              </>
+            )}
+          </div>
+        </div>
+        <div className={cn('grid gap-6 px-6 py-5', r.highlights && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
+          {r.highlights && (
+            <ul className="space-y-1.5 text-sm text-slate-700">
+              {r.highlights.map((h) => <li key={h} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />{h}</li>)}
+              {r.limits?.map((h) => <li key={h} className="flex gap-2 text-slate-500"><ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{h}</li>)}
+            </ul>
+          )}
+          <PermissionList permissions={new Set(r.permissions)} compact />
+        </div>
+      </Card>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -525,48 +563,20 @@ function RolesTab() {
         {canManageRoles && <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button>}
       </div>
 
-      {roles.map((r) => {
-        const holders = roleHolders(state, organization.id, r.id).filter((a) => a.status !== 'deactivated').length;
-        return (
-          <Card key={r.id}>
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
-              <div className="min-w-0">
-                <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-slate-900">
-                  {r.name}
-                  {r.system ? <Badge tone="neutral"><Lock className="h-3 w-3" aria-hidden="true" />System role</Badge> : <Badge tone="violet">Custom role</Badge>}
-                </h3>
-                <p className="mt-0.5 text-sm text-slate-500">{r.description || 'No description.'}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-slate-500">{holders} {holders === 1 ? 'administrator' : 'administrators'}</span>
-                {canPreview && r.id !== 'organization-admin' && (
-                  <Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} aria-label={`Preview as ${r.name}`} onClick={() => preview(r.id)}>Preview</Button>
-                )}
-                {canManageRoles && !r.system && (
-                  <>
-                    <Button size="sm" variant="secondary" icon={<Pencil className="h-4 w-4" />} aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}>Edit</Button>
-                    <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</Button>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className={cn('grid gap-6 px-6 py-5', r.highlights && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
-              {r.highlights && (
-                <ul className="space-y-1.5 text-sm text-slate-700">
-                  {r.highlights.map((h) => <li key={h} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />{h}</li>)}
-                  {r.limits?.map((h) => <li key={h} className="flex gap-2 text-slate-500"><ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{h}</li>)}
-                </ul>
-              )}
-              <PermissionList permissions={new Set(r.permissions)} compact />
-            </div>
-          </Card>
-        );
-      })}
-      {custom.length === 0 && (
-        <Card><EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No custom roles yet"
-          description="Create a role for a specific responsibility, such as a records officer who manages users but not credentials or settings."
-          action={canManageRoles ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button> : undefined} /></Card>
-      )}
+      <section aria-labelledby="system-roles" className="space-y-4">
+        <h2 id="system-roles" className="text-sm font-semibold text-slate-900">System roles</h2>
+        {roles.filter((r) => r.system).map(roleCard)}
+      </section>
+      <section aria-labelledby="custom-roles" className="space-y-4 pt-2">
+        <h2 id="custom-roles" className="text-sm font-semibold text-slate-900">Custom roles</h2>
+        {custom.length > 0 ? custom.map(roleCard) : (
+          <Card><EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No custom roles yet"
+            description={canManageRoles
+              ? 'Create a role for a specific responsibility, such as a records officer who manages users but not credentials or settings. It will be available when inviting administrators or changing their role.'
+              : 'Your organization hasn’t created any custom roles.'}
+            action={canManageRoles ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button> : undefined} /></Card>
+        )}
+      </section>
 
       {editing && <RoleDrawer role={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {deleting && (() => {

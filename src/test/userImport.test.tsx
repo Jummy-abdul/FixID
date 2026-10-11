@@ -15,6 +15,7 @@ import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { applyCreateUser, applyImportSummary, isIdentifierTaken, prepareCreateUser, type CreateUserInput } from '@/store/operations';
 import { loadState } from '@/store/persistence';
 import { authorizeAction, createInitialState, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
@@ -23,7 +24,7 @@ const MANUAL = 'org_northbridge_idc_matric-number';
 
 /** Northbridge, with an extra generated identifier (manual ones are seeded). */
 function base(): AppState {
-  let s = createInitialState(new Date());
+  let s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = ORG;
   s = reducer(s, { type: 'config/identifier', input: { organizationId: ORG, at: AT, id: GEN, name: 'Member Number', mode: 'generated',
     segments: [{ id: 'a', kind: 'static', value: 'MEM' }, { id: 'b', kind: 'separator', value: '-' }, { id: 'c', kind: 'sequence', start: 1, digits: 4, zeroPad: true }] } });

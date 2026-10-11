@@ -170,8 +170,8 @@ export function canGrantRoles(actor: Set<Permission>, roleIds: readonly string[]
 }
 
 /**
- * Custom roles that replaced the earlier built-in Credential Manager and Verification Manager roles.
- * Existing assignments keep working: each organization gets them as its own, editable custom roles.
+ * The earlier built-in Credential Manager and Verification Manager roles. Used only to migrate saved data
+ * that still assigns them; organizations never get them by default.
  */
 export const LEGACY_ROLE_TEMPLATES: Omit<Role, 'organizationId'>[] = [
   {

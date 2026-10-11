@@ -149,9 +149,9 @@ describe('#009 / #010 activity drafts and verifiers', () => {
 
   it('only assigns administrators who can verify; selection grants no permission', () => {
     let s = base();
-    const kwame = adminsOf(s, ORG).find((a) => a.name === 'Kwame Mensah')!;
+    const auditor = adminsOf(s, ORG).find((a) => a.name === 'Adaora Nwosu')!;
     const form = { name: 'Restricted', description: '', purpose: '', type: 'identity' as const, checks: [], outcome: { onRequiredFailure: 'not-verified' as const, onInconclusive: 'unable-to-verify' as const } };
-    expect(applySaveActivity(s, { organizationId: ORG, ids: { activityId: 'va_r', versionId: 'vv_r' }, at: AT, form: { ...form, verifierIds: [kwame.id] } }))
+    expect(applySaveActivity(s, { organizationId: ORG, ids: { activityId: 'va_r', versionId: 'vv_r' }, at: AT, form: { ...form, verifierIds: [auditor.id] } }))
       .toMatchObject({ ok: false, error: 'Only active administrators who can perform verifications can be assigned.' });
     const ok = applySaveActivity(s, { organizationId: ORG, ids: { activityId: 'va_r', versionId: 'vv_r' }, at: AT, form: { ...form, verifierIds: [me(s).id] } });
     if (!ok.ok) throw new Error(ok.error);

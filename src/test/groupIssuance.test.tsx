@@ -13,6 +13,7 @@ import { applyAddMembers, applyCreateGroup } from '@/store/groupOps';
 import { HOLDING, issuanceEligibility } from '@/store/operations';
 import { loadState } from '@/store/persistence';
 import { authorizeAction, createInitialState, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const AT = new Date().toISOString();
 const ORG = SAMPLE_ORGANIZATION_ID;
@@ -20,7 +21,7 @@ const GROUP = 'grp_test';
 
 /** A group with two eligible members, one who already holds the credential, and one inactive user. */
 function fixture() {
-  let s = createInitialState(new Date());
+  let s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = ORG;
   const type = s.data.credentialTypes.find((t) => t.organizationId === ORG && t.status === 'active' && t.effectiveDate === 'on-issue' && t.validity.kind === 'no-expiry')!;
   const members = s.data.members.filter((m) => m.organizationId === ORG);

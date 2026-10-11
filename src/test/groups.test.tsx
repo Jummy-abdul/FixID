@@ -10,12 +10,13 @@ import { adminsOf } from '@/store/adminOps';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from '@/store/groupOps';
 import { loadState, saveState } from '@/store/persistence';
 import { createInitialState, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const AT = new Date().toISOString();
 const ORG = SAMPLE_ORGANIZATION_ID;
 
 function sampleState(): AppState {
-  const s = createInitialState(new Date());
+  const s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = ORG;
   return s;
 }

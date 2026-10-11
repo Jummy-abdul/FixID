@@ -13,6 +13,7 @@ import {
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { loadState } from '@/store/persistence';
 import { authorizeAction, createInitialState, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const AT = new Date().toISOString();
 const HOUR = 3_600_000;
@@ -29,7 +30,7 @@ function withCredentialManager(s: AppState, org: string): AppState {
 }
 
 function sampleState(org = SAMPLE_ORGANIZATION_ID): AppState {
-  const s = createInitialState(new Date());
+  const s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = org;
   return s;
 }
@@ -87,7 +88,7 @@ describe('administrator rules', () => {
   });
 
   it('invitation links expire after 72 hours, work once, and resending invalidates the old link', () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_a', email: 'a@example.org', name: 'Amaka Obi', roleIds: ['verifier'], token: 'first', at: AT });
     if (!invited.ok) throw new Error(invited.error);
     const rec = invitationByToken(invited.state, 'first')!;
@@ -135,7 +136,7 @@ describe('administrator rules', () => {
   });
 
   it('protects the last Organization Admin and blocks self-deactivation', () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const owner = adminsOf(s, NEW_ORGANIZATION_ID)[0];
     expect(applySetRoles(s, { organizationId: NEW_ORGANIZATION_ID, adminId: owner.id, roleIds: ['auditor'], at: AT }))
       .toMatchObject({ ok: false, error: expect.stringMatching(/at least one active Organization Admin.*role can’t be changed/) });
@@ -293,7 +294,7 @@ describe('Administrators & Roles', () => {
   });
 
   it('protects the last active Organization Admin in the interface', async () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     s.session.currentOrganizationId = NEW_ORGANIZATION_ID;
     const { user } = renderApp('/settings?tab=admins', s);
     await screen.findByText('Tobyson TE');
@@ -305,6 +306,48 @@ describe('Administrators & Roles', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Save' }));
     expect(within(drawer).getByRole('alert')).toHaveTextContent('at least one active Organization Admin');
     expect(adminsOf(loadState() ?? s, NEW_ORGANIZATION_ID)[0].roleIds).toEqual(['organization-admin']);
+  });
+
+  it('a new organization sees only the three system roles until it creates a custom role, which then becomes selectable', async () => {
+    const s = createInitialState(new Date());
+    s.session.currentOrganizationId = NEW_ORGANIZATION_ID;
+    const { user } = renderApp('/settings?tab=admins&view=roles', s);
+    const system = screen.getByRole('region', { name: 'System roles' });
+    expect(within(system).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Organization AdminSystem role', 'VerifierSystem role', 'AuditorSystem role']);
+    expect(within(system).queryByRole('button', { name: /^Edit|^Delete/ })).toBeNull();
+    const custom = screen.getByRole('region', { name: 'Custom roles' });
+    expect(within(custom).getByText('No custom roles yet')).toBeInTheDocument();
+    expect(screen.queryByText('Credential Manager')).toBeNull();
+    expect(screen.queryByText('Verification Manager')).toBeNull();
+
+    // Invite offers only the system roles.
+    await user.click(screen.getByRole('tab', { name: 'Administrators' }));
+    await user.click(await screen.findByRole('button', { name: 'Invite Administrator' }));
+    let drawer = screen.getByRole('dialog', { name: 'Invite administrator' });
+    expect(within(drawer).getAllByRole('radio').map((r) => r.closest('label')!.querySelector('span span')!.firstChild!.textContent)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
+    await user.click(within(drawer).getByRole('button', { name: 'Cancel' }));
+
+    // Create one from the empty state.
+    await user.click(screen.getByRole('tab', { name: 'Roles & Permissions' }));
+    await user.click(within(screen.getByRole('region', { name: 'Custom roles' })).getByRole('button', { name: 'Create Custom Role' }));
+    const form = screen.getByRole('dialog', { name: 'Create custom role' });
+    await user.type(within(form).getByLabelText(/Role name/), 'Records Officer');
+    await user.type(within(form).getByLabelText(/Description/), 'Keeps user records up to date.');
+    await user.click(within(within(form).getByRole('group', { name: 'Users' })).getByRole('checkbox', { name: 'View users' }));
+    await user.click(within(form).getByRole('button', { name: 'Create Role' }));
+    const section = screen.getByRole('region', { name: 'Custom roles' });
+    expect(await within(section).findByRole('heading', { level: 3, name: 'Records Officer Custom role' })).toBeInTheDocument();
+    expect(section).toHaveTextContent('Keeps user records up to date.');
+    expect(section).toHaveTextContent('View users (allowed)');
+    expect(within(section).getByRole('button', { name: 'Edit Records Officer' })).toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Delete Records Officer' })).toBeInTheDocument();
+    expect(loadState()!.data.customRoles).toEqual([expect.objectContaining({ name: 'Records Officer', organizationId: NEW_ORGANIZATION_ID })]);
+
+    // Now it can be chosen when inviting.
+    await user.click(screen.getByRole('tab', { name: 'Administrators' }));
+    await user.click(await screen.findByRole('button', { name: 'Invite Administrator' }));
+    drawer = screen.getByRole('dialog', { name: 'Invite administrator' });
+    expect(within(drawer).getByRole('radio', { name: /^Records Officer/ })).toBeInTheDocument();
   });
 
   it('shows the three protected system roles and the organization’s custom roles with their permissions', async () => {
@@ -368,7 +411,7 @@ describe('invitations, permissions and revoked access', () => {
   }, 20_000);
 
   it('blocks direct navigation to screens without permission', async () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_v', email: 'viewer@example.org', roleIds: ['auditor'], at: AT });
     if (!invited.ok) throw new Error(invited.error);
     const first = renderApp('/signup', invited.state, false);
@@ -380,7 +423,7 @@ describe('invitations, permissions and revoked access', () => {
   }, 20_000);
 
   it('a Verifier signs up and sees only the focused verifier workspace', async () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_ver', email: 'verifier@example.org', roleIds: ['verifier'], at: AT });
     if (!invited.ok) throw new Error(invited.error);
     const { user } = renderApp('/signup', invited.state, false);
@@ -394,7 +437,7 @@ describe('invitations, permissions and revoked access', () => {
   }, 20_000);
 
   it('deactivation takes effect for the affected administrator', async () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_x', email: 'x@example.org', roleIds: ['auditor'], at: AT });
     if (!invited.ok) throw new Error(invited.error);
     const first = renderApp('/signup', invited.state, false);
@@ -418,7 +461,7 @@ describe('invitations, permissions and revoked access', () => {
   }, 20_000);
 
   it('accepts an invitation from its link: organization shown, account set up, workspace opens with the role; the link then stops working', async () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_link', email: 'link@example.org', name: 'Bisi Lawal', roleIds: ['verifier'], token: 'abc123', at: AT });
     if (!invited.ok) throw new Error(invited.error);
     const first = renderApp('/invite/abc123', invited.state, false);
@@ -445,7 +488,7 @@ describe('invitations, permissions and revoked access', () => {
   }, 20_000);
 
   it('refuses an expired invitation link', async () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const past = new Date(Date.now() - 73 * HOUR).toISOString();
     const invited = applyInvite(s, { organizationId: NEW_ORGANIZATION_ID, id: 'adm_old', email: 'old@example.org', roleIds: ['auditor'], token: 'old', at: past });
     if (!invited.ok) throw new Error(invited.error);
@@ -464,7 +507,7 @@ describe('invitations, permissions and revoked access', () => {
 
 describe('saved data from before administrators', () => {
   it('adds administrator records instead of discarding data', () => {
-    const s = createInitialState(new Date());
+    const s = withExampleCustomRoles(createInitialState(new Date()));
     const owned = { ...s.data.organizations[0], id: 'org_mine', name: 'Mine', ownerAccountId: 'acct_1', contactEmail: 'me@mine.example' };
     const { administrators: _dropped, ...oldData } = { ...s.data, organizations: [...s.data.organizations, owned] };
     const legacy = { ...s, data: oldData };

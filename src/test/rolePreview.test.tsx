@@ -10,11 +10,12 @@ import { authorizeVerifier } from '@/domain/verification';
 import { actorPermissions, actorRecord, adminsOf, applySetRoles } from '@/store/adminOps';
 import { loadState, saveState } from '@/store/persistence';
 import { PREVIEW_READ_ONLY, authorizeAction, createInitialState, effectivePermissions, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const AT = new Date().toISOString();
 
 function sampleState(): AppState {
-  const s = createInitialState(new Date());
+  const s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = SAMPLE_ORGANIZATION_ID;
   return s;
 }

@@ -14,12 +14,13 @@ import {
 } from '@/store/activityOps';
 import { loadState } from '@/store/persistence';
 import { authorizeAction, createInitialState, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const AT = new Date().toISOString();
 const ORG = SAMPLE_ORGANIZATION_ID;
 
 function sampleState(): AppState {
-  const s = createInitialState(new Date());
+  const s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = ORG;
   return s;
 }

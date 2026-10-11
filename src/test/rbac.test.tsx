@@ -1,4 +1,4 @@
-import type { Permission } from '@/domain/roles';
+import { LEGACY_ROLE_TEMPLATES, type Permission } from '@/domain/roles';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -15,12 +15,13 @@ import { applyCreateUser, prepareCreateUser, type CreateUserInput } from '@/stor
 import { applySaveActivity } from '@/store/activityOps';
 import { loadState, saveState } from '@/store/persistence';
 import { PREVIEW_READ_ONLY, authorizeAction, createInitialState, effectivePermissions, reducer, type AppState } from '@/store/state';
+import { withExampleCustomRoles } from './helpers/roles';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
 
 function base(): AppState {
-  const s = createInitialState(new Date());
+  const s = withExampleCustomRoles(createInitialState(new Date()));
   s.session.currentOrganizationId = ORG;
   return s;
 }
@@ -77,14 +78,38 @@ describe('system roles and permissions', () => {
     expect(adminPermissions(s, { organizationId: 'org_nowhere', roleIds: ['credential-manager'] }).size).toBe(0);
   });
 
-  it('keeps existing administrators’ access: the former built-in managers are now each organization’s own custom roles', () => {
-    const s = base();
-    const { customRoles: _, ...data } = s.data;
-    saveState({ ...s, data: data as AppState['data'] });
+  it('starts every organization with only the three system roles; custom roles come from administrators', () => {
+    const fresh = createInitialState(new Date());
+    expect(fresh.data.customRoles).toEqual([]);
+    for (const o of fresh.data.organizations) expect(rolesFor(fresh.data.customRoles, o.id).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
+    expect(fresh.data.administrators.every((a) => findRole(fresh.data.customRoles, a.organizationId, a.roleIds[0]!)?.system)).toBe(true);
+    // A created role belongs only to the organization that created it.
+    const created = ok(applySaveRole(base(), officer())).state;
+    expect(findRole(created.data.customRoles, ORG, 'role_records')!.name).toBe('Student Records Officer');
+    expect(findRole(created.data.customRoles, otherOrg(created), 'role_records')).toBeUndefined();
+  });
+
+  it('removes the former example roles from saved data, keeping roles administrators edited or assigned', () => {
+    const s = createInitialState(new Date());
+    const example = (t: (typeof LEGACY_ROLE_TEMPLATES)[number], organizationId: string, updatedBy = 'FixID') => ({ ...t, system: false as const, organizationId, createdAt: AT, createdBy: 'FixID', updatedAt: AT, updatedBy });
+    const other = otherOrg(s);
+    const sample = (org: string, suffix: string) => s.data.administrators.find((a) => a.id === `${org}${suffix}`)!;
+    const halima = s.data.administrators.find((a) => a.organizationId === other && a.name === 'Halima Bello')!;
+    saveState({
+      ...s,
+      data: {
+        ...s.data,
+        // ORG: untouched examples held by the sample administrators. Other org: one assigned to someone else, one edited.
+        customRoles: [example(LEGACY_ROLE_TEMPLATES[0], ORG), example(LEGACY_ROLE_TEMPLATES[1], ORG), example(LEGACY_ROLE_TEMPLATES[0], other), example(LEGACY_ROLE_TEMPLATES[1], other, 'Tobyson TE')],
+        administrators: s.data.administrators.map((a) => (a.id === sample(ORG, '_adm_2').id ? { ...a, roleIds: ['credential-manager'] } : a.id === sample(ORG, '_adm_3').id ? { ...a, roleIds: ['verification-manager'] } : a.id === halima.id ? { ...a, roleIds: ['credential-manager'] } : a)),
+      },
+    });
     const loaded = loadState()!;
-    expect(rolesFor(loaded.data.customRoles, ORG).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor', 'Credential Manager', 'Verification Manager']);
-    expect(actorPermissions(as(loaded, kwame(loaded).id), ORG).has('verification.activities.create')).toBe(true);
-    expect(findRole(loaded.data.customRoles, otherOrg(loaded), 'credential-manager')!.organizationId).toBe(otherOrg(loaded));
+    expect(rolesFor(loaded.data.customRoles, ORG).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
+    expect(loaded.data.administrators.find((a) => a.id === sample(ORG, '_adm_2').id)!.roleIds).toEqual(['auditor']);
+    expect(loaded.data.administrators.find((a) => a.id === sample(ORG, '_adm_3').id)!.roleIds).toEqual(['verifier']);
+    expect(rolesFor(loaded.data.customRoles, other).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor', 'Credential Manager', 'Verification Manager']);
+    expect(loaded.data.administrators.find((a) => a.id === halima.id)!.roleIds).toEqual(['credential-manager']);
   });
 });
 

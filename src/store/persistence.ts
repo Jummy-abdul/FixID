@@ -1,4 +1,5 @@
 import { seedAdministrators, seedCustomRoles, seedGroups, seedVerificationActivities } from '@/data/seed';
+import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { ensurePrimaryAdmins, normalizeAdministrators } from './adminOps';
 import { STATE_VERSION, STORAGE_KEY, type AppState } from './state';
 
@@ -9,7 +10,7 @@ export function loadState(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed?.version !== STATE_VERSION || !parsed.data?.organizations?.length) return null;
-    return ensurePrimaryAdmins(normalizeAdministrators(withLogoAssets(withCustomRoles(withVerificationActivities(withGroups(withAdministrators(parsed)))))));
+    return ensurePrimaryAdmins(normalizeAdministrators(withoutSampleCustomRoles(withLogoAssets(withCustomRoles(withVerificationActivities(withGroups(withAdministrators(parsed))))))));
   } catch {
     return null;
   }
@@ -46,6 +47,30 @@ function withGroups(state: AppState): AppState {
 function withCustomRoles(state: AppState): AppState {
   if (Array.isArray(state.data.customRoles)) return state;
   return { ...state, data: { ...state.data, customRoles: seedCustomRoles(state.data.organizations, new Date()) } };
+}
+
+const LEGACY_IDS = new Set(LEGACY_ROLE_TEMPLATES.map((t) => t.id));
+/** The sample administrators who held the former example roles, and the system roles they have now. */
+const SAMPLE_HOLDERS: Record<string, [suffix: string, roleId: string]> = { 'credential-manager': ['_adm_2', 'auditor'], 'verification-manager': ['_adm_3', 'verifier'] };
+
+/**
+ * Saved data from when sample organizations came with example custom roles (Credential Manager and
+ * Verification Manager): the sample administrators who held them move to the system roles they have in the
+ * current sample data, and the untouched examples are removed. A role an administrator edited, or assigned
+ * to anyone else, is theirs and is kept.
+ */
+function withoutSampleCustomRoles(state: AppState): AppState {
+  const roles = state.data.customRoles ?? [];
+  const untouched = (r: (typeof roles)[number]) => LEGACY_IDS.has(r.id) && r.createdBy === 'FixID' && r.updatedBy === 'FixID';
+  if (!roles.some(untouched)) return state;
+  const administrators = state.data.administrators.map((a) => {
+    const role = roles.find((r) => untouched(r) && r.organizationId === a.organizationId && a.roleIds.includes(r.id));
+    const sample = role && SAMPLE_HOLDERS[role.id];
+    return sample && a.id === `${a.organizationId}${sample[0]}` ? { ...a, roleIds: [sample[1]] } : a;
+  });
+  const held = (r: (typeof roles)[number]) => administrators.some((a) => a.organizationId === r.organizationId && a.roleIds.includes(r.id));
+  const customRoles = roles.filter((r) => !untouched(r) || held(r));
+  return { ...state, data: { ...state.data, administrators, customRoles } };
 }
 
 /** Saved data from before credential logos: no logos yet. */

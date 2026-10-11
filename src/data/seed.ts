@@ -84,8 +84,8 @@ export function seedAdministrators(organizations: Pick<Organization, 'id' | 'con
     // Invitations last 72 hours: the first is pending, the second has expired. Link tokens are random.
     const invite = (sentDaysAgo: number) => ({ sentAt: ago(sentDaysAgo), expiresAt: ago(sentDaysAgo - 3), sendCount: 1, invitedBy: 'Tobyson TE', token: invitationToken() });
     out.push(
-      { id: `${org.id}_adm_2`, organizationId: org.id, email: `adaora.nwosu@${domain}`, name: 'Adaora Nwosu', userId: `${org.id}_usr_2`, roleIds: ['credential-manager'], status: 'active', createdAt: ago(300), lastActiveAt: ago(1) },
-      { id: `${org.id}_adm_3`, organizationId: org.id, email: `kwame.mensah@${domain}`, name: 'Kwame Mensah', userId: `${org.id}_usr_3`, roleIds: ['verification-manager'], status: 'active', createdAt: ago(240), lastActiveAt: ago(3) },
+      { id: `${org.id}_adm_2`, organizationId: org.id, email: `adaora.nwosu@${domain}`, name: 'Adaora Nwosu', userId: `${org.id}_usr_2`, roleIds: ['auditor'], status: 'active', createdAt: ago(300), lastActiveAt: ago(1) },
+      { id: `${org.id}_adm_3`, organizationId: org.id, email: `kwame.mensah@${domain}`, name: 'Kwame Mensah', userId: `${org.id}_usr_3`, roleIds: ['verifier'], status: 'active', createdAt: ago(240), lastActiveAt: ago(3) },
       { id: `${org.id}_adm_4`, organizationId: org.id, email: `halima.bello@${domain}`, name: 'Halima Bello', userId: `${org.id}_usr_4`, roleIds: ['verifier'], status: 'active', createdAt: ago(200), lastActiveAt: ago(2) },
       { id: `${org.id}_adm_5`, organizationId: org.id, email: `grace.okafor@${domain}`, name: 'Grace Okafor', userId: `${org.id}_usr_5`, roleIds: ['auditor'], status: 'deactivated', createdAt: ago(380), lastActiveAt: ago(40) },
       { id: `${org.id}_adm_6`, organizationId: org.id, email: `chidi.eze@${domain}`, name: 'Chidi Eze', roleIds: ['verifier'], status: 'invited', createdAt: ago(1), invitation: invite(1) },
@@ -773,16 +773,19 @@ export function buildSeed(now: Date = new Date()): SeedData {
     issuanceBatches: [],
     ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today),
     verificationAttempts: [],
-    customRoles: seedCustomRoles(organizations, today),
+    // No organization starts with custom roles: they appear only when an administrator creates them.
+    customRoles: [],
     logoAssets: [],
   };
 }
 
-/** Each demo organization's own copies of the roles that used to be built in, so existing assignments keep working. */
+/**
+ * Migration only (saved data from before custom roles existed): each organization's copies of the roles that
+ * used to be built in, so those assignments keep working. Never part of new or default organization data.
+ */
 export function seedCustomRoles(organizations: Pick<Organization, 'id'>[], today: Date): CustomRole[] {
   const at = today.toISOString();
-  // Only established organizations, where sample administrators hold them. They're custom roles, not system roles.
-  return organizations.filter((o) => o.id !== NEW_ORGANIZATION_ID).flatMap((o) => LEGACY_ROLE_TEMPLATES.map((t) => ({ ...t, system: false as const, organizationId: o.id, createdAt: at, createdBy: 'FixID', updatedAt: at, updatedBy: 'FixID' })));
+  return organizations.flatMap((o) => LEGACY_ROLE_TEMPLATES.map((t) => ({ ...t, system: false as const, organizationId: o.id, createdAt: at, createdBy: 'FixID', updatedAt: at, updatedBy: 'FixID' })));
 }
 
 /**
