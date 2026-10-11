@@ -18,7 +18,7 @@ export function SettingsPage() {
   // (their panels and data are kept): ?tab=integrations falls back to Organization. The demo account keeps
   // its internal prototype tools at ?tab=demo, which isn't in the navigation; for anyone else it falls back too.
   const tabs = [
-    ...(can('settings.manage') ? [{ value: 'organization' as const, label: 'Organization' }] : []),
+    ...(can('settings.manage') || can('organization.view') ? [{ value: 'organization' as const, label: 'Organization' }] : []),
     ...(can('administrators.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
   ];
   const { isDemo } = useAuth();

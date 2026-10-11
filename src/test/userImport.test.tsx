@@ -247,7 +247,7 @@ describe('import', () => {
     const s = base();
     const input: CreateUserInput = { requestId: 'r', organizationId: ORG, at: AT, identifierConfigId: MANUAL, identifierValue: 'NB/IMP/301', person: { givenName: 'Ada', familyName: 'Eze' }, identity: { idSwitchId: 'IDS-Y', resolution: 'created-new' }, memberId: 'm_y' };
     // Role preview (read-only) and roles without users.manage.
-    expect(harness(reducer(s, { type: 'preview/start', roleId: 'viewer' })).deps.createUser(input)).toMatchObject({ ok: false });
+    expect(harness(reducer(s, { type: 'preview/start', roleId: 'auditor' })).deps.createUser(input)).toMatchObject({ ok: false });
     const viewer = s.data.administrators.find((a) => a.organizationId === ORG && a.roleIds.includes('credential-manager') && a.status === 'active')!;
     const asViewer: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: viewer.userId! } } };
     expect(harness(asViewer).deps.createUser(input)).toMatchObject({ ok: false, errors: { form: "You don't have permission to do this." } });
@@ -377,7 +377,7 @@ describe('Import users screen', () => {
   });
 
   it('is only available to administrators who can add users', async () => {
-    renderApp('/users/import', reducer(base(), { type: 'preview/start', roleId: 'viewer' }));
+    renderApp('/users/import', reducer(base(), { type: 'preview/start', roleId: 'auditor' }));
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
   });
 

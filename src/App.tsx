@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { AcceptInvitationPage } from './pages/auth/AcceptInvitationPage';
 import { AppLayout } from './layout/AppLayout';
 import { RequirePermission } from './auth/authorization';
 import {
@@ -77,6 +78,8 @@ export function AppRoutes() {
         <Route path="create-password" element={<CreatePasswordPage />} />
         <Route path="forgot-password" element={<ForgotPasswordPage />} />
       </Route>
+      {/* Invitation links work whether or not someone is signed in in this browser. */}
+      <Route path="invite/:token" element={<AcceptInvitationPage />} />
       <Route element={<RequireOnboarding />}>
         <Route path="onboarding/personal" element={<OnboardingPersonalPage />} />
         <Route path="onboarding/organization" element={<OnboardingOrganizationPage />} />
@@ -115,7 +118,7 @@ export function AppRoutes() {
         <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><VerificationHistoryPage /></RequirePermission>} />
         <Route path="verification-history/:recordId" element={<RequirePermission permission="verification.results.view"><VerificationRecordPage /></RequirePermission>} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
-        <Route path="settings" element={<RequirePermission permission={['settings.manage', 'administrators.view']}><SettingsPage /></RequirePermission>} />
+        <Route path="settings" element={<RequirePermission permission={['settings.manage', 'organization.view', 'administrators.view']}><SettingsPage /></RequirePermission>} />
         <Route path="profile" element={<ProfilePage />} />
         {RENAMED.flatMap(([from, to]) => [
           <Route key={from} path={from} element={<RenamedRoute to={to} />} />,

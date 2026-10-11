@@ -245,7 +245,7 @@ describe('Groups screens', () => {
   });
 
   it('shows read-only groups to roles without groups.manage, and none to a Verifier', async () => {
-    const viewer = reducer(sampleState(), { type: 'preview/start', roleId: 'viewer' });
+    const viewer = reducer(sampleState(), { type: 'preview/start', roleId: 'auditor' });
     renderApp('/groups', viewer);
     expect(await screen.findByRole('link', { name: 'Volunteers' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create Group' })).toBeNull();

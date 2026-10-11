@@ -161,9 +161,14 @@ export interface OrgAdministrator {
   userId?: string;
   /** Optional link to the same person's user record in User Management. */
   memberId?: string;
+  /** Exactly one role (a system role or one of the organization's custom roles). */
   roleIds: string[];
   status: AdministratorStatus;
-  invitation?: { sentAt: ISODate; expiresAt: ISODate; sendCount: number; invitedBy: string };
+  /**
+   * The latest invitation. `token` is the single-use secret in its link: resending replaces it (the old
+   * link stops working) and accepting clears it. Delivery is simulated: no email is sent in this prototype.
+   */
+  invitation?: { sentAt: ISODate; expiresAt: ISODate; sendCount: number; invitedBy: string; token?: string; acceptedAt?: ISODate };
   createdAt: ISODate;
   lastActiveAt?: ISODate;
 }
@@ -380,6 +385,7 @@ export type AuditAction =
   | 'admin.invited'
   | 'admin.invitation-resent'
   | 'admin.invitation-revoked'
+  | 'admin.invitation-expired'
   | 'admin.joined'
   | 'admin.role-assigned'
   | 'group.created'

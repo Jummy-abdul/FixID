@@ -342,7 +342,7 @@ describe('Verifier Interface', () => {
     const s = base();
     const target = activity(s, 'Visitor Identity Check');
     // Without the permission (here: the Viewer role view), the page isn't available, even by direct link.
-    const viewing = reducer(s, { type: 'preview/start', roleId: 'viewer' });
+    const viewing = reducer(s, { type: 'preview/start', roleId: 'auditor' });
     const { unmount } = render(
       <MemoryRouter initialEntries={[`/verify/activities/${target.id}`]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AppProviders initialState={viewing} authSession={DEMO_SESSION}><AppRoutes /></AppProviders>

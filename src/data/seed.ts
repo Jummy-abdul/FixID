@@ -30,6 +30,7 @@ import { formatIdentifier } from '@/lib/identifiers';
 import { templateForDesign } from '@/domain/templates';
 import { buildChecks } from '@/domain/verification';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
+import { invitationToken } from '@/lib/tokens';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -80,14 +81,15 @@ export function seedAdministrators(organizations: Pick<Organization, 'id' | 'con
       roleIds: ['organization-admin'], status: 'active', createdAt: org.createdAt, lastActiveAt: iso(today),
     });
     if (org.id === NEW_ORGANIZATION_ID) continue;
-    const invite = (sentDaysAgo: number) => ({ sentAt: ago(sentDaysAgo), expiresAt: ago(sentDaysAgo - 7), sendCount: 1, invitedBy: 'Tobyson TE' });
+    // Invitations last 72 hours: the first is pending, the second has expired. Link tokens are random.
+    const invite = (sentDaysAgo: number) => ({ sentAt: ago(sentDaysAgo), expiresAt: ago(sentDaysAgo - 3), sendCount: 1, invitedBy: 'Tobyson TE', token: invitationToken() });
     out.push(
       { id: `${org.id}_adm_2`, organizationId: org.id, email: `adaora.nwosu@${domain}`, name: 'Adaora Nwosu', userId: `${org.id}_usr_2`, roleIds: ['credential-manager'], status: 'active', createdAt: ago(300), lastActiveAt: ago(1) },
       { id: `${org.id}_adm_3`, organizationId: org.id, email: `kwame.mensah@${domain}`, name: 'Kwame Mensah', userId: `${org.id}_usr_3`, roleIds: ['verification-manager'], status: 'active', createdAt: ago(240), lastActiveAt: ago(3) },
       { id: `${org.id}_adm_4`, organizationId: org.id, email: `halima.bello@${domain}`, name: 'Halima Bello', userId: `${org.id}_usr_4`, roleIds: ['verifier'], status: 'active', createdAt: ago(200), lastActiveAt: ago(2) },
-      { id: `${org.id}_adm_5`, organizationId: org.id, email: `grace.okafor@${domain}`, name: 'Grace Okafor', userId: `${org.id}_usr_5`, roleIds: ['viewer'], status: 'deactivated', createdAt: ago(380), lastActiveAt: ago(40) },
-      { id: `${org.id}_adm_6`, organizationId: org.id, email: `operations@${domain}`, roleIds: ['credential-manager', 'viewer'], status: 'invited', createdAt: ago(2), invitation: invite(2) },
-      { id: `${org.id}_adm_7`, organizationId: org.id, email: `records@${domain}`, roleIds: ['viewer'], status: 'invited', createdAt: ago(12), invitation: invite(12) },
+      { id: `${org.id}_adm_5`, organizationId: org.id, email: `grace.okafor@${domain}`, name: 'Grace Okafor', userId: `${org.id}_usr_5`, roleIds: ['auditor'], status: 'deactivated', createdAt: ago(380), lastActiveAt: ago(40) },
+      { id: `${org.id}_adm_6`, organizationId: org.id, email: `chidi.eze@${domain}`, name: 'Chidi Eze', roleIds: ['verifier'], status: 'invited', createdAt: ago(1), invitation: invite(1) },
+      { id: `${org.id}_adm_7`, organizationId: org.id, email: `funmi.adeyemi@${domain}`, name: 'Funmi Adeyemi', roleIds: ['auditor'], status: 'invited', createdAt: ago(5), invitation: invite(5) },
     );
   }
   return out;
@@ -779,7 +781,8 @@ export function buildSeed(now: Date = new Date()): SeedData {
 /** Each demo organization's own copies of the roles that used to be built in, so existing assignments keep working. */
 export function seedCustomRoles(organizations: Pick<Organization, 'id'>[], today: Date): CustomRole[] {
   const at = today.toISOString();
-  return organizations.flatMap((o) => LEGACY_ROLE_TEMPLATES.map((t) => ({ ...t, system: false as const, organizationId: o.id, createdAt: at, createdBy: 'FixID', updatedAt: at, updatedBy: 'FixID' })));
+  // Only established organizations, where sample administrators hold them. They're custom roles, not system roles.
+  return organizations.filter((o) => o.id !== NEW_ORGANIZATION_ID).flatMap((o) => LEGACY_ROLE_TEMPLATES.map((t) => ({ ...t, system: false as const, organizationId: o.id, createdAt: at, createdBy: 'FixID', updatedAt: at, updatedBy: 'FixID' })));
 }
 
 /**

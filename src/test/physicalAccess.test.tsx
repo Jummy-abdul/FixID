@@ -132,8 +132,8 @@ describe('physical access: entry recording and duplicate entries', () => {
     // A Viewer can see results but can't record entry decisions.
     const owner = { ...h.state, data: { ...h.state.data, admin: base().data.admin } };
     const other = adminsOf(owner, ORG).find((x) => x.name === 'Adaora Nwosu')!;
-    const demoted = reducer(owner, { type: 'admins/roles', organizationId: ORG, adminId: other.id, roleIds: ['viewer'], at: AT });
-    expect(adminsOf(demoted, ORG).find((x) => x.id === other.id)!.roleIds).toEqual(['viewer']);
+    const demoted = reducer(owner, { type: 'admins/roles', organizationId: ORG, adminId: other.id, roleIds: ['auditor'], at: AT });
+    expect(adminsOf(demoted, ORG).find((x) => x.id === other.id)!.roleIds).toEqual(['auditor']);
     const admin = harness({ ...demoted, data: { ...demoted.data, admin: { ...demoted.data.admin, id: other.userId! } } });
     expect(admin.service.recordEntry(a.id)).toMatchObject({ ok: false, error: 'Only verifiers can record entry.' });
     expect(admin.state.data.verificationAttempts.find((x) => x.id === a.id)!.entry).toBeUndefined();
@@ -172,7 +172,7 @@ describe('screens', () => {
   it('shows a Viewer the decision without a Record Entry action', async () => {
     const h = harness(adminVerifier(base()));
     const a = await verify(h, people(h.state).insider);
-    renderApp(`/verification-history/${a.id}`, reducer(h.state, { type: 'preview/start', roleId: 'viewer' }));
+    renderApp(`/verification-history/${a.id}`, reducer(h.state, { type: 'preview/start', roleId: 'auditor' }));
     expect(screen.getByRole('region', { name: 'Access and entry' })).toHaveTextContent('Permitted');
     expect(screen.queryByRole('button', { name: 'Allow Entry' })).toBeNull();
   });

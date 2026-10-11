@@ -1,3 +1,4 @@
+import type { Permission } from '@/domain/roles';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -52,20 +53,22 @@ beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 describe('system roles and permissions', () => {
   it('has three protected system roles; the Organization Admin holds every organization permission, including verifying', () => {
     const s = base();
-    expect(rolesFor(s.data.customRoles, ORG).filter((r) => r.system).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Viewer']);
+    expect(rolesFor(s.data.customRoles, ORG).filter((r) => r.system).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
     const admin = permissionsFor(['organization-admin']);
     expect(PROTECTED_PERMISSIONS.every((p) => admin.has(p))).toBe(true);
     expect(admin.has('verification.execute')).toBe(true);
     expect([...permissionsFor(['verifier'])]).toEqual(['verification.execute']);
-    // The Viewer can't create, change, issue, verify, invite or manage anything.
-    const viewer = [...permissionsFor(['viewer'])];
-    expect(viewer.every((p) => p.endsWith('.view'))).toBe(true);
-    expect(viewer).not.toContain('administrators.view');
+    // The Auditor is read-only (per the roles and permissions matrix): it views administrators, roles, the
+    // organization profile and the audit log, and can't create, change, issue, verify, invite or manage anything.
+    const auditor = [...permissionsFor(['auditor'])];
+    expect(auditor.every((p) => p.endsWith('.view'))).toBe(true);
+    expect(auditor).toEqual(expect.arrayContaining(['administrators.view', 'organization.view', 'audit.view', 'verification.results.view']));
+    expect(auditor).not.toContain('verification.execute');
   });
 
   it('combines several roles into the union of their permissions, resolved within the organization', () => {
     const s = base();
-    const a = { organizationId: ORG, roleIds: ['viewer', 'credential-manager'] };
+    const a = { organizationId: ORG, roleIds: ['auditor', 'credential-manager'] };
     const union = adminPermissions(s, a);
     expect(union.has('audit.view')).toBe(true);
     expect(union.has('credentials.issue')).toBe(true);
@@ -79,7 +82,7 @@ describe('system roles and permissions', () => {
     const { customRoles: _, ...data } = s.data;
     saveState({ ...s, data: data as AppState['data'] });
     const loaded = loadState()!;
-    expect(rolesFor(loaded.data.customRoles, ORG).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Viewer', 'Credential Manager', 'Verification Manager']);
+    expect(rolesFor(loaded.data.customRoles, ORG).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor', 'Credential Manager', 'Verification Manager']);
     expect(actorPermissions(as(loaded, kwame(loaded).id), ORG).has('verification.activities.create')).toBe(true);
     expect(findRole(loaded.data.customRoles, otherOrg(loaded), 'credential-manager')!.organizationId).toBe(otherOrg(loaded));
   });
@@ -101,19 +104,25 @@ describe('custom roles', () => {
     expect(now.has('users.import')).toBe(true);
   });
 
-  it('never lets a custom role include protected Organization Admin privileges, or use a taken name', () => {
+  it('offers every catalogue permission to custom roles, but nobody grants what they don’t hold; names are unique', () => {
     const s = base();
-    expect(CUSTOM_ROLE_PERMISSIONS).not.toContain('roles.manage');
-    expect(roleProblems(s, officer({ permissions: ['users.view', 'roles.manage'] })).permissions).toMatch(/only be granted by the Organization Admin role/);
-    expect(applySaveRole(s, officer({ permissions: ['roles.assign'] }))).toMatchObject({ ok: false });
-    expect(roleProblems(s, officer({ name: 'viewer' })).name).toBe('A role with this name already exists.');
+    // The R1 matrix makes every permission selectable for custom roles.
+    expect(CUSTOM_ROLE_PERMISSIONS).toEqual(expect.arrayContaining(['roles.manage', 'roles.assign', 'administrators.invite', 'organization.view']));
+    expect(applySaveRole(s, officer({ permissions: ['users.view', 'roles.manage'] }))).toMatchObject({ ok: true });
+    // A custom role that manages roles still can't grant permissions its holder doesn't have.
+    const managerRole = { id: 'role_mgr', organizationId: ORG, name: 'Role Manager', description: '', permissions: ['administrators.view', 'roles.manage', 'users.view'] as Permission[], system: false as const, createdAt: AT, createdBy: 'T', updatedAt: AT, updatedBy: 'T' };
+    const k = kwame(s);
+    const asManager = as({ ...s, data: { ...s.data, customRoles: [...s.data.customRoles, managerRole], administrators: s.data.administrators.map((a) => (a.id === k.id ? { ...a, roleIds: ['role_mgr'] } : a)) } }, k.id);
+    expect(applySaveRole(asManager, officer({ id: 'role_x', name: 'Issuer', permissions: ['credentials.issue'] }))).toMatchObject({ ok: false, error: "You can't grant permissions you don't have yourself." });
+    expect(applySaveRole(asManager, officer({ id: 'role_y', name: 'Lookup', permissions: ['users.view'] }))).toMatchObject({ ok: true });
+    expect(roleProblems(s, officer({ name: 'auditor' })).name).toBe('A role with this name already exists.');
     expect(roleProblems(s, officer({ permissions: [] })).permissions).toBe('Choose at least one permission.');
     expect(roleProblems(s, officer({ name: ' ' })).name).toBe('Enter a role name.');
   });
 
   it('protects system roles and refuses to delete a role that’s still assigned', () => {
     let s = base();
-    expect(applyDeleteRole(s, { organizationId: ORG, roleId: 'viewer', at: AT })).toMatchObject({ ok: false, error: 'System roles can’t be deleted.' });
+    expect(applyDeleteRole(s, { organizationId: ORG, roleId: 'auditor', at: AT })).toMatchObject({ ok: false, error: 'System roles can’t be deleted.' });
     expect(applySaveRole(s, officer({ id: 'organization-admin', name: 'Admin 2' }))).toMatchObject({ ok: false, error: 'System roles can’t be changed.' });
     expect(applyDeleteRole(s, { organizationId: ORG, roleId: 'verification-manager', at: AT })).toMatchObject({ ok: false, error: expect.stringMatching(/assigned to 1 administrator \(Kwame Mensah\)/) });
     s = ok(applySaveRole(s, officer())).state;
@@ -146,13 +155,13 @@ describe('server-side checks (store) refuse unauthorized requests', () => {
     const cm = as(s, byRole(s, 'credential-manager').id);
     expect(applySaveRole(cm, officer())).toMatchObject({ ok: false, error: "You don't have permission to do this." });
     expect(reducer(cm, { type: 'roles/save', input: officer() })).toBe(cm);
-    expect(applySetRoles(cm, { organizationId: ORG, adminId: kwame(s).id, roleIds: ['viewer'], at: AT })).toMatchObject({ ok: false });
+    expect(applySetRoles(cm, { organizationId: ORG, adminId: kwame(s).id, roleIds: ['auditor'], at: AT })).toMatchObject({ ok: false });
     expect(applySetAdminStatus(cm, { organizationId: ORG, adminId: kwame(s).id, status: 'deactivated', at: AT })).toMatchObject({ ok: false });
   });
 
   it('refuses a Viewer every change, and separates adding users from importing them', () => {
     const s = base();
-    const viewer = ok(applySetRoles(s, { organizationId: ORG, adminId: kwame(s).id, roleIds: ['viewer'], at: AT })).state;
+    const viewer = ok(applySetRoles(s, { organizationId: ORG, adminId: kwame(s).id, roleIds: ['auditor'], at: AT })).state;
     const v = as(viewer, kwame(viewer).id);
     const user: CreateUserInput = { requestId: 'r', organizationId: ORG, at: AT, identifierConfigId: `${ORG}_idc_matric-number`, identifierValue: 'RB/1', person: { givenName: 'Ada', familyName: 'Eze' }, identity: { idSwitchId: 'IDS-R1', resolution: 'created-new' }, memberId: 'm_r' };
     expect(authorizeAction(v, 'users/create')).toMatch(/permission/);
@@ -173,7 +182,7 @@ describe('server-side checks (store) refuse unauthorized requests', () => {
   it('protects the last active Organization Admin', () => {
     const s = base();
     const me = adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
-    expect(applySetRoles(s, { organizationId: ORG, adminId: me.id, roleIds: ['viewer'], at: AT })).toMatchObject({ ok: false });
+    expect(applySetRoles(s, { organizationId: ORG, adminId: me.id, roleIds: ['auditor'], at: AT })).toMatchObject({ ok: false });
     expect(applySetAdminStatus(s, { organizationId: ORG, adminId: me.id, status: 'deactivated', at: AT })).toMatchObject({ ok: false });
   });
 });
@@ -199,7 +208,7 @@ describe('preview as role', () => {
     void limited; void PREVIEW_READ_ONLY;
     // Only an Organization Admin may preview.
     const cm = as(s, byRole(s, 'credential-manager').id);
-    expect(reducer(cm, { type: 'preview/start', roleId: 'viewer' })).toBe(cm);
+    expect(reducer(cm, { type: 'preview/start', roleId: 'auditor' })).toBe(cm);
   });
 });
 
@@ -211,9 +220,9 @@ describe('screens', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Create Role' }));
     expect(within(drawer).getByText('Enter a role name.')).toBeInTheDocument();
     expect(within(drawer).getByText('Choose at least one permission.')).toBeInTheDocument();
-    // Organization Admin privileges can't be chosen.
-    expect(within(drawer).getByRole('checkbox', { name: /Create and manage custom roles/ })).toBeDisabled();
-    expect(within(drawer).getByRole('checkbox', { name: /Assign roles to administrators/ })).toBeDisabled();
+    // Every catalogue permission can be chosen (the Organization Admin holds them all).
+    expect(within(drawer).getByRole('checkbox', { name: /Create, edit and delete custom roles/ })).toBeEnabled();
+    expect(within(drawer).getByRole('checkbox', { name: /Change administrators’ roles/ })).toBeEnabled();
     await user.type(within(drawer).getByLabelText(/Role name/), 'Student Records Officer');
     const users = within(drawer).getByRole('group', { name: 'Users' });
     await user.click(within(users).getByRole('checkbox', { name: 'View users' }));
@@ -251,13 +260,13 @@ describe('screens', () => {
     const { user } = renderApp('/settings?tab=admins', s);
     await screen.findByText('Kwame Mensah');
     await user.click(within(screen.getByText('Kwame Mensah').closest('tr')!).getByRole('button', { name: 'Actions for Kwame Mensah' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Edit Role Assignment' }));
-    const drawer = screen.getByRole('dialog', { name: 'Kwame Mensah' });
-    await user.click(within(drawer).getByRole('checkbox', { name: /^Student Records Officer/ }));
-    await user.click(within(drawer).getByRole('button', { name: 'Save roles' }));
-    expect(await screen.findByText('Roles updated')).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Change Role' }));
+    const drawer = screen.getByRole('dialog', { name: 'Change role: Kwame Mensah' });
+    await user.click(within(drawer).getByRole('radio', { name: /^Student Records Officer/ }));
+    await user.click(within(drawer).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Role changed')).toBeInTheDocument();
     expect(screen.getByText('Kwame Mensah').closest('tr')!).toHaveTextContent('Student Records Officer');
-    expect(loadState()!.data.audit[0]).toMatchObject({ action: 'admin.role-assigned', summary: 'Tobyson TE assigned Student Records Officer to Kwame Mensah.' });
+    expect(loadState()!.data.audit[0]).toMatchObject({ action: 'admin.roles-changed', summary: "Tobyson TE changed Kwame Mensah's role from Verification Manager to Student Records Officer." });
   });
 
   it('explains why an assigned custom role can’t be deleted, and deletes an unassigned one', async () => {
@@ -272,10 +281,10 @@ describe('screens', () => {
     expect(loadState()!.data.customRoles.some((r) => r.id === 'role_records')).toBe(false);
   });
 
-  it('shows the Viewer a read-only workspace', async () => {
-    const p = reducer(base(), { type: 'preview/start', roleId: 'viewer' });
+  it('shows the Auditor a read-only workspace', async () => {
+    const p = reducer(base(), { type: 'preview/start', roleId: 'auditor' });
     const { user, unmount } = renderApp('/users', p);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Audit Log']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Audit Log', 'Settings']);
     await screen.findByRole('heading', { level: 1, name: 'Users' });
     expect(screen.queryByRole('link', { name: 'Add user' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Import Users' })).toBeNull();

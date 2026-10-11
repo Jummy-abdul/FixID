@@ -6,8 +6,13 @@ const NOW = new Date('2026-10-08T12:00:00Z');
 const seed = buildSeed(NOW);
 
 describe('demo seed: connected data model', () => {
-  it('is deterministic for a given point in time', () => {
-    expect(JSON.stringify(buildSeed(NOW))).toEqual(JSON.stringify(seed));
+  it('is deterministic for a given point in time, apart from random invitation link tokens', () => {
+    // Invitation tokens are secrets, so they're random on every build.
+    const stable = (s: typeof seed) => JSON.stringify({ ...s, administrators: s.administrators.map((a) => (a.invitation ? { ...a, invitation: { ...a.invitation, token: 'x' } } : a)) });
+    expect(stable(buildSeed(NOW))).toEqual(stable(seed));
+    const tokens = seed.administrators.flatMap((a) => (a.invitation?.token ? [a.invitation.token] : []));
+    expect(new Set(tokens).size).toBe(tokens.length);
+    expect(tokens.every((t) => /^[0-9a-f]{48}$/.test(t))).toBe(true);
   });
 
   it('covers multiple industries', () => {

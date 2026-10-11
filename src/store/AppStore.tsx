@@ -12,7 +12,10 @@ import {
 } from './activityOps';
 import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from './groupOps';
-import { applyDeleteRole, applyInvite, applyResendInvite, applyRevokeInvite, applySaveRole, applySetAdminStatus, applySetRoles, type InviteInput, type RoleInput } from './adminOps';
+import {
+  applyDeleteRole, applyExpireInvite, applyInvite, applyResendInvite, applyRevokeInvite, applySaveRole, applySetAdminStatus, applySetRoles, invitationToken,
+  type InviteInput, type RoleInput,
+} from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
 import { normalizeProfile, profileValues, timezoneOptions, validateOrganizationProfile } from '@/domain/organization';
@@ -225,10 +228,23 @@ export function useActions() {
         return result;
       },
       /** Administrator management. Each re-checks the signed-in administrator's permissions. */
-      inviteAdmin: (input: InviteInput) => run(() => applyInvite(getState(), input), { type: 'admins/invite', input }),
+      /** Creates an invitation and its single-use link token. Delivery is simulated: no email is sent. */
+      inviteAdmin: (details: Omit<InviteInput, 'token'>) => {
+        const input = { ...details, token: invitationToken() };
+        const r = run(() => applyInvite(getState(), input), { type: 'admins/invite', input });
+        return r.ok ? { ...r, token: input.token } : r;
+      },
+      /** Issues a new 72-hour link; the previous link stops working. */
       resendAdminInvite: (organizationId: string, adminId: string) => {
         const at = new Date().toISOString();
-        return run(() => applyResendInvite(getState(), { organizationId, adminId, at }), { type: 'admins/resend', organizationId, adminId, at });
+        const token = invitationToken();
+        const r = run(() => applyResendInvite(getState(), { organizationId, adminId, token, at }), { type: 'admins/resend', organizationId, adminId, token, at });
+        return r.ok ? { ...r, token } : r;
+      },
+      /** Prototype only: makes a pending invitation expire now. */
+      expireAdminInvite: (organizationId: string, adminId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyExpireInvite(getState(), { organizationId, adminId, at }), { type: 'admins/expire', organizationId, adminId, at });
       },
       revokeAdminInvite: (organizationId: string, adminId: string) => {
         const at = new Date().toISOString();

@@ -191,7 +191,7 @@ describe('permissions', () => {
     expect(applySaveActivity(as('credential-manager'), { organizationId: ORG, ids: ids(), form: identityForm(s), at: AT })).toMatchObject({ ok: false });
     expect(applySaveActivity(as('verifier'), { organizationId: ORG, ids: ids(), form: identityForm(s), at: AT })).toMatchObject({ ok: false });
     // In the Viewer view the Organization Admin can't change activities either.
-    const viewer = reducer(s, { type: 'preview/start', roleId: 'viewer' });
+    const viewer = reducer(s, { type: 'preview/start', roleId: 'auditor' });
     expect(authorizeAction(viewer, 'vactivities/save')).toBe("You don't have permission to do this.");
   });
 
@@ -381,7 +381,7 @@ describe('screens', () => {
   it('only lets authorized administrators create or edit activities', async () => {
     const s = sampleState();
     const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'active')!;
-    renderApp(`/verification-activities/${activity.id}/edit`, reducer(s, { type: 'preview/start', roleId: 'viewer' }));
+    renderApp(`/verification-activities/${activity.id}/edit`, reducer(s, { type: 'preview/start', roleId: 'auditor' }));
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
     const asRole = (role: string): AppState => ({ ...s, data: { ...s.data, admin: { ...s.data.admin, id: adminsOf(s, ORG).find((a) => a.roleIds.includes(role) && a.status === 'active')!.userId! } } });
     for (const role of ['verifier', 'credential-manager']) {
@@ -396,7 +396,7 @@ describe('screens', () => {
   it('shows read-only details to a Viewer and hides the module from a Credential Manager', async () => {
     const s = sampleState();
     const activity = s.data.activityConfigs.find((a) => a.organizationId === ORG && a.status === 'active')!;
-    renderApp(`/verification-activities/${activity.id}`, reducer(s, { type: 'preview/start', roleId: 'viewer' }));
+    renderApp(`/verification-activities/${activity.id}`, reducer(s, { type: 'preview/start', roleId: 'auditor' }));
     expect(screen.getByRole('heading', { level: 1, name: new RegExp(activity.name) })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Deactivate' })).toBeNull();

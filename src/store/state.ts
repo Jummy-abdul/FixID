@@ -11,7 +11,7 @@ import {
 import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
 import { findRole, permissionsFor, rolesFor, type Permission, type RoleId } from '@/domain/roles';
 import {
-  actorPermissions, actorRecord, applyAcceptInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, applySaveRole, applyDeleteRole, ownerRecord, type InviteInput, type RoleInput,
+  actorPermissions, actorRecord, applyAcceptInvite, applyExpireInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, applySaveRole, applyDeleteRole, ownerRecord, type InviteInput, type RoleInput,
 } from './adminOps';
 import {
   applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
@@ -62,13 +62,14 @@ export type Action =
   | { type: 'demo/reset'; state: AppState }
   | { type: 'organization/create'; organization: Organization; cardDesign: CardDesign; at: string; actor: string; owner: { userId: string; email: string } }
   | { type: 'admins/invite'; input: InviteInput }
-  | { type: 'admins/resend'; organizationId: string; adminId: string; at: string }
+  | { type: 'admins/resend'; organizationId: string; adminId: string; token: string; at: string }
+  | { type: 'admins/expire'; organizationId: string; adminId: string; at: string }
   | { type: 'admins/revoke'; organizationId: string; adminId: string; at: string }
   | { type: 'admins/roles'; organizationId: string; adminId: string; roleIds: string[]; at: string }
   | { type: 'roles/save'; input: RoleInput }
   | { type: 'roles/delete'; organizationId: string; roleId: string; at: string }
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
-  | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string }
+  | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string; token?: string }
   | { type: 'groups/create'; input: GroupInput & { id: string } }
   | { type: 'groups/update'; input: GroupInput & { groupId: string } }
   | { type: 'groups/remove'; organizationId: string; groupId: string; at: string }
@@ -119,6 +120,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'admins/invite': ['administrators.invite'],
   'admins/resend': ['administrators.invite'],
   'admins/revoke': ['administrators.invite'],
+  'admins/expire': ['administrators.invite'],
   'admins/roles': ['roles.assign'],
   'admins/status': ['administrators.manage'],
   'logos/upload': ['credentials.manage'],
@@ -404,6 +406,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/invite': return orKeep(state, applyInvite(state, action.input));
     case 'admins/resend': return orKeep(state, applyResendInvite(state, action));
     case 'admins/revoke': return orKeep(state, applyRevokeInvite(state, action));
+    case 'admins/expire': return orKeep(state, applyExpireInvite(state, action));
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));

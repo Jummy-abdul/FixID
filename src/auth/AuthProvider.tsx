@@ -4,6 +4,7 @@ import { countryByCode } from '@/data/countries';
 import { DEMO_ADMIN, NEW_ORGANIZATION_ID } from '@/data/seed';
 import type { AdminUser, CardDesign, Organization } from '@/domain/types';
 import { useStore } from '@/store/AppStore';
+import { acceptProblem, invitationByToken } from '@/store/adminOps';
 import {
   DEMO_ACCOUNT, DEMO_AUTH_ENABLED, hashPassword, loadAuth, newSession, normalizeEmail, passwordMatches, randomToken, saveAuth, saveSignup,
   type Account, type AuthSession, type AuthStore,
@@ -21,6 +22,12 @@ interface AuthContextValue {
   createOrganization: (input: { name: string; countryCode: string; region: string }) => string;
   /** Joins the organization that invited this email (instead of creating one). */
   acceptInvitation: (adminId: string, organizationId: string, firstName: string, lastName: string) => void;
+  /**
+   * Accepts an invitation from its link: sets up the invited person's account (the link proves the email
+   * address), activates their administrator record and signs them in. Refused for an expired, used or
+   * replaced link, or when an account already exists for the email.
+   */
+  acceptInvitationLink: (token: string, fullName: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -124,6 +131,31 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
       const name = `${firstName.trim()} ${lastName.trim()}`;
       dispatch({ type: 'admins/accept', adminId, userId: account.id, name, at: new Date().toISOString() });
       updateAccount(account.id, { firstName: firstName.trim(), lastName: lastName.trim(), organizationId, onboarding: 'complete' });
+    },
+    acceptInvitationLink: async (token, fullName, password) => {
+      const before = getState();
+      const target = invitationByToken(before, token);
+      const at = new Date().toISOString();
+      const problem = acceptProblem(target, at);
+      if (problem || !target) return { ok: false, error: problem! };
+      // One account per email: an existing account signs in instead of creating a duplicate.
+      if (findAccount(target.email)) return { ok: false, error: `An account already exists for ${target.email}. Sign in with it instead.` };
+      const name = fullName.trim().replace(/\s+/g, ' ');
+      const [firstName, ...rest] = name.split(' ');
+      const salt = randomToken(16);
+      const created: Account = {
+        id: `acct_${randomToken(8)}`, email: normalizeEmail(target.email), password: { hash: await hashPassword(password, salt), salt, iterations: 100_000 },
+        emailVerified: true, firstName, lastName: rest.join(' '), organizationId: target.organizationId, onboarding: 'complete', createdAt: at,
+      };
+      // A role view left over in this browser would block joining; the new administrator starts in their own role.
+      dispatch({ type: 'preview/stop' });
+      dispatch({ type: 'admins/accept', adminId: target.id, userId: created.id, name, at, token });
+      // Only a completed acceptance creates the account and signs in.
+      const joined = getState().data.administrators.find((a) => a.id === target.id);
+      if (joined?.status !== 'active' || joined.userId !== created.id) return { ok: false, error: 'The invitation couldn’t be accepted. Nothing was created; please try again.' };
+      saveSignup(null);
+      setStore((s) => ({ accounts: [...s.accounts, created], session: newSession(created.id) }));
+      return { ok: true };
     },
     createOrganization: ({ name, countryCode, region }) => {
       if (!account || isDemo) throw new Error('Sign in to create an organization.');

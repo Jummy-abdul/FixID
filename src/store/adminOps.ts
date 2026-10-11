@@ -1,6 +1,7 @@
 import { DEMO_ADMIN } from '@/data/seed';
+import { invitationToken } from '@/lib/tokens';
 import {
-  CUSTOM_ROLE_PERMISSIONS, INVITATION_TTL_DAYS, PERMISSIONS, canGrantPermission, coversRoles, findRole, permissionInfo, permissionsFor, rolesFor, type Permission, type Role,
+  CUSTOM_ROLE_PERMISSIONS, INVITATION_TTL_HOURS, PERMISSIONS, RENAMED_ROLES, canGrantPermission, coversRoles, findRole, permissionInfo, permissionsFor, rolesFor, singleRole, type Permission, type Role,
 } from '@/domain/roles';
 import type { AuditEvent, CustomRole, OrgAdministrator } from '@/domain/types';
 import type { AppState } from './state';
@@ -13,13 +14,27 @@ import type { AppState } from './state';
 
 type Result = { ok: true; state: AppState } | { ok: false; error: string };
 
-const DAY = 86_400_000;
+const HOUR = 3_600_000;
 const ci = (v: string) => v.trim().toLowerCase();
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ORG_ADMIN = 'organization-admin';
 
 export const invitationExpired = (a: OrgAdministrator, now = new Date()) =>
   a.status === 'invited' && !!a.invitation && new Date(a.invitation.expiresAt) <= now;
+
+/** When an invitation sent at `at` stops working. */
+export const invitationExpiry = (at: string) => new Date(new Date(at).getTime() + INVITATION_TTL_HOURS * HOUR).toISOString();
+
+/** Invitation link tokens are created outside the reducer, which stays pure. */
+export { invitationToken };
+
+/** The path of an invitation's link. In production the link would be emailed; here delivery is simulated. */
+export const invitationPath = (token: string) => `/invite/${token}`;
+
+/** The invitation a link belongs to, whatever its state. Only the current link of a record matches. */
+export function invitationByToken(state: AppState, token: string): OrgAdministrator | undefined {
+  return token ? state.data.administrators.find((a) => a.invitation?.token === token) : undefined;
+}
 
 export const adminsOf = (state: AppState, organizationId: string) => state.data.administrators.filter((a) => a.organizationId === organizationId);
 
@@ -71,7 +86,8 @@ function guard(state: AppState, organizationId: string, needs: Permission[], rol
   const perms = actorPermissions(state, organizationId);
   if (!needs.every((p) => perms.has(p))) return DENIED;
   if (roleIds) {
-    if (roleIds.length === 0) return 'Choose at least one role.';
+    // Exactly one role per administrator.
+    if (roleIds.length !== 1) return 'Choose one role.';
     // Only this organization's roles: another organization's custom role doesn't exist here.
     if (roleIds.some((id) => !findRole(state.data.customRoles ?? [], organizationId, id))) return 'Choose a valid role.';
     if (!coversRoles(perms, roleIds, orgRoles(state, organizationId))) return "You can't grant permissions you don't have yourself.";
@@ -83,36 +99,60 @@ function guard(state: AppState, organizationId: string, needs: Permission[], rol
 const outranked = (state: AppState, organizationId: string, target: OrgAdministrator) =>
   !coversRoles(actorPermissions(state, organizationId), target.roleIds, orgRoles(state, organizationId)) ? "You can't change an administrator who has permissions you don't have." : null;
 
-export interface InviteInput { organizationId: string; id: string; email: string; roleIds: string[]; at: string }
+export interface InviteInput { organizationId: string; id: string; name: string; email: string; roleIds: string[]; token: string; at: string }
+export type InviteErrors = { name?: string; email?: string; role?: string };
 
-export function inviteProblem(state: AppState, input: Omit<InviteInput, 'id' | 'at'>, now = new Date()): string | null {
-  if (!input.email.trim()) return 'Enter an email address.';
-  if (!EMAIL.test(input.email.trim())) return 'Enter a valid email address.';
-  const existing = adminsOf(state, input.organizationId).find((a) => ci(a.email) === ci(input.email));
-  if (existing?.status === 'active') return 'This person is already an administrator.';
-  if (existing?.status === 'deactivated') return "This person's access was deactivated. Reactivate it instead.";
-  if (existing?.status === 'invited' && !invitationExpired(existing, now)) return 'This person already has a pending invitation. Resend it instead.';
-  return null;
+const NAME = /^[\p{L}][\p{L}\p{M}' .-]*$/u;
+
+/**
+ * Problems with an invitation's details. Prevents duplicates: an email can't be invited while it already
+ * has an administrator account or a pending invitation, here or in another organization, because each
+ * administrator account belongs to one organization only.
+ */
+export function inviteProblems(state: AppState, input: Pick<InviteInput, 'organizationId' | 'name' | 'email' | 'roleIds'>, now = new Date()): InviteErrors {
+  const e: InviteErrors = {};
+  const name = input.name.trim();
+  if (!name) e.name = 'Enter their full name.';
+  else if (name.length < 2 || name.length > 80) e.name = 'Use between 2 and 80 characters.';
+  else if (!NAME.test(name)) e.name = 'Use letters only.';
+  if (input.roleIds.length !== 1) e.role = 'Choose a role.';
+  if (!input.email.trim()) e.email = 'Enter an email address.';
+  else if (!EMAIL.test(input.email.trim())) e.email = 'Enter a valid email address.';
+  else {
+    const same = state.data.administrators.filter((a) => ci(a.email) === ci(input.email));
+    const here = same.find((a) => a.organizationId === input.organizationId);
+    const elsewhere = same.find((a) => a.organizationId !== input.organizationId && (a.status !== 'invited' || !invitationExpired(a, now)));
+    if (here?.status === 'active') e.email = 'This person is already an administrator.';
+    else if (here?.status === 'deactivated') e.email = 'This person’s account is inactive. Reactivate it instead.';
+    else if (here?.status === 'invited') e.email = invitationExpired(here, now) ? 'This person’s invitation has expired. Resend it instead.' : 'This person already has a pending invitation. Resend it instead.';
+    else if (elsewhere) e.email = 'This email already has an administrator account or invitation in another organization. Each administrator account belongs to one organization.';
+  }
+  return e;
 }
 
+export function inviteProblem(state: AppState, input: Pick<InviteInput, 'organizationId' | 'name' | 'email' | 'roleIds'>, now = new Date()): string | null {
+  const e = inviteProblems(state, input, now);
+  return e.name ?? e.email ?? e.role ?? null;
+}
+
+/** Creates an invitation in the organization, listed as Invited. Its link expires after 72 hours. */
 export function applyInvite(state: AppState, input: InviteInput): Result {
   const blocked = guard(state, input.organizationId, ['administrators.invite'], input.roleIds) ?? inviteProblem(state, input, new Date(input.at));
   if (blocked) return { ok: false, error: blocked };
+  if (!input.token || invitationByToken(state, input.token)) return { ok: false, error: 'The invitation couldn’t be created. Try again.' };
   const roleNames = (ids: readonly string[]) => roleNamesIn(state, input.organizationId, ids);
   const email = input.email.trim().toLowerCase();
-  const at = new Date(input.at);
-  // An expired invitation for the same email is replaced rather than duplicated.
-  const others = state.data.administrators.filter((a) => !(a.organizationId === input.organizationId && ci(a.email) === email && a.status === 'invited'));
+  const name = input.name.trim().replace(/\s+/g, ' ');
   const record: OrgAdministrator = {
-    id: input.id, organizationId: input.organizationId, email, roleIds: input.roleIds, status: 'invited', createdAt: input.at,
-    invitation: { sentAt: input.at, expiresAt: new Date(at.getTime() + INVITATION_TTL_DAYS * DAY).toISOString(), sendCount: 1, invitedBy: state.data.admin.name },
+    id: input.id, organizationId: input.organizationId, email, name, roleIds: input.roleIds, status: 'invited', createdAt: input.at,
+    invitation: { sentAt: input.at, expiresAt: invitationExpiry(input.at), sendCount: 1, invitedBy: state.data.admin.name, token: input.token },
   };
   return {
     ok: true,
-    state: withEvent(state, [...others, record], {
+    state: withEvent(state, [...state.data.administrators, record], {
       organizationId: input.organizationId, action: 'admin.invited', target: record, occurredAt: input.at,
-      summary: (actor) => `${actor} invited ${email} as ${roleNames(input.roleIds)}.`,
-      changes: [{ field: 'Status', from: '—', to: 'Invited' }, { field: 'Roles', from: '—', to: roleNames(input.roleIds) }],
+      summary: (actor) => `${actor} invited ${name} (${email}) as ${roleNames(input.roleIds)}.`,
+      changes: [{ field: 'Status', from: '—', to: 'Invited' }, { field: 'Role', from: '—', to: roleNames(input.roleIds) }],
     }),
   };
 }
@@ -127,23 +167,48 @@ function update(state: AppState, organizationId: string, id: string, fn: (a: Org
 
 const find = (state: AppState, organizationId: string, id: string) => adminsOf(state, organizationId).find((a) => a.id === id);
 
-export function applyResendInvite(state: AppState, input: { organizationId: string; adminId: string; at: string }): Result {
+/**
+ * Resends an invitation, pending or expired: a new link valid for 72 hours replaces the old one, which
+ * stops working immediately.
+ */
+export function applyResendInvite(state: AppState, input: { organizationId: string; adminId: string; token: string; at: string }): Result {
   const blocked = guard(state, input.organizationId, ['administrators.invite']);
   if (blocked) return { ok: false, error: blocked };
   const target = find(state, input.organizationId, input.adminId);
   if (!target || target.status !== 'invited') return { ok: false, error: 'There is no pending invitation to resend.' };
   const rank = outranked(state, input.organizationId, target);
   if (rank) return { ok: false, error: rank };
-  const at = new Date(input.at);
-  const expiresAt = new Date(at.getTime() + INVITATION_TTL_DAYS * DAY).toISOString();
+  if (!input.token || invitationByToken(state, input.token)) return { ok: false, error: 'The invitation couldn’t be resent. Try again.' };
+  const expiresAt = invitationExpiry(input.at);
+  const wasExpired = invitationExpired(target, new Date(input.at));
   return {
     ok: true,
     state: withEvent(state, update(state, input.organizationId, target.id, (a) => ({
-      ...a, invitation: { sentAt: input.at, expiresAt, sendCount: (a.invitation?.sendCount ?? 0) + 1, invitedBy: state.data.admin.name },
+      ...a, invitation: { sentAt: input.at, expiresAt, sendCount: (a.invitation?.sendCount ?? 0) + 1, invitedBy: state.data.admin.name, token: input.token },
     })), {
       organizationId: input.organizationId, action: 'admin.invitation-resent', target, occurredAt: input.at,
-      summary: (actor) => `${actor} resent the invitation to ${target.email}.`,
-      changes: [{ field: 'Invitation expires', from: target.invitation?.expiresAt.slice(0, 10) ?? '—', to: expiresAt.slice(0, 10) }],
+      summary: (actor) => `${actor} resent the ${wasExpired ? 'expired ' : ''}invitation to ${target.email}. The previous link no longer works.`,
+      changes: [{ field: 'Invitation expires', from: target.invitation?.expiresAt.slice(0, 16).replace('T', ' ') ?? '—', to: expiresAt.slice(0, 16).replace('T', ' ') }],
+    }),
+  };
+}
+
+/**
+ * Prototype only: makes a pending invitation expire now, to show what happens after 72 hours. Production
+ * expiry is a server-side time check; this action doesn't exist there.
+ */
+export function applyExpireInvite(state: AppState, input: { organizationId: string; adminId: string; at: string }): Result {
+  const blocked = guard(state, input.organizationId, ['administrators.invite']);
+  if (blocked) return { ok: false, error: blocked };
+  const target = find(state, input.organizationId, input.adminId);
+  if (!target || target.status !== 'invited' || !target.invitation) return { ok: false, error: 'There is no pending invitation.' };
+  if (invitationExpired(target, new Date(input.at))) return { ok: true, state };
+  return {
+    ok: true,
+    state: withEvent(state, update(state, input.organizationId, target.id, (a) => ({ ...a, invitation: { ...a.invitation!, expiresAt: input.at } })), {
+      organizationId: input.organizationId, action: 'admin.invitation-expired', target, occurredAt: input.at,
+      summary: (actor) => `${actor} simulated the expiry of the invitation to ${target.email} (prototype).`,
+      changes: [{ field: 'Invitation', from: 'Pending', to: 'Expired' }],
     }),
   };
 }
@@ -170,27 +235,24 @@ export function applySetRoles(state: AppState, input: { organizationId: string; 
   if (!target) return { ok: false, error: 'This administrator no longer exists.' };
   const blocked = guard(state, input.organizationId, ['roles.assign'], input.roleIds) ?? outranked(state, input.organizationId, target);
   if (blocked) return { ok: false, error: blocked };
-  if (target.status === 'deactivated') return { ok: false, error: 'Reactivate this administrator before changing their roles.' };
+  if (target.status === 'deactivated') return { ok: false, error: 'Reactivate this administrator before changing their role.' };
   if ([...target.roleIds].sort().join() === [...input.roleIds].sort().join()) return { ok: true, state };
+  const next = update(state, input.organizationId, target.id, (a) => ({ ...a, roleIds: input.roleIds }));
+  // Checked before the self-change rule, so the last Organization Admin always gets this explanation.
+  if (activeOrgAdmins(next.filter((a) => a.organizationId === input.organizationId)).length === 0) {
+    return { ok: false, error: `${LAST_ADMIN} ${label(target)} is the only one, so their role can’t be changed.` };
+  }
   if (target.userId === state.data.admin.id && target.roleIds.includes(ORG_ADMIN) && !input.roleIds.includes(ORG_ADMIN)) {
     return { ok: false, error: "You can't remove your own Organization Admin role. Ask another Organization Admin to do it." };
   }
-  const next = update(state, input.organizationId, target.id, (a) => ({ ...a, roleIds: input.roleIds }));
-  if (activeOrgAdmins(next.filter((a) => a.organizationId === input.organizationId)).length === 0) return { ok: false, error: LAST_ADMIN };
   const roleNames = (ids: readonly string[]) => roleNamesIn(state, input.organizationId, ids);
-  const added = input.roleIds.filter((id) => !target.roleIds.includes(id));
-  const removed = target.roleIds.filter((id) => !input.roleIds.includes(id));
   const name = label(target);
-  const [action, summary] = removed.length === 0
-    ? ['admin.role-assigned' as const, (actor: string) => `${actor} assigned ${roleNames(added)} to ${name}.`]
-    : added.length === 0
-      ? ['admin.role-removed' as const, (actor: string) => `${actor} removed ${roleNames(removed)} from ${name}.`]
-      : ['admin.roles-changed' as const, (actor: string) => `${actor} changed ${name}'s role from ${roleNames(target.roleIds)} to ${roleNames(input.roleIds)}.`];
   return {
     ok: true,
     state: withEvent(state, next, {
-      organizationId: input.organizationId, action, target, occurredAt: input.at, summary,
-      changes: [{ field: 'Roles', from: roleNames(target.roleIds), to: roleNames(input.roleIds) }],
+      organizationId: input.organizationId, action: 'admin.roles-changed', target, occurredAt: input.at,
+      summary: (actor) => `${actor} changed ${name}'s role from ${roleNames(target.roleIds)} to ${roleNames(input.roleIds)}.`,
+      changes: [{ field: 'Role', from: roleNames(target.roleIds), to: roleNames(input.roleIds) }],
     }),
   };
 }
@@ -205,14 +267,16 @@ export function applySetAdminStatus(state: AppState, input: { organizationId: st
   const rank = outranked(state, input.organizationId, target);
   if (rank) return { ok: false, error: rank };
   const next = update(state, input.organizationId, target.id, (a) => ({ ...a, status: input.status }));
-  if (activeOrgAdmins(next.filter((a) => a.organizationId === input.organizationId)).length === 0) return { ok: false, error: LAST_ADMIN };
+  if (activeOrgAdmins(next.filter((a) => a.organizationId === input.organizationId)).length === 0) {
+    return { ok: false, error: `${LAST_ADMIN} ${label(target)} is the only one, so they can’t be deactivated.` };
+  }
   const on = input.status === 'active';
   return {
     ok: true,
     state: withEvent(state, next, {
       organizationId: input.organizationId, action: on ? 'admin.reactivated' : 'admin.deactivated', target, occurredAt: input.at,
-      summary: (actor) => `${actor} ${on ? 'reactivated' : 'deactivated'} ${label(target)}'s administrative access.`,
-      changes: [{ field: 'Status', from: on ? 'Deactivated' : 'Active', to: on ? 'Active' : 'Deactivated' }],
+      summary: (actor) => `${actor} ${on ? 'reactivated' : 'deactivated'} ${label(target)}'s administrator account.`,
+      changes: [{ field: 'Status', from: on ? 'Inactive' : 'Active', to: on ? 'Active' : 'Inactive' }],
     }),
   };
 }
@@ -222,21 +286,64 @@ export function pendingInvitation(state: AppState, email: string, now = new Date
   return state.data.administrators.find((a) => a.status === 'invited' && ci(a.email) === ci(email) && !invitationExpired(a, now));
 }
 
-/** The invited person signs up and accepts: they become an active administrator with the invited roles. */
-export function applyAcceptInvite(state: AppState, input: { adminId: string; userId: string; name: string; at: string }): Result {
+/** Why an invitation can't be accepted, or null. Expired, already used and replaced links all fail. */
+export function acceptProblem(target: OrgAdministrator | undefined, at: string): string | null {
+  if (!target || target.status !== 'invited') return 'This invitation link is no longer valid. It may have been used already or replaced by a newer invitation.';
+  if (invitationExpired(target, new Date(at))) return 'This invitation has expired. Ask an Organization Admin to resend it.';
+  return null;
+}
+
+/**
+ * The invited person sets up their account and accepts: they become an active administrator of the
+ * inviting organization with the invited role. With a token (the invitation link), only the current
+ * link works, and only once.
+ */
+export function applyAcceptInvite(state: AppState, input: { adminId: string; userId: string; name: string; at: string; token?: string }): Result {
   const target = state.data.administrators.find((a) => a.id === input.adminId);
-  if (!target || target.status !== 'invited') return { ok: false, error: 'This invitation is no longer available.' };
+  if (input.token !== undefined && target?.invitation?.token !== input.token) return { ok: false, error: acceptProblem(undefined, input.at)! };
+  const problem = acceptProblem(target, input.at);
+  if (problem || !target) return { ok: false, error: problem! };
+  // One organization per administrator account.
+  if (state.data.administrators.some((a) => a.userId === input.userId && a.organizationId !== target.organizationId)) {
+    return { ok: false, error: 'This account already belongs to another organization. Each administrator account belongs to one organization.' };
+  }
   const roleNames = (ids: readonly string[]) => roleNamesIn(state, target.organizationId, ids);
-  if (invitationExpired(target, new Date(input.at))) return { ok: false, error: 'This invitation has expired. Ask an administrator to resend it.' };
-  const joined = { ...target, status: 'active' as const, userId: input.userId, name: input.name, lastActiveAt: input.at };
+  const joined: OrgAdministrator = {
+    ...target, status: 'active', userId: input.userId, name: input.name.trim() || target.name, lastActiveAt: input.at,
+    invitation: target.invitation ? { ...target.invitation, token: undefined, acceptedAt: input.at } : undefined,
+  };
   // The event is by the new administrator, not whoever was last signed in.
   return {
     ok: true,
     state: withEvent(state, state.data.administrators.map((a) => (a.id === target.id ? joined : a)), {
-      organizationId: target.organizationId, action: 'admin.joined', target: joined, occurredAt: input.at, actor: input.name,
+      organizationId: target.organizationId, action: 'admin.joined', target: joined, occurredAt: input.at, actor: joined.name,
       summary: (actor) => `${actor} accepted the invitation and joined as ${roleNames(target.roleIds)}.`,
       changes: [{ field: 'Status', from: 'Invited', to: 'Active' }],
     }),
+  };
+}
+
+/**
+ * Saved data from before one-role-per-administrator: the Viewer role is now Auditor, each administrator
+ * keeps exactly one role (Organization Admin if held, otherwise the role with the most permissions), and
+ * pending invitations get a link token. Idempotent; runs when saved data loads.
+ */
+export function normalizeAdministrators(state: AppState, makeToken = invitationToken): AppState {
+  let changed = false;
+  const administrators = state.data.administrators.map((a) => {
+    const roleIds = singleRole(a.roleIds, orgRoles(state, a.organizationId));
+    const needsToken = a.status === 'invited' && a.invitation && !a.invitation.token;
+    if (roleIds.join() === a.roleIds.join() && !needsToken) return a;
+    changed = true;
+    return { ...a, roleIds, ...(needsToken ? { invitation: { ...a.invitation!, token: makeToken() } } : {}) };
+  });
+  const preview = state.session.previewRoleId;
+  const renamed = preview ? RENAMED_ROLES[preview] : undefined;
+  if (!changed && !renamed) return state;
+  return {
+    ...state,
+    session: renamed ? { ...state.session, previewRoleId: renamed } : state.session,
+    data: changed ? { ...state.data, administrators } : state.data,
   };
 }
 
@@ -260,7 +367,7 @@ export function ensurePrimaryAdmins(state: AppState): AppState {
     if (rec && rec.status === 'active' && rec.roleIds.includes(ORG_ADMIN)) continue;
     changed = true;
     if (rec) {
-      admins = admins.map((a) => (a === rec ? { ...a, status: 'active', roleIds: [ORG_ADMIN, ...a.roleIds.filter((r) => r !== ORG_ADMIN)] } : a));
+      admins = admins.map((a) => (a === rec ? { ...a, status: 'active', roleIds: [ORG_ADMIN] } : a));
     } else {
       const self = state.data.admin.id === userId ? state.data.admin : undefined;
       const name = self?.name ?? (userId === DEMO_ADMIN.id ? DEMO_ADMIN.name : undefined);
@@ -364,7 +471,7 @@ export function applyDeleteRole(state: AppState, input: { organizationId: string
   if (!role) return { ok: false, error: 'This role doesn’t exist in this organization.' };
   const holders = roleHolders(state, input.organizationId, role.id);
   if (holders.length) {
-    return { ok: false, error: `${role.name} is assigned to ${holders.length} ${holders.length === 1 ? 'administrator' : 'administrators'} (${holders.map(label).join(', ')}). Give them other roles first.` };
+    return { ok: false, error: `${role.name} is assigned to ${holders.length} ${holders.length === 1 ? 'administrator' : 'administrators'} (${holders.map(label).join(', ')}). Change their role first.` };
   }
   return {
     ok: true,

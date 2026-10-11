@@ -120,7 +120,7 @@ describe('group issuance', () => {
     const cm = adminsOf(s, ORG).find((a) => a.roleIds.includes('credential-manager') && a.status === 'active')!;
     expect(run({ ...s, data: { ...s.data, admin: { ...s.data.admin, id: cm.userId! } } }, type, [eligible[0].id])).toMatchObject({ ok: true });
     // Switching role views never adds a permission: the Viewer view can't issue.
-    const viewer = reducer(s, { type: 'preview/start', roleId: 'viewer' });
+    const viewer = reducer(s, { type: 'preview/start', roleId: 'auditor' });
     expect(authorizeAction(viewer, 'issuance/group')).toBe("You don't have permission to do this.");
   });
 });
@@ -191,7 +191,7 @@ describe('Group Details tabs', () => {
 
   it('shows only the tabs and actions a role allows', async () => {
     const { s } = fixture();
-    const viewer = reducer(s, { type: 'preview/start', roleId: 'viewer' });
+    const viewer = reducer(s, { type: 'preview/start', roleId: 'auditor' });
     const user = renderApp(`/groups/${GROUP}`, viewer);
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Members4', 'Credentials0', 'Activity']);
     expect(screen.queryByRole('button', { name: 'Add Members' })).toBeNull();

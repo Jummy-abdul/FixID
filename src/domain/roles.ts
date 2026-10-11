@@ -1,7 +1,8 @@
 /**
  * Administrative access as explicit permissions. Role names are for people; checks always use
- * permissions. Three protected system roles exist in every organization; organizations add their own
- * custom roles, which belong to the organization that created them.
+ * permissions. Three protected system roles exist in every organization (Organization Admin, Verifier,
+ * Auditor, per the R1 roles and permissions matrix); organizations add their own custom roles, which
+ * belong to the organization that created them. Each administrator holds exactly one role.
  */
 
 export type Permission =
@@ -12,13 +13,17 @@ export type Permission =
   | 'verification.verifiers.assign' | 'verification.execute'
   | 'verification.results.view'
   | 'administrators.view' | 'administrators.invite' | 'administrators.manage'
-  | 'roles.assign' | 'roles.manage' | 'settings.manage' | 'audit.view';
+  | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'audit.view';
 
 export interface PermissionInfo {
   id: Permission;
   label: string;
   area: string;
-  /** Only the Organization Admin role has it; custom roles can't include it. */
+  /**
+   * Only the Organization Admin role has it; custom roles can't include it. No permission is protected in
+   * R1: the roles and permissions matrix makes every permission selectable for custom roles. Nobody can
+   * grant a permission they don't hold, whatever role they have.
+   */
   protected?: boolean;
   /** Powerful enough to call out when it's selected. */
   sensitive?: boolean;
@@ -47,9 +52,10 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'administrators.view', label: 'View administrators and roles', area: 'Administration' },
   { id: 'administrators.invite', label: 'Invite administrators', area: 'Administration', sensitive: true },
   { id: 'administrators.manage', label: 'Deactivate and reactivate administrators', area: 'Administration', sensitive: true },
-  { id: 'roles.assign', label: 'Assign roles to administrators', area: 'Administration', protected: true },
-  { id: 'roles.manage', label: 'Create and manage custom roles', area: 'Administration', protected: true },
-  { id: 'settings.manage', label: 'Manage organization settings and integrations', area: 'Administration', sensitive: true },
+  { id: 'roles.assign', label: 'Change administrators’ roles', area: 'Administration', sensitive: true },
+  { id: 'roles.manage', label: 'Create, edit and delete custom roles', area: 'Administration', sensitive: true },
+  { id: 'organization.view', label: 'View the organization profile', area: 'Administration' },
+  { id: 'settings.manage', label: 'Update the organization profile', area: 'Administration', sensitive: true },
   { id: 'audit.view', label: 'View the audit log', area: 'Administration' },
 ];
 
@@ -72,7 +78,7 @@ export function editableRuleLayers(perms: Set<Permission>): RuleLayer[] {
   return perms.has('verification.activities.edit') ? ['organization'] : [];
 }
 
-export type SystemRoleId = 'organization-admin' | 'verifier' | 'viewer';
+export type SystemRoleId = 'organization-admin' | 'verifier' | 'auditor';
 /** Kept for existing imports: any role ID, system or custom. */
 export type RoleId = string;
 
@@ -113,11 +119,11 @@ export const SYSTEM_ROLES: Role[] = [
     limits: ['No user, group, credential, settings or role management', 'Can’t create or change verification activities', 'Can’t assign themselves to activities'],
   },
   {
-    id: 'viewer', name: 'Viewer', system: true,
-    description: 'Read-only access to permitted organization information.',
-    permissions: ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'audit.view'],
-    highlights: ['View users, groups, credentials, verification activities and history', 'Review the audit log'],
-    limits: ['Can’t create, edit, delete, issue, verify or approve anything', 'Can’t see administrators or organization settings'],
+    id: 'auditor', name: 'Auditor', system: true,
+    description: 'Read-only access for review and oversight, including the audit log.',
+    permissions: ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'administrators.view', 'organization.view', 'audit.view'],
+    highlights: ['View users, groups, credentials, verification activities and history', 'View the organization profile, administrators and roles', 'Review the audit log'],
+    limits: ['Read-only: can’t create, edit, delete, issue, verify or approve anything', 'No access to raw biometric captures or templates'],
   },
 ];
 
@@ -182,4 +188,20 @@ export const LEGACY_ROLE_TEMPLATES: Omit<Role, 'organizationId'>[] = [
 
 // Activity-level verifier authorization lives with Verification Activities: see authorizeVerifier in domain/verification.ts.
 
-export const INVITATION_TTL_DAYS = 7;
+/** Administrator invitations expire 72 hours after they're sent. */
+export const INVITATION_TTL_HOURS = 72;
+
+/** System role IDs from earlier versions, kept so saved assignments keep working. */
+export const RENAMED_ROLES: Record<string, string> = { viewer: 'auditor' };
+
+/**
+ * Each administrator holds exactly one role. Saved data from when several roles were allowed keeps
+ * the Organization Admin role if held, otherwise the role granting the most permissions.
+ */
+export function singleRole(roleIds: readonly string[], roles: readonly Role[]): string[] {
+  const ids = [...new Set(roleIds.map((id) => RENAMED_ROLES[id] ?? id))];
+  if (ids.length <= 1) return ids;
+  if (ids.includes('organization-admin')) return ['organization-admin'];
+  const size = (id: string) => roles.find((r) => r.id === id)?.permissions.length ?? -1;
+  return [ids.reduce((best, id) => (size(id) > size(best) ? id : best))];
+}

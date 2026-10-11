@@ -24,7 +24,7 @@ export function ProfilePage() {
           <DescriptionList items={[
             { label: 'Name', value: admin.name },
             { label: 'Email', value: admin.email },
-            { label: 'Roles', value: record ? <span className="flex flex-wrap gap-1">{record.roleIds.map((id) => <Badge key={id} tone="brand">{findRole(state.data.customRoles ?? [], organization.id, id)?.name ?? 'Unknown role'}</Badge>)}</span> : '—' },
+            { label: 'Role', value: record ? <span className="flex flex-wrap gap-1">{record.roleIds.map((id) => <Badge key={id} tone="brand">{findRole(state.data.customRoles ?? [], organization.id, id)?.name ?? 'Unknown role'}</Badge>)}</span> : '—' },
             { label: 'Organization', value: organization.name },
           ]} />
         </CardBody>

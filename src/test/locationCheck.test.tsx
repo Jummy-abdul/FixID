@@ -137,7 +137,7 @@ describe('location during verification', () => {
     const h = harness(withArea(adminVerifier(base())));
     const a = await verify(h, insider(h.state), at(0));
     const other = adminsOf(h.state, ORG).find((x) => x.userId && x.userId !== h.state.data.admin.id && x.status === 'active')!;
-    let s = reducer(h.state, { type: 'admins/roles', organizationId: ORG, adminId: other.id, roleIds: ['viewer'], at: AT });
+    let s = reducer(h.state, { type: 'admins/roles', organizationId: ORG, adminId: other.id, roleIds: ['auditor'], at: AT });
     s = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: other.userId! } } };
     const denied = reducer(s, { type: 'verify/denyEntry', attemptId: a.id, at: AT });
     expect(denied.data.verificationAttempts.find((x) => x.id === a.id)!.entry).toBeUndefined();

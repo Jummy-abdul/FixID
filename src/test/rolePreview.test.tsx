@@ -48,9 +48,9 @@ describe('current prototype account', () => {
     const s = sampleState();
     const mine = actorRecord(s, SAMPLE_ORGANIZATION_ID)!;
     const others = adminsOf(s, SAMPLE_ORGANIZATION_ID).filter((a) => a.id !== mine.id);
-    saveState({ ...s, data: { ...s.data, administrators: s.data.administrators.map((a) => (a.id === mine.id ? { ...a, roleIds: ['viewer'] } : a)) } });
+    saveState({ ...s, data: { ...s.data, administrators: s.data.administrators.map((a) => (a.id === mine.id ? { ...a, roleIds: ['auditor'] } : a)) } });
     const loaded = loadState()!;
-    expect(actorRecord(loaded, SAMPLE_ORGANIZATION_ID)!.roleIds).toEqual(['organization-admin', 'viewer']);
+    expect(actorRecord(loaded, SAMPLE_ORGANIZATION_ID)!.roleIds).toEqual(['organization-admin']);
     expect(adminsOf(loaded, SAMPLE_ORGANIZATION_ID).filter((a) => a.id !== mine.id)).toEqual(others);
   });
 
@@ -72,7 +72,7 @@ describe('verification governance and verifiers', () => {
     expect(editableRuleLayers(permissionsFor(['organization-admin']))).toEqual(['organization']);
     expect(editableRuleLayers(permissionsFor(['verification-manager'], rolesFor(sampleState().data.customRoles, SAMPLE_ORGANIZATION_ID)))).toEqual(['organization']);
     expect(editableRuleLayers(permissionsFor(['verifier']))).toEqual([]);
-    expect(editableRuleLayers(permissionsFor(['viewer']))).toEqual([]);
+    expect(editableRuleLayers(permissionsFor(['auditor']))).toEqual([]);
     const verifier = ROLES.find((r) => r.id === 'verifier')!;
     expect(verifier.permissions).not.toContain('verification.verifiers.assign');
     expect(verifier.permissions).toEqual(['verification.execute']);
@@ -90,7 +90,7 @@ describe('verification governance and verifiers', () => {
     expect(authorizeVerifier(assigned, input)).toEqual({ authorized: true });
     const other = s.data.activityConfigs.find((a) => a.organizationId === SAMPLE_ORGANIZATION_ID && a.id !== activity.id && a.status !== 'active')!;
     expect(authorizeVerifier({ ...assigned, verifierAssignments: [...assigned.verifierAssignments, { ...assignment, activityId: other.id }] }, { ...input, activityId: other.id })).toMatchObject({ authorized: false });
-    const demoted = { ...assigned, administrators: s.data.administrators.map((a) => (a.id === verifier.id ? { ...a, roleIds: ['viewer'] } : a)) };
+    const demoted = { ...assigned, administrators: s.data.administrators.map((a) => (a.id === verifier.id ? { ...a, roleIds: ['auditor'] } : a)) };
     expect(authorizeVerifier(demoted, input)).toMatchObject({ authorized: false, reason: expect.stringMatching(/role/) });
     expect(authorizeVerifier({ ...s.data, verifierAssignments: [{ ...assignment, status: 'removed' }] }, input)).toMatchObject({ authorized: false });
     // An Organization Admin isn't a verifier unless explicitly authorized.
@@ -112,7 +112,7 @@ describe('Role Preview', () => {
     expect(authorizeAction(p, 'admins/roles')).toBe("You don't have permission to do this.");
     void PREVIEW_READ_ONLY;
     const kwame = adminsOf(p, SAMPLE_ORGANIZATION_ID).find((a) => a.name === 'Kwame Mensah')!;
-    expect(reducer(p, { type: 'admins/roles', organizationId: SAMPLE_ORGANIZATION_ID, adminId: kwame.id, roleIds: ['viewer'], at: AT })).toBe(p);
+    expect(reducer(p, { type: 'admins/roles', organizationId: SAMPLE_ORGANIZATION_ID, adminId: kwame.id, roleIds: ['auditor'], at: AT })).toBe(p);
     const stopped = reducer(p, { type: 'preview/stop' });
     expect(stopped.session.previewRoleId).toBeUndefined();
     expect(effectivePermissions(stopped)).toEqual(actorPermissions(s, SAMPLE_ORGANIZATION_ID));
@@ -122,7 +122,7 @@ describe('Role Preview', () => {
     const s = sampleState();
     const cm = adminsOf(s, SAMPLE_ORGANIZATION_ID).find((a) => a.roleIds.includes('credential-manager') && a.status === 'active')!;
     const asCm: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: cm.userId! } } };
-    expect(reducer(asCm, { type: 'preview/start', roleId: 'viewer' })).toBe(asCm);
+    expect(reducer(asCm, { type: 'preview/start', roleId: 'auditor' })).toBe(asCm);
   });
 
   it('previews a restricted role from the account menu and exits back to full access', async () => {
@@ -150,10 +150,18 @@ describe('Role Preview', () => {
     expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
   });
 
-  it('keeps the Viewer out of administrators and settings, and exiting restores them', async () => {
-    const s = reducer(sampleState(), { type: 'preview/start', roleId: 'viewer' });
+  it('shows the Auditor administrators and the organization profile read-only, and exiting restores management', async () => {
+    const s = reducer(sampleState(), { type: 'preview/start', roleId: 'auditor' });
     const user = renderApp('/settings?tab=admins', s);
-    expect(screen.getByText("You don't have access to this page")).toBeInTheDocument();
+    expect(await screen.findByText('Kwame Mensah')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Invite Administrator' })).toBeNull();
+    await user.click(within(screen.getByText('Kwame Mensah').closest('tr')!).getByRole('button', { name: 'Actions for Kwame Mensah' }));
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['View Details']);
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('tab', { name: 'Organization' }));
+    expect(screen.getByLabelText('Organization profile')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    await user.click(screen.getByRole('tab', { name: 'Administrators & Roles' }));
     await user.click(screen.getByRole('button', { name: 'Switch back' }));
     expect(await screen.findByRole('button', { name: 'Invite Administrator' })).toBeInTheDocument();
   });
@@ -174,7 +182,7 @@ describe('administrative audit records', () => {
     await user.click(within(row).getByRole('button', { name: /Details for/ }));
     const drawer = screen.getByRole('dialog', { name: 'Audit event' });
     expect(drawer).toHaveTextContent('Affected administratorKwame Mensah');
-    expect(drawer).toHaveTextContent('RolesVerification ManagerCredential Manager');
+    expect(drawer).toHaveTextContent('RoleVerification ManagerCredential Manager');
     expect(drawer).toHaveTextContent('Outcomesuccess');
   });
 });

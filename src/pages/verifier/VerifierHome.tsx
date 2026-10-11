@@ -1,15 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarClock, FlaskConical, MapPin, Play, ScanFace, ShieldOff } from 'lucide-react';
-import { Button, ButtonLink, Card, ConfirmDialog, EmptyState, SearchInput, useToast } from '@/components/ui';
+import { CalendarClock, MapPin, Play, ScanFace, ShieldOff } from 'lucide-react';
+import { Button, ButtonLink, Card, EmptyState, SearchInput } from '@/components/ui';
 import type { ActivityConfig } from '@/domain/types';
 import { ActivityStatusBadge } from '@/components/verification/parts';
 import { activityPlace, useActivityProgress } from './VerifierActivityPage';
 import { useAuthorization } from '@/auth/authorization';
 import { AccessBadge, EntryBadge } from '@/components/verification/attemptParts';
 import { scheduleText } from '../verification/ActivityDetailsPage';
-import { useActions, useSession, useStore } from '@/store/AppStore';
-import { canPreviewRoles } from '@/store/state';
+import { useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { formatDateTime } from '@/lib/dates';
 import { AttemptBadge } from '@/components/verification/attemptParts';
@@ -20,7 +19,6 @@ export function VerifierHome() {
   const { record, readOnly, can } = useAuthorization();
   const service = useVerificationService();
   const navigate = useNavigate();
-  const toast = useToast();
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
   // What the (possibly previewed) role allows; starting a verification is still checked by the service.
@@ -45,7 +43,7 @@ export function VerifierHome() {
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
 
       <div className="mt-6">
-        {!canExecute ? <NoExecute onSetUp={() => toast({ tone: 'success', title: 'Verifier role added', description: 'Activities appear here once you’re assigned to them.' })} />
+        {!canExecute ? <NoExecute />
           : activities.length === 0 ? (
             <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No verification activities assigned to you."
               description="You can verify people only for active activities you’re assigned to. An administrator assigns verifiers in an activity’s Participants & Verifiers step." /></Card>
@@ -113,37 +111,12 @@ function ActivityCard({ activity, disabled, onStart }: { activity: ActivityConfi
   );
 }
 
-/**
- * The signed-in administrator can't perform verifications. In demo builds an Organization Admin can
- * explicitly give themselves the Verifier role, through the normal audited operation. The role alone
- * doesn't open any activity: verifiers perform only the activities they're assigned to.
- */
-function NoExecute({ onSetUp }: { onSetUp: () => void }) {
-  const { organization } = useSession();
-  const { state } = useStore();
-  const { record } = useAuthorization();
-  const actions = useActions();
-  const toast = useToast();
-  const [confirming, setConfirming] = useState(false);
-  const canSetUp = canPreviewRoles(state) && !!record && !state.session.previewRoleId;
-
-  const setUp = () => {
-    setConfirming(false);
-    if (!record) return;
-    const roles = actions.setAdminRoles(organization.id, record.id, [...record.roleIds, 'verifier']);
-    if (!roles.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: roles.error });
-    onSetUp();
-  };
-
+/** Shown to a role without verification.execute. Each administrator has one role, so access is changed by an Organization Admin. */
+function NoExecute() {
   return (
     <Card>
       <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Your role doesn’t include performing verifications"
-        description="Verifications are performed by people with the Verifier role. Ask an Organization Admin for access."
-        action={canSetUp ? <Button icon={<FlaskConical className="h-4 w-4" />} onClick={() => setConfirming(true)}>Set up demo verifier access</Button> : undefined} />
-      {canSetUp && (
-        <ConfirmDialog open={confirming} title="Set up demo verifier access?" confirmLabel="Set up access" onCancel={() => setConfirming(false)} onConfirm={setUp}
-          description={`This adds the Verifier role to your account in ${organization.name}. You’ll be able to verify people for activities once you’re assigned to them. The change is recorded in the Audit Log and can be undone in Settings → Administrators & Roles.`} />
-      )}
+        description="Verifications are performed by Verifiers and Organization Admins. Ask an Organization Admin to change your role." />
     </Card>
   );
 }
