@@ -9,6 +9,7 @@ import { useStore } from '@/store/AppStore';
 import { DEFAULT_COUNTRY, countryByCode } from '@/data/countries';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
 import { CountryCombobox } from './fields';
+import { markJustRegistered } from '../dashboard/registration';
 
 const NAME = /^[\p{L}][\p{L}\p{M}' .-]*$/u;
 
@@ -111,7 +112,9 @@ export function OnboardingOrganizationPage() {
     setBusy(true);
     await new Promise((r) => setTimeout(r, 400));
     try {
-      createOrganization({ name: n, countryCode: country, region });
+      const id = createOrganization({ name: n, countryCode: country, region });
+      // The workspace opens with the registration confirmation (shown once, for this organization).
+      markJustRegistered(id);
       navigate('/', { replace: true });
     } catch (err) {
       setErrors({ form: (err as Error).message });

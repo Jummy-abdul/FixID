@@ -207,14 +207,18 @@ describe('sign in, demo account, recovery and sign out', () => {
 
   it('Scenarios 7 and 9: the demo account opens the existing workspace; signing out protects it again', async () => {
     const seeded = createInitialState(new Date());
-    const { user } = renderApp('/signin', seeded);
-    await signIn(user, 'demo@fixid.app', 'FixIDDemo2026!');
+    const first = renderApp('/signin', seeded);
+    await signIn(first.user, 'demo@fixid.app', 'FixIDDemo2026!');
     expect(await screen.findByRole('heading', { name: 'Welcome to FixID, Tobyson.' }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByLabelText('Dashboard preview')).toBeInTheDocument();
+    await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Settings' }));
+    // Settings shows only Organization and Administrators & Roles; the demo tools aren't in the navigation.
+    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles']);
+    first.unmount();
+    // The demo account still reaches its internal prototype tools by their address.
+    const { user } = renderApp('/settings?tab=demo');
+    await user.selectOptions(await screen.findByLabelText('Demo organization'), SAMPLE_ORGANIZATION_ID);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
-    await user.click(within(nav).getByRole('link', { name: 'Settings' }));
-    await user.click(await screen.findByRole('tab', { name: 'Demo data' }));
-    await user.selectOptions(screen.getByLabelText('Demo organization'), SAMPLE_ORGANIZATION_ID);
     await user.click(within(nav).getByRole('link', { name: 'Users' }));
     const sampleMembers = seeded.data.members.filter((m) => m.organizationId === SAMPLE_ORGANIZATION_ID).length;
     expect(await screen.findByText(String(sampleMembers), { selector: '.text-2xl' })).toBeInTheDocument();
@@ -251,6 +255,44 @@ describe('sign in, demo account, recovery and sign out', () => {
     await signIn(user, 'demo@fixid.app', 'FixIDDemo2026!');
     await waitFor(() => expect(loadState()!.data.admin.id).toBe('usr_tobyson'), { timeout: 3000 });
     await waitFor(() => expect(loadState()!.session.currentOrganizationId).toBe(NEW_ORGANIZATION_ID));
+  }, 20_000);
+
+  it('Epic 01: registers an organization, confirms it, makes the registrant its first Organization Administrator, and opens its profile', async () => {
+    const { user } = renderApp('/signup');
+    await signUpTo(user, 'personal', 'ngozi@lumen.example');
+    await user.type(screen.getByLabelText(/first name/i), 'Ngozi');
+    await user.type(screen.getByLabelText(/last name/i), 'Eze');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await heading('Tell us about your organization');
+    // Required details are checked; no address or other profile-only fields are asked for.
+    await user.click(screen.getByRole('button', { name: 'Create organization' }));
+    expect(await screen.findByText('Enter your organization name.')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/address/i)).toBeNull();
+    expect(loadState()?.data.organizations.some((o) => o.name === 'Lumen') ?? false).toBe(false);
+    await user.type(screen.getByLabelText(/organization name/i), 'Lumen');
+    await user.click(screen.getByRole('button', { name: 'Create organization' }));
+
+    const done = await screen.findByRole('dialog', { name: 'Your organization is registered' }, { timeout: 3000 });
+    const org = loadState()!.data.organizations.find((o) => o.name === 'Lumen')!;
+    expect(done).toHaveTextContent(`Organization ID${org.id}`);
+    expect(done).toHaveTextContent('Your roleOrganization Administrator');
+    expect(done).toHaveTextContent('sign in to FixID with ngozi@lumen.example');
+    expect(org).toMatchObject({ shortName: 'LUM', contactEmail: 'ngozi@lumen.example', country: 'Nigeria' });
+    expect(org.address).toBeUndefined();
+    const admins = loadState()!.data.administrators.filter((a) => a.organizationId === org.id);
+    expect(admins).toEqual([expect.objectContaining({ email: 'ngozi@lumen.example', roleIds: ['organization-admin'], status: 'active' })]);
+
+    await user.click(within(done).getByRole('button', { name: 'View organization profile' }));
+    const profile = await screen.findByLabelText('Organization profile');
+    expect(profile).toHaveTextContent('Organization NameLumen');
+    expect(profile).toHaveTextContent('Organization Emailngozi@lumen.example');
+    expect(profile).toHaveTextContent('Organization AddressNot provided');
+    expect(profile).toHaveTextContent('CountryNigeria');
+    expect(profile).toHaveTextContent('Organization StatusActive');
+    expect(screen.queryByText(/Ngozi Eze/, { selector: 'dd' })).toBeNull();
+    // The first administrator is managed in Administrators & Roles, not in the profile.
+    await user.click(screen.getByRole('tab', { name: 'Administrators & Roles' }));
+    expect(await screen.findByText('ngozi@lumen.example', { exact: false })).toBeInTheDocument();
   }, 20_000);
 
   it('Scenario 8: forgot password confirms without revealing whether the email is registered', async () => {

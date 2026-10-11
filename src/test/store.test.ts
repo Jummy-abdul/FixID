@@ -1,3 +1,4 @@
+import { profileValues } from '@/domain/organization';
 import { loadState, saveState } from '@/store/persistence';
 import { selectOrgData } from '@/store/AppStore';
 import { createInitialState, reducer, STATE_VERSION, STORAGE_KEY } from '@/store/state';
@@ -29,7 +30,7 @@ describe('reducer', () => {
     const org = s0.data.organizations[0];
     const s1 = reducer(s0, {
       type: 'organization/updateProfile', organizationId: org.id, at: NOW.toISOString(),
-      changes: { name: 'Northbridge University of Technology', shortName: org.shortName, industry: org.industry, country: org.country, timezone: org.timezone, contactEmail: org.contactEmail, memberLabel: org.memberLabel },
+      changes: { ...profileValues(org), name: 'Northbridge University of Technology' },
     });
     expect(s1.data.organizations[0].name).toBe('Northbridge University of Technology');
     expect(s1.data.audit[0]).toMatchObject({ action: 'organization.updated', organizationId: org.id, result: 'success' });
@@ -42,9 +43,19 @@ describe('reducer', () => {
   it('is a no-op when nothing changed', () => {
     const s0 = createInitialState(NOW);
     const org = s0.data.organizations[0];
-    const { name, shortName, industry, country, timezone, contactEmail, memberLabel } = org;
-    const s1 = reducer(s0, { type: 'organization/updateProfile', organizationId: org.id, at: NOW.toISOString(), changes: { name, shortName, industry, country, timezone, contactEmail, memberLabel } });
+    const s1 = reducer(s0, { type: 'organization/updateProfile', organizationId: org.id, at: NOW.toISOString(), changes: profileValues(org) });
     expect(s1).toBe(s0);
+  });
+
+  it('never changes read-only fields, and refuses invalid changes', () => {
+    const s0 = createInitialState(NOW);
+    const org = s0.data.organizations[0];
+    const sneaky = { ...profileValues(org), phone: '+234 801 234 5678', country: 'Elsewhere', id: 'org_other', status: 'inactive', createdAt: '2000-01-01' } as unknown as ReturnType<typeof profileValues>;
+    const s1 = reducer(s0, { type: 'organization/updateProfile', organizationId: org.id, at: NOW.toISOString(), changes: sneaky });
+    expect(s1.data.organizations[0]).toMatchObject({ id: org.id, country: org.country, createdAt: org.createdAt, phone: '+234 801 234 5678' });
+    expect(s1.data.organizations[0].status).toBe(org.status);
+    const bad = reducer(s0, { type: 'organization/updateProfile', organizationId: org.id, at: NOW.toISOString(), changes: { ...profileValues(org), contactEmail: 'not-an-email' } });
+    expect(bad).toBe(s0);
   });
 });
 

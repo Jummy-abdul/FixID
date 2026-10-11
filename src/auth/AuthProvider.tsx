@@ -1,3 +1,4 @@
+import { deriveShortName } from '@/domain/organization';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { countryByCode } from '@/data/countries';
 import { DEMO_ADMIN, NEW_ORGANIZATION_ID } from '@/data/seed';
@@ -37,7 +38,7 @@ export function homeFor(account: Account): string {
 }
 
 export function AuthProvider({ children, initialSession }: { children: ReactNode; initialSession?: AuthSession | null }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, getState } = useStore();
   const [store, setStore] = useState<AuthStore>(() => {
     const loaded = loadAuth();
     return initialSession === undefined ? loaded : { ...loaded, session: initialSession };
@@ -131,7 +132,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
       const id = `org_${randomToken(6)}`;
       const at = new Date().toISOString();
       const clean = name.trim().replace(/\s+/g, ' ');
-      const shortName = clean.split(' ').filter((w) => /[A-Za-z0-9]/.test(w[0] ?? '')).slice(0, 3).map((w) => w[0]!.toUpperCase()).join('') || clean.slice(0, 3).toUpperCase();
+      const shortName = deriveShortName(clean);
       const organization: Organization = {
         id, name: clean, shortName, industry: 'other', country: country?.name ?? countryCode, region: region.trim() || undefined,
         timezone: country?.timezone ?? 'UTC', contactEmail: account.email, memberLabel: 'Member', defaultCardDesignId: `${id}_design_default`,
@@ -148,10 +149,16 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
         showPhoto: true, showQr: true, fields: ['name', 'identifier', 'relationship', 'expiry'],
       };
       dispatch({ type: 'organization/create', organization, cardDesign, at, actor: displayName(account), owner: { userId: account.id, email: account.email } });
+      // Registration only counts once the workspace and its first Organization Administrator exist.
+      // Otherwise nothing is marked ready and the person sees an error, never a success.
+      const after = getState();
+      const created = after.data.organizations.some((o) => o.id === id)
+        && after.data.administrators.some((a) => a.organizationId === id && a.userId === account.id && a.status === 'active' && a.roleIds.includes('organization-admin'));
+      if (!created) throw new Error('Your organization couldn’t be registered. Nothing was created; please try again.');
       updateAccount(account.id, { organizationId: id, onboarding: 'complete' });
       return id;
     },
-  }), [account, isDemo, findAccount, updateAccount, dispatch]);
+  }), [account, isDemo, findAccount, updateAccount, dispatch, getState]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

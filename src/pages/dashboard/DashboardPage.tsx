@@ -1,5 +1,8 @@
-import { useMemo } from 'react';
-import { Eye } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CheckCircle2, Eye } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { clearJustRegistered, justRegistered } from './registration';
+import { Button, Modal } from '@/components/ui';
 import { getSetupProgress } from '@/domain/setupProgress';
 import { SAMPLE_ORGANIZATION_ID } from '@/data/seed';
 import { useAuth } from '@/auth/AuthProvider';
@@ -31,8 +34,38 @@ const OVERVIEW: Permission[] = ['users.view', 'groups.view', 'credentials.view',
 /** Chooses the dashboard from what the administrator may see, so a new custom role never needs its own. */
 export function DashboardPage() {
   const { can } = useAuthorization();
-  if (!OVERVIEW.some(can)) return can('verification.execute') ? <VerifierDashboard /> : <WorkspaceHome />;
-  return <OrganizationDashboard />;
+  const dashboard = !OVERVIEW.some(can) ? (can('verification.execute') ? <VerifierDashboard /> : <WorkspaceHome />) : <OrganizationDashboard />;
+  return <>{dashboard}<RegistrationConfirmation /></>;
+}
+
+/**
+ * Shown once, when a newly registered organization's workspace first opens: confirms the registration,
+ * that the person registering is its first Organization Administrator, and how to get back in.
+ */
+function RegistrationConfirmation() {
+  const [shownFor, setShownFor] = useState(justRegistered);
+  const { organization, admin } = useSession();
+  const { account } = useAuth();
+  const { record } = useAuthorization();
+  const navigate = useNavigate();
+  if (!account || shownFor !== organization.id || organization.ownerAccountId !== account.id) return null;
+  const close = () => { clearJustRegistered(); setShownFor(null); };
+  return (
+    <Modal open onClose={close} size="sm"
+      title={<span className="flex flex-col gap-4"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500 text-white"><CheckCircle2 className="h-5 w-5" aria-hidden="true" /></span>Your organization is registered</span>}
+      description={`${organization.name} now has its own FixID workspace.`}
+      footer={<>
+        <Button variant="secondary" onClick={() => { close(); navigate('/settings?tab=organization'); }}>View organization profile</Button>
+        <Button onClick={close} data-autofocus>Go to workspace</Button>
+      </>}>
+      <dl className="space-y-3 rounded-xl bg-slate-50 px-4 py-3 text-sm ring-1 ring-inset ring-slate-200">
+        <div><dt className="text-slate-500">Organization ID</dt><dd className="font-mono text-xs text-slate-900">{organization.id}</dd></div>
+        <div><dt className="text-slate-500">Your role</dt><dd className="text-slate-900">{record?.roleIds.includes('organization-admin') ? 'Organization Administrator' : 'Administrator'}</dd></div>
+        <div><dt className="text-slate-500">Signed in as</dt><dd className="text-slate-900">{admin.name} · {account.email}</dd></div>
+      </dl>
+      <p className="mt-3 text-sm text-slate-600">To return to this workspace, sign in to FixID with <span className="font-medium text-slate-900">{account.email}</span>. You can complete your organization’s details, such as its address, in Settings → Organization at any time.</p>
+    </Modal>
+  );
 }
 
 /**

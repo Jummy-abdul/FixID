@@ -256,31 +256,65 @@ describe('planned features', () => {
 });
 
 describe('settings', () => {
-  it('validates the organization form', async () => {
-    const { user } = renderApp('/settings');
-    const name = screen.getByLabelText(/organization name/i);
-    await user.clear(name);
-    await user.type(name, 'X');
-    const email = screen.getByLabelText(/contact email/i);
-    await user.clear(email);
-    await user.type(email, 'not-an-email');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
-    expect(await screen.findByText(/at least 3 characters/)).toBeInTheDocument();
-    expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
-    expect(name).toHaveAttribute('aria-invalid', 'true');
+  it('shows the organization profile read-only, with "Not provided" for optional details', async () => {
+    renderApp('/settings');
+    const dl = screen.getByLabelText('Organization profile');
+    const org = createInitialState().data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)!;
+    for (const [label, value] of [
+      ['Organization Name', org.name], ['Short Name', org.shortName], ['Organization Email', org.contactEmail], ['Organization Phone Number', 'Not provided'],
+      ['Organization Address', 'Not provided'], ['Country', org.country], ['Time Zone', org.timezone], ['Organization ID', org.id], ['Organization Status', 'Active'],
+    ] as const) expect(dl).toHaveTextContent(`${label}${value}`);
+    expect(dl).toHaveTextContent('Date Registered');
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByText(/Contact email/i)).toBeNull();
   });
 
-  it('saves changes, persists, and records an audit event', async () => {
+  it('validates field by field, and a failed save changes nothing', async () => {
     const { user } = renderApp('/settings');
-    const name = screen.getByLabelText(/organization name/i);
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const name = screen.getByLabelText(/Organization Name/);
+    await user.clear(name);
+    await user.type(name, 'X');
+    const email = screen.getByLabelText(/Organization Email/);
+    await user.clear(email);
+    await user.type(email, 'not-an-email');
+    await user.type(screen.getByLabelText(/Organization Phone Number/), 'call me');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(/at least 2 characters/)).toBeInTheDocument();
+    expect(screen.getByText('Enter a valid email address.')).toBeInTheDocument();
+    expect(screen.getByText(/Enter a valid phone number/)).toBeInTheDocument();
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText('Organization profile saved')).toBeNull();
+    // Read-only fields aren't editable.
+    for (const ro of [/^Country/, /Organization ID/, /Organization Status/, /Date Registered/]) expect(screen.queryByRole('textbox', { name: ro })).toBeNull();
+    // Cancel discards everything.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    const org = createInitialState().data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)!;
+    expect(screen.getByLabelText('Organization profile')).toHaveTextContent(`Organization Name${org.name}`);
+    expect(screen.getByLabelText('Organization profile')).toHaveTextContent(`Organization Email${org.contactEmail}`);
+  });
+
+  it('saves changes, shows them immediately, persists, and records an audit event', async () => {
+    const { user } = renderApp('/settings');
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const name = screen.getByLabelText(/Organization Name/);
     await user.clear(name);
     await user.type(name, 'Northbridge University of Technology');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.type(screen.getByLabelText(/Organization Phone Number/), '+234 801 234 5678');
+    await user.type(screen.getByLabelText(/Organization Address/), '12 Marina Road, Lagos');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Organization profile saved')).toBeInTheDocument();
+    const view = screen.getByLabelText('Organization profile');
+    expect(view).toHaveTextContent('Organization NameNorthbridge University of Technology');
+    expect(view).toHaveTextContent('Organization Phone Number+234 801 234 5678');
+    expect(view).toHaveTextContent('Organization Address12 Marina Road, Lagos');
     expect(screen.getByText(/Configuration for Northbridge University of Technology/)).toBeInTheDocument();
-    await waitFor(() => expect(loadState()?.data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)?.name).toBe('Northbridge University of Technology'));
+    await waitFor(() => expect(loadState()?.data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)).toMatchObject({ name: 'Northbridge University of Technology', phone: '+234 801 234 5678', address: '12 Marina Road, Lagos' }));
+    // Other organizations are untouched.
+    const other = createInitialState().data.organizations.find((o) => o.id !== SAMPLE_ORGANIZATION_ID)!;
+    expect(loadState()!.data.organizations.find((o) => o.id === other.id)).toEqual(other);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Audit Log' }));
-    expect(await screen.findByText(/Updated organization profile \(name\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Updated organization profile \(name, phone, address\)/)).toBeInTheDocument();
   });
 
   it('shows only Organization and Administrators & Roles, and old Integrations links fall back to Organization', async () => {
@@ -288,18 +322,19 @@ describe('settings', () => {
     const { user } = renderApp('/settings?tab=integrations');
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
     expect(tabs).not.toContain('Integrations');
-    expect(tabs.filter((t) => t !== 'Demo data')).toEqual(['Organization', 'Administrators & Roles']);
+    expect(tabs).toEqual(['Organization', 'Administrators & Roles']);
     expect(screen.getByRole('tab', { name: 'Organization' })).toHaveAttribute('aria-selected', 'true');
     for (const gone of [/Identity service/, /Demonstration verification providers/, /Fixiam/, /check connection/i]) expect(screen.queryByText(gone)).toBeNull();
     // Organization and Administrators & Roles still work; organization configurations are untouched.
-    expect(screen.getByLabelText(/Organization name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Organization profile')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Administrators & Roles' }));
     expect(await screen.findByRole('button', { name: 'Invite Administrator' })).toBeInTheDocument();
     expect(loadState()?.data.organizations.map((o) => o.integrations) ?? before).toEqual(before);
   });
 
-  it('requires confirmation before resetting demo data', async () => {
+  it('keeps the demo tools out of Settings navigation but available to the demo account at their address', async () => {
     const { user } = renderApp('/settings?tab=demo');
+    expect(screen.queryByRole('tab', { name: 'Demo data' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Reset all demo data?')).toBeInTheDocument();

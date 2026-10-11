@@ -1,5 +1,8 @@
 import type { SeedData } from '@/data/seed';
 import { buildSeed } from '@/data/seed';
+import {
+  EDITABLE_ORGANIZATION_FIELDS, normalizeProfile, profileValues, timezoneOptions, validateOrganizationProfile, type OrganizationProfileValues,
+} from '@/domain/organization';
 import type { AdminUser, AuditEvent, CardDesign, Credential, Organization } from '@/domain/types';
 import {
   applyCreateUser, applyImportSummary, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate, applyUploadLogo,
@@ -41,10 +44,8 @@ export interface AppState {
   data: SeedData;
 }
 
-export type OrganizationProfileUpdate = Pick<
-  Organization,
-  'name' | 'shortName' | 'industry' | 'country' | 'timezone' | 'contactEmail' | 'memberLabel'
->;
+/** Editable Organization Profile fields. Country, ID, status and registration date can't be changed here. */
+export type OrganizationProfileUpdate = OrganizationProfileValues;
 
 export type Action =
   | { type: 'session/switchOrganization'; organizationId: string }
@@ -222,6 +223,11 @@ export function authorizeAction(state: AppState, type: Action['type']): string |
 
 const orKeep = (state: AppState, r: { ok: true; state: AppState } | { ok: false }) => (r.ok ? r.state : state);
 
+/** The editable profile fields from a change set, ignoring anything else it carries. */
+function pickEditable(changes: Partial<OrganizationProfileValues>): Partial<OrganizationProfileValues> {
+  return Object.fromEntries(Object.entries(changes).filter(([k, v]) => (EDITABLE_ORGANIZATION_FIELDS as readonly string[]).includes(k) && typeof v === 'string'));
+}
+
 function nextAuditId(audit: AuditEvent[]): string {
   const max = audit.reduce((m, e) => Math.max(m, Number(e.id.replace(/\D/g, '')) || 0), 0);
   return `AUD-${String(max + 1).padStart(5, '0')}`;
@@ -253,10 +259,13 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'organization/updateProfile': {
       const org = state.data.organizations.find((o) => o.id === action.organizationId);
       if (!org) return state;
-      const changed = (Object.keys(action.changes) as (keyof OrganizationProfileUpdate)[]).filter(
-        (k) => org[k] !== action.changes[k],
-      );
+      // Only the editable fields are applied, and only when valid: read-only fields can't be changed this way.
+      const next = normalizeProfile({ ...profileValues(org), ...pickEditable(action.changes) });
+      if (Object.keys(validateOrganizationProfile(next, timezoneOptions(org.timezone))).length) return state;
+      const current = profileValues(org);
+      const changed = EDITABLE_ORGANIZATION_FIELDS.filter((k) => current[k] !== next[k]);
       if (changed.length === 0) return state;
+      const applied = { ...next, phone: next.phone || undefined, address: next.address || undefined };
       const event: AuditEvent = {
         id: nextAuditId(state.data.audit),
         organizationId: org.id,
@@ -274,7 +283,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         data: {
           ...state.data,
-          organizations: state.data.organizations.map((o) => (o.id === org.id ? { ...o, ...action.changes } : o)),
+          organizations: state.data.organizations.map((o) => (o.id === org.id ? { ...o, ...applied } : o)),
           audit: [event, ...state.data.audit],
         },
       };

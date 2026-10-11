@@ -15,6 +15,7 @@ import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers
 import { applyDeleteRole, applyInvite, applyResendInvite, applyRevokeInvite, applySaveRole, applySetAdminStatus, applySetRoles, type InviteInput, type RoleInput } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
+import { normalizeProfile, profileValues, timezoneOptions, validateOrganizationProfile } from '@/domain/organization';
 import { authorizeAction, createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
 
 interface StoreContextValue {
@@ -328,9 +329,16 @@ export function useActions() {
         dispatch({ type: 'wallet/update', credentialId, status, at: new Date().toISOString() }),
       /** Returns the reason when the change isn't allowed (for example during Role Preview). */
       updateOrganizationProfile: (organizationId: string, changes: OrganizationProfileUpdate) => {
-        const denied = authorizeAction(getState(), 'organization/updateProfile');
-        if (!denied) dispatch({ type: 'organization/updateProfile', organizationId, changes, at: new Date().toISOString() });
-        return denied ? { ok: false as const, error: denied } : { ok: true as const };
+        const state = getState();
+        const denied = authorizeAction(state, 'organization/updateProfile')
+          ?? (organizationId !== state.session.currentOrganizationId ? 'You can only change the organization you’re working in.' : null);
+        if (denied) return { ok: false as const, error: denied };
+        const org = state.data.organizations.find((o) => o.id === organizationId);
+        if (!org) return { ok: false as const, error: 'This organization wasn’t found.' };
+        const errors = validateOrganizationProfile(normalizeProfile({ ...profileValues(org), ...changes }), timezoneOptions(org.timezone));
+        if (Object.keys(errors).length) return { ok: false as const, error: 'Some details aren’t valid.', errors };
+        dispatch({ type: 'organization/updateProfile', organizationId, changes, at: new Date().toISOString() });
+        return { ok: true as const };
       },
       resetDemoData: () => {
         const denied = authorizeAction(getState(), 'demo/reset');

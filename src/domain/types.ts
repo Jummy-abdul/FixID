@@ -30,6 +30,11 @@ export interface Organization {
   createdAt: ISODate;
   /** State or region, when given during onboarding. */
   region?: string;
+  /** Optional contact details, added later in Organization Profile (not collected at registration). */
+  phone?: string;
+  address?: string;
+  /** Whether the organization's workspace is active. Missing means active. */
+  status?: 'active' | 'inactive';
   /** Set for organizations created by a signed-up administrator (not demo data). */
   ownerAccountId?: string;
 }

@@ -72,6 +72,8 @@ The app opens in **Crestfield Academy**, a brand-new organization with no users,
 
 Each signed-up organization has its own records (`ownerAccountId` on the organization). The signed-in administrator can only act in their own organization; resetting demo data keeps organizations created through sign-up.
 
+
+**Organization registration (Epic 01).** Self-service: account email (verified) and password → first and last name → organization name, country and optional state/region → **Create organization**. The person registering becomes the organization's first, active Organization Administrator, and the organization gets its own workspace (Organization Email defaults to their email; Short Name is derived from the name; Industry, Default Person Label and Time Zone get defaults that can be changed later). Registration only completes when the organization and its administrator record both exist; otherwise the form shows an error and nothing is marked ready. The workspace then opens with a one-time **Your organization is registered** confirmation (Organization ID, role, the email to sign in with, and a link to the profile). No address, staff invitations or approval steps are part of registration. Gap noted: the approved onboarding requirements don't specify further registration fields (e.g. organization phone or industry at sign-up), so none were added.
 ## Administrators & Roles
 
 Settings → **Administrators & Roles** (`/settings?tab=admins`, `&view=roles` for the role catalogue). Administrators are organization-scoped records (`data.administrators`), separate from the users an organization manages; one person can be both, but administrative access is always granted explicitly.
@@ -245,7 +247,9 @@ Users → **Import Users** (also *Add users → Import users*), route `/users/im
 
 The sample organization has one enrolled user set up to show a portrait. Put a licensed demo photo at `public/samples/portrait-sample.jpg` to display it; without the file, initials are shown. It's labelled as a sample image, not an enrollment capture.
 
-**Settings** shows Organization and Administrators & Roles (plus Demo data for the demo account). The Integrations tab isn't part of the MVP administrator experience: its panel and the underlying identity service, wallet, Fixiam and demonstration-provider code and configuration are unchanged, and old `?tab=integrations` links open Organization.
+**Settings** shows only **Organization** and **Administrators & Roles**. Integrations and Demo data are hidden from the navigation; their panels, data and services are unchanged. `?tab=integrations` opens Organization; the demo account can still open its internal demo tools (sample organization switcher, reset) at `/settings?tab=demo`, which falls back to Organization for anyone else.
+
+**Organization Profile (Epic 01, Settings → Organization).** Read-only by default: Organization Name, Short Name, Industry, Default Person Label, Organization Email, Organization Phone Number and Organization Address (each “Not provided” until added), Country (and region, from registration), Time Zone, Organization ID, Organization Status (Active / Inactive) and Date Registered. Administrators who manage settings select **Edit**, then **Save** or **Cancel** (which discards changes). Country, ID, status and registration date are read-only and can't be changed through the edit form or the store (`organization/updateProfile` applies only the editable fields, and only when valid — `src/domain/organization.ts`). Validation is field by field; a failed save shows no success and changes nothing; saved changes appear immediately and are audited. Administrators (including the first one) are managed in Administrators & Roles, personal details in My Profile, and branding isn't part of the profile.
 
 ## Credential Management
 
