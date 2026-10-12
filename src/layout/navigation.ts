@@ -1,6 +1,6 @@
 import type { Permission } from '@/domain/roles';
 import {
-  BadgeCheck, Building2, ClipboardCheck, Layers3, History, LayoutDashboard, Layers, ListChecks, ScanFace, ScrollText, Settings, Users, type LucideIcon,
+  BadgeCheck, BarChart3, Building2, ClipboardCheck, Layers3, History, LayoutDashboard, Layers, ListChecks, ScanFace, ScrollText, Settings, ShieldAlert, Users, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -40,6 +40,8 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'Verification Activities', to: '/verification-activities', icon: ListChecks, description: 'What to verify and who is eligible', alsoActiveOn: ['/activities'], permission: 'verification.activities.view' },
       { label: 'My Verification Activities', to: '/verify', icon: ScanFace, description: 'Activities you’re assigned to verify', permission: 'verification.execute', hiddenWith: 'verification.activities.view', alsoActiveOn: ['/verify/activities', '/verify/attempts'] },
       { label: 'Verification History', to: '/verification-history', icon: History, description: 'Verification attempts and decisions', permission: 'verification.results.view' },
+      { label: 'Exceptions', to: '/exceptions', icon: ShieldAlert, description: 'Verifications that need authorized review', permission: ['exceptions.view', 'exceptions.review'] },
+      { label: 'Reports', to: '/reports', icon: BarChart3, description: 'Verification, programme and exception reports', permission: 'reports.view' },
       { label: 'My Verification History', to: '/verify/history', icon: ClipboardCheck, description: 'Verifications you performed', permission: 'verification.execute', hiddenWith: 'verification.results.view' },
     ],
   },

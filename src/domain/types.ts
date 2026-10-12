@@ -473,6 +473,21 @@ export type AuditAction =
   | 'programme.completed'
   | 'programme.archived'
   | 'programme.participant-changed'
+  | 'exception.created'
+  | 'exception.assigned'
+  | 'exception.review-started'
+  | 'exception.note-added'
+  | 'exception.information-requested'
+  | 'exception.resolved'
+  | 'exception.closed'
+  | 'exception.reverification-started'
+  | 'exception.reverification-completed'
+  | 'verification.started'
+  | 'verification.completed'
+  | 'verification.cancelled'
+  | 'access.denied'
+  | 'api.status-requested'
+  | 'api.status-denied'
   | 'organization.sub-created'
   | 'organization.sub-invitation-resent'
   | 'sso.saved'
@@ -523,10 +538,17 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'programme';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'programme' | 'exception' | 'verification-transaction' | 'status-api';
   resourceId: string;
-  /** `partial` when an operation on several records succeeded for some and not others. */
-  result: 'success' | 'partial' | 'failure';
+  /** `partial` when an operation on several records succeeded for some and not others; `denied` when access was refused. */
+  result: 'success' | 'partial' | 'failure' | 'denied';
+  /** The acting account and the organization it acted from (Phase 5 events and later). */
+  actorId?: string;
+  actorOrganizationId?: string;
+  /** The organization whose resource was affected, when it differs from where the event is filed. */
+  targetOrganizationId?: string;
+  /** Links events belonging to one transaction, exception or request. */
+  correlationId?: string;
   summary: string;
   occurredAt: ISODate;
   /** Optional link target inside the app. */
@@ -867,4 +889,13 @@ export interface VerificationAttempt {
   reusedFrom?: string;
   /** The transaction this one retries. The earlier result is never overwritten. */
   retryOf?: string;
+  /** The exception raised for this transaction, if any. */
+  exceptionId?: string;
+  /** For a reverification attempt: the exception that required it. */
+  reverificationOf?: string;
+  /**
+   * The current disposition after an authorized exception review. The original decision, identity match,
+   * liveness and eligibility are kept unchanged alongside it.
+   */
+  reviewDisposition?: { decision: import('./programmes').ActivityDecision; outcome: import('./exceptions').ResolutionOutcome; exceptionId: string; at: ISODate; by: string };
 }

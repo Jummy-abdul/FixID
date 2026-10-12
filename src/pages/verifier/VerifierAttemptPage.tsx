@@ -8,7 +8,7 @@ import type { CheckRun, VerificationAttempt } from '@/domain/types';
 import { TYPE_INFO, checkById, providersFor } from '@/domain/verification';
 import { formatDateTime } from '@/lib/dates';
 import { cn } from '@/lib/cn';
-import { useSession, useStore } from '@/store/AppStore';
+import { useActions, useSession, useStore } from '@/store/AppStore';
 import type { ParticipantLookup, VerificationInputs } from '@/verification/engine';
 import { HOLDER_SCENARIOS } from '@/verification/simulatedProviders';
 import { useVerificationService } from '@/verification/useVerificationService';
@@ -20,6 +20,9 @@ import { TransactionOutcome } from '@/components/verification/transactionParts';
 import { SIMULATED_FACE_OUTCOMES, SIMULATED_LIVENESS_OUTCOMES } from '@/services/simulatedFaceVerification';
 import { useAuthorization } from '@/auth/authorization';
 import { RunExternal } from './ExternalAttempt';
+import { EXCEPTION_STATUS_LABEL, RESOLUTION_LABEL } from '@/domain/exceptions';
+import { DECISION_LABEL } from '@/domain/transactions';
+import { exceptionFor } from '@/store/exceptionOps';
 import { AccessAndEntry, AttemptBadge, EligibilityBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
 
 export function VerifierAttemptPage() {
@@ -32,6 +35,10 @@ export function VerifierAttemptPage() {
     if (attempt?.status === 'in-progress' && new Date(attempt.expiresAt) < new Date()) dispatch({ type: 'verify/expire', organizationId: attempt.organizationId, at: new Date().toISOString() });
   }, [attempt, dispatch]);
   void state;
+  const { recordAccessDenied } = useActions();
+  const { organization: current } = useSession();
+  const elsewhere = !attempt && !!attemptId && state.data.verificationAttempts.some((a) => a.id === attemptId && a.organizationId !== current.id);
+  useEffect(() => { if (elsewhere) recordAccessDenied(current.id, 'verification-transaction', attemptId!); }, [elsewhere, attemptId, current.id, recordAccessDenied]);
   if (!attempt) {
     return (
       <Card className="px-6 py-10 text-center">
@@ -459,9 +466,16 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   const version = state.data.activityVersions.find((v) => v.id === attempt.versionId);
   const reviewAllowed = !!version && (version.outcome.onRequiredFailure === 'pending-review' || version.outcome.onInconclusive === 'pending-review');
   const isMine = state.data.administrators.find((a) => a.id === attempt.verifierId)?.userId === state.data.admin.id;
-  const canRefer = isMine && attempt.status === 'completed' && attempt.outcome !== 'verified' && reviewAllowed && !attempt.review;
+  const canRefer = isMine && attempt.status === 'completed' && attempt.outcome !== 'verified' && reviewAllowed && !attempt.review && !attempt.exceptionId && !attempt.reverificationOf;
   const external = attempt.identitySource === 'external';
   const programme = attempt.programmeId ? state.data.verificationProgrammes.find((p) => p.id === attempt.programmeId) : undefined;
+  const exception = attempt.exceptionId ? exceptionFor(state, attempt.exceptionId) : undefined;
+  const canReverify = isMine && !!exception?.reverificationRequested && exception.organizationId === organization.id && !state.data.verificationAttempts.some((x) => x.reverificationOf === exception.id && x.status === 'in-progress');
+  const startReverification = () => {
+    const r = service.startAttempt(organization.id, attempt.activityId, { reverificationOf: exception!.id });
+    if (!r.ok) return toast({ tone: 'error', title: 'Reverification can’t start', description: r.error });
+    navigate(`/verify/attempts/${r.attempt.id}`);
+  };
   // Retrying starts a new, linked transaction; this result is never overwritten.
   const canRetry = isMine && attempt.status === 'completed' && (attempt.decision === 'unable-to-decide' || attempt.match?.status === 'inconclusive');
 
@@ -476,6 +490,15 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   return (
     <div className="mx-auto max-w-3xl">
       {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} programmeName={programme?.name} /></div>}
+      {exception && (
+        <div className="mb-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">
+          <p>Exception <span className="font-mono font-semibold">{exception.id}</span> · {EXCEPTION_STATUS_LABEL[exception.status]}{exception.resolution && exception.resolution.outcome !== 'reverification-required' ? ` · ${RESOLUTION_LABEL[exception.resolution.outcome]}` : ''}</p>
+          {attempt.reviewDisposition && <p className="mt-1">Current disposition after review: <span className="font-semibold">{DECISION_LABEL[attempt.reviewDisposition.decision]}</span> ({attempt.reviewDisposition.by}, {formatDateTime(attempt.reviewDisposition.at)}). The results above are the original verification evidence.</p>}
+          {exception.reverificationRequested && <p className="mt-1">A reviewer requires reverification.</p>}
+          {canReverify && <Button className="mt-2" size="sm" icon={<RotateCcw className="h-4 w-4" />} onClick={startReverification}>Start Reverification</Button>}
+        </div>
+      )}
+      {attempt.reverificationOf && <p className="mb-4 text-sm text-slate-600">Reverification for exception <span className="font-mono">{attempt.reverificationOf}</span>.</p>}
       {attempt.retryOf && <p className="mb-4 text-sm text-slate-600">Retry of transaction <Link to={`/verify/attempts/${attempt.retryOf}`} className="font-mono text-brand-700 underline">{attempt.retryOf}</Link>.</p>}
       {done ? (!external && <ResultSummary attempt={attempt} />) : (
         <section className="rounded-2xl bg-slate-700 px-6 py-6 text-white" aria-label="Outcome">

@@ -67,6 +67,9 @@ export function PlatformPage() {
               { key: 'parent', header: 'Parent', cell: (o) => { const p = parentRelationship(state, o.id); return p ? nameOf(p.parentOrganizationId) : <span className="text-slate-400">—</span>; } },
               { key: 'subs', header: 'Sub-organizations', cell: (o) => subRelationships(state, o.id).length || <span className="text-slate-400">—</span> },
               { key: 'admins', header: 'Active administrators', cell: (o) => activeAdmins(o.id) },
+              // Operational counts only: no transactions, people, references or results are opened from here.
+              { key: 'tx', header: 'Verification transactions', cell: (o) => state.data.verificationAttempts.filter((x) => x.organizationId === o.id && x.status !== 'in-progress').length },
+              { key: 'exc', header: 'Open exceptions', cell: (o) => (state.data.verificationExceptions ?? []).filter((e) => e.organizationId === o.id && !['resolved', 'closed'].includes(e.status)).length },
               { key: 'status', header: 'Status', cell: (o) => <OrgStatusBadge organization={o} /> },
               { key: 'created', header: 'Date Created', cell: (o) => formatDate(o.createdAt) },
             ]}

@@ -144,6 +144,102 @@ Saving creates a **Draft** and never activates.
 - **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**; and *Delegate Identity Service*, simulated lookup and matching, **Active** (used by programme scenarios C and D).
 - **Organization D** (sub-organization B1, Harbourside): *Hospital Identity Service*, an external configuration whose test failed (**Error**), so it can't be activated.
 
+## Exceptions, programme oversight, audit and reporting (Phase 5)
+
+**Verification Exceptions** (`src/domain/exceptions.ts`, `src/store/exceptionOps.ts`; *Exceptions* in the Verification menu, `/exceptions`, `/exceptions/:id`).
+- **Creation:** a transaction whose decision is Pending Review under its activity or programme policy gets a linked exception automatically. A verifier's *Submit for Review* creates a *Disputed verification* exception.
+- **Not every failure:** definitive failures (Deny) and outages that end as Unable to Decide (when the policy doesn't send them to review) stay completed transactions with no exception.
+- **Reasons:** identity mismatch, inconclusive, failed mandatory liveness, record ambiguity, disputed, eligibility uncertainty, eligibility not met, missing evidence, service failure.
+- **Routing:** when the programme escalates exceptions, they go to the programme owner's reviewers. Otherwise they stay with the transaction's own organization. The participant can view a programme-routed exception read-only.
+- **Statuses:** Open, Assigned, In Review, Awaiting Information, Resolved, Closed. These are separate from the transaction's match result and decision.
+- **Actions** (`exceptions.review`, only in the reviewing organization): Assign Reviewer or Assign to me, Start Review, Add Review Note (with evidence references), Request Information, Record Resolution, Close Exception.
+  - Each action is recorded in the exception's history (actor, organization, previous and new status, comment) and in the Audit Log.
+- **Resolutions:** Verification Confirmed, Verification Not Confirmed, Reverification Required, Unable to Resolve.
+  - **Original evidence is never changed:** the result is stored as the transaction's `reviewDisposition`, beside the original identity match, liveness, eligibility and decision.
+  - **Confirming a failed identity check:** *Verification Confirmed* is refused while the identity result isn't a match, or mandatory liveness didn't pass, unless a linked reverification succeeded. An eligibility question with a matched identity can be confirmed.
+- **Reverification:**
+  - *Reverification Required* sets the exception to Awaiting Information.
+  - An assigned verifier in the transaction's organization uses *Start Reverification*, on the exception or on their result screen.
+  - This creates a new transaction (`reverificationOf`) under the activity's current mandatory requirements; the original is unchanged.
+  - When it finishes, the exception returns to In Review with the result recorded.
+
+**Permissions** (added to the matrix):
+- `exceptions.view`: read-only; Auditor.
+- `exceptions.review`: assign, review, resolve; Organization Admin.
+- `reports.view`: Organization Admin and Auditor.
+
+Verifiers can submit for review but can't resolve. Custom roles honour whichever of these they're given.
+
+**Programme oversight** (programme owner, on the programme page, plus `/programmes/:id/organizations/:orgId`):
+- **Metrics:** participating organizations, active activities, total attempts, completed, pending reviews, unable to complete, outcomes by status, and programme exceptions.
+- **Per-organization table:** participation status, active activities, attempts, completed, pending review, last activity and **Programme Configuration Status**.
+  - Values are Meets Requirements, Action Required or Not Evaluated.
+  - Checks: required identity source, required method, mandatory liveness, integration available, activity active.
+  - It's explicitly not a legal or regulatory compliance claim.
+- **Drill-down:** programme-linked activities with their configuration checks, aggregate outcomes, programme exceptions, and transaction summaries without people, references or attributes.
+- **Never shown:** participants' other activities, people, private integrations or sibling records. Non-owners get *Not available*.
+
+**Dashboards:**
+- **Organization Admins and Auditors:** a *Verification operations* section (last 7 / 30 days / all time).
+  - **Figures:** active activities, attempts, successful and unsuccessful outcomes, pending reviews, unable to complete.
+  - **Lists:** recent transactions, recent exceptions, activity status and identity service status.
+  - **Programme owners:** also *Programmes you oversee*.
+- **Verifiers:** the dashboard now shows each recent transaction's current decision.
+- **Platform Administrators:** see transaction and open-exception counts per organization only.
+
+**Verification History:**
+- **New filters:** programme, identity match, eligibility, transaction status and simulation, alongside date range, activity, identity source and decision.
+- **Decision column:** shows the current disposition, marked *Reviewed* when a review changed it.
+- **Transaction details:** link to the exception and show the reviewed disposition separately.
+
+**Audit trail:**
+- **New events:**
+  - Exception lifecycle: `exception.*`.
+  - Verification transactions: `verification.started`, `verification.completed`, `verification.cancelled`.
+  - Access refusals: `access.denied`, recorded when someone opens another organization's transaction or exception, filed in both organizations without revealing details.
+  - Status API requests: `api.status-requested` and `api.status-denied`.
+- **New fields:** `actorId`, `actorOrganizationId`, `targetOrganizationId`, `correlationId`, and the `denied` result.
+- **No edits:** there is no edit or delete path for audit entries. The log lives in browser storage, so it is illustrative, not tamper-resistant evidence; the Audit Log page says so.
+
+**Reports** (`/reports`):
+- **Organization verification report:** attempts, identity match outcomes, eligibility outcomes, decisions, pending reviews, unable to complete, activity breakdown.
+- **Programme report:** owners only; participating organizations, volume, outcomes, exceptions, unresolved exceptions, activity breakdown.
+- **Exception report:** totals, open, resolved, by reason, by activity, by organization. Median resolution time appears only when resolutions exist; otherwise *Not calculable*.
+- **Reporting period:** 7, 30 or 90 days, or all time.
+- **Export CSV:** aggregate figures only; never people, references, attributes or biometric data.
+
+**Verification Status API — simulated** (`src/services/statusApi/statusApi.ts`; development page `/developer/status-api`, linked from Verification History in demo builds only):
+- **Endpoint:** illustrates `GET /api/verifications/{transactionId}/status`.
+- **Response fields:** `transactionId`, `status`, `identityMatch`, `eligibility`, `decision`, `programmeId` when permitted, `activityId`, `updatedAt`, `simulated: true`, `simulatedEvidence`, and `originalDecision` with `review` after a review.
+- **Statuses:** IN_PROGRESS, PENDING_REVIEW, COMPLETED, UNABLE_TO_COMPLETE, FAILED, CANCELLED. While an exception is unresolved the decision is PENDING_REVIEW, never ALLOW.
+- **Authorization:**
+  - The calling client must belong to the transaction's organization, or to the owner of its programme.
+  - Unknown and unauthorized IDs both return 404; no client returns 401.
+  - No personal information is returned.
+- **Simulated:** runs in the browser with no network call, no real authentication and no secrets.
+
+**Demonstration data:** `createInitialState` replays nine fictional transactions through the reducer's own verification steps (`src/store/demoTransactions.ts`), so the history, exceptions and audit events are ones the application itself produced.
+
+| # | Scenario | How to see it |
+|---|---|---|
+| A | Successful verification | Brightwater (`demo@fixid.app`, switch workspace): Delegate Check-in `…-D06` → Allow; history, dashboard; Status API → COMPLETED / ALLOW |
+| B | Mismatch requiring review | Victor Hale (`victor.hale@meridian.example`) → Exceptions → the Harbourside *Identity mismatch* (programme queue, Open) |
+| C | Reverification required | Tobyson → Exceptions → Speaker Lounge mismatch → Reverification Required → Start Reverification → `DEMO-10001`, Passed + Match → back on the exception, Verification Confirmed |
+| D | External service unavailable | Eastgate `…-D05` (lookup unavailable) and Brightwater `…-D09` (matching unavailable): Unable to Complete; no exception; Status API never ALLOW |
+| E | Parent programme oversight | Victor Hale → Verification Programmes → Group Staff Verification: overview, per-organization drill-down |
+| F | Auditor review | Adaora Nwosu (Northbridge Auditor), or any Auditor: Exceptions, history and Audit Log read-only, no actions |
+| G | Unauthorized access | Esther Lawal opens `/verification-history/<a Brightwater transaction>` → not shown; `access.denied` recorded in both audit logs |
+| H | Status API update | `/developer/status-api`: request `…-D08` (PENDING_REVIEW), resolve its exception, request again (COMPLETED, originalDecision kept, identityMatch still NO_MATCH) |
+
+Also seeded: an eligibility exception already In Review by Victor Hale, with a note.
+
+**Limitations:**
+- **Not a security boundary:** authorization, audit and the status API run in the browser.
+- **Simulated services:** all identity services are simulated.
+- **Programme oversight:** limited to aggregates and programme exceptions. There's no cross-organization reviewer delegation beyond the programme owner.
+- **Organization filter:** Verification History has none, because it always shows the active workspace; switch workspace to see another.
+- **Saved browser data:** use Settings → Demo data → Reset to load Phase 5 data.
+
 ## Verification journeys and transactions (Phase 4)
 
 Both identity models run through the same Verification Activity framework. The activity's configuration (and, for a programme-linked activity, the programme's authoritative requirements) decides the journey; the verifier never chooses the identity source, the matching service or whether liveness applies.

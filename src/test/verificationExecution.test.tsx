@@ -212,7 +212,7 @@ describe('Scenario F — authorization', () => {
     expect(h.service.listAuthorizedActivities(ORG)).toEqual([]);
     expect(h.service.startAttempt(ORG, visitor.id)).toMatchObject({ ok: false, code: 'not-assigned' });
     expect(h.state.data.audit[0]).toMatchObject({ action: 'verification.denied', result: 'failure' });
-    expect(h.state.data.verificationAttempts).toHaveLength(0);
+    expect(h.state.data.verificationAttempts.filter((a) => a.organizationId === ORG)).toHaveLength(0);
     h.state = assign(h.state, halima(h.state).id, [visitor.id, activity(h.state, 'Event Access Verification').id]);
     expect(h.service.listAuthorizedActivities(ORG).map((x) => x.activity.name)).toEqual(['Visitor Identity Check']);
     expect(h.service.startAttempt(ORG, visitor.id)).toMatchObject({ ok: true });

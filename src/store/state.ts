@@ -1,3 +1,9 @@
+import { seedDemoTransactions } from './demoTransactions';
+import type { ResolutionOutcome } from '@/domain/exceptions';
+import {
+  applyAccessDenied, applyStatusRequestAudit, applyAssignException, applyCloseException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview,
+  auditTransactionChange, raiseException, syncExceptions,
+} from './exceptionOps';
 import type { IdentityLookupResult } from '@/services/integrations/contract';
 import { applyEndExternal, applyExternalComplete, applyExternalLookup, applyReuseResult } from './transactionOps';
 import type { SeedData } from '@/data/seed';
@@ -110,7 +116,15 @@ export type Action =
   | { type: 'vactivities/discardDraft'; organizationId: string; activityId: string; at: string }
   | { type: 'vactivities/duplicate'; organizationId: string; activityId: string; ids: { activityId: string; versionId: string }; at: string }
   | { type: 'vactivities/remove'; organizationId: string; activityId: string; at: string }
-  | { type: 'verify/start'; organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef; retryOf?: string }
+  | { type: 'verify/start'; organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef; retryOf?: string; reverificationOf?: string }
+  | { type: 'exceptions/assign'; organizationId: string; exceptionId: string; reviewerId: string; at: string }
+  | { type: 'exceptions/startReview'; organizationId: string; exceptionId: string; at: string }
+  | { type: 'exceptions/note'; organizationId: string; exceptionId: string; comment: string; evidenceRefs?: string[]; at: string }
+  | { type: 'exceptions/requestInfo'; organizationId: string; exceptionId: string; comment: string; at: string }
+  | { type: 'exceptions/resolve'; organizationId: string; exceptionId: string; outcome: ResolutionOutcome; reason: string; at: string }
+  | { type: 'exceptions/close'; organizationId: string; exceptionId: string; comment?: string; at: string }
+  | { type: 'audit/accessDenied'; organizationId: string; resourceType: 'verification-transaction' | 'exception'; resourceId: string; at: string }
+  | { type: 'api/statusRequest'; clientId?: string; transactionId: string; at: string }
   | { type: 'verify/lookup'; attemptId: string; at: string; reference: string; requestId: string; result: IdentityLookupResult }
   | { type: 'verify/externalComplete'; input: Parameters<typeof applyExternalComplete>[1] }
   | { type: 'verify/end'; attemptId: string; at: string }
@@ -131,12 +145,13 @@ export type Action =
 
 export function createInitialState(now: Date = new Date()): AppState {
   const data = buildSeed(now);
-  return {
+  // Demonstration verification history, produced by the reducer's own verification steps.
+  return seedDemoTransactions({
     version: STATE_VERSION,
     seededAt: now.toISOString(),
     session: { adminId: data.admin.id, currentOrganizationId: data.organizations[0].id },
     data,
-  };
+  }, now);
 }
 
 /**
@@ -179,6 +194,12 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'issuance/group': ['credentials.issue'],
   'verify/start': ['verification.execute'],
   'verify/complete': ['verification.execute'],
+  'exceptions/assign': ['exceptions.review'],
+  'exceptions/startReview': ['exceptions.review'],
+  'exceptions/note': ['exceptions.review'],
+  'exceptions/requestInfo': ['exceptions.review'],
+  'exceptions/resolve': ['exceptions.review'],
+  'exceptions/close': ['exceptions.review'],
   'verify/lookup': ['verification.execute'],
   'verify/externalComplete': ['verification.execute'],
   'verify/end': ['verification.execute'],
@@ -205,7 +226,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
 };
 
 /** Actions that don't change workspace data, so they remain available during Role Preview. */
-const PREVIEW_SAFE = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'preview/start', 'preview/stop', 'verify/expire']);
+const PREVIEW_SAFE = new Set<Action['type']>(['session/switchOrganization', 'session/signIn', 'preview/start', 'preview/stop', 'verify/expire', 'audit/accessDenied', 'api/statusRequest']);
 /** Workspace-wide actions that aren't part of any role's job: refused in every role view. */
 const ROLE_VIEW_BLOCKED = new Set<Action['type']>(['demo/reset', 'organization/create', 'admins/accept']);
 export const PREVIEW_READ_ONLY = 'Role preview is read-only. Exit the preview to make changes.';
@@ -275,6 +296,12 @@ export function authorizeAction(state: AppState, type: Action['type']): string |
 }
 
 const orKeep = (state: AppState, r: { ok: true; state: AppState } | { ok: false }) => (r.ok ? r.state : state);
+
+/** After a verification step: audit the transaction's lifecycle change and keep its exception in step. */
+function afterVerification(prev: AppState, next: AppState, attemptId: string, at: string): AppState {
+  if (next === prev) return prev;
+  return syncExceptions(auditTransactionChange(prev, next, attemptId, at), attemptId, at);
+}
 
 /** The editable profile fields from a change set, ignoring anything else it carries. */
 function pickEditable(changes: Partial<OrganizationProfileValues>): Partial<OrganizationProfileValues> {
@@ -400,6 +427,7 @@ export function reducer(state: AppState, action: Action): AppState {
           activityVersions: keep(n.activityVersions, d.activityVersions),
           verifierAssignments: keep(n.verifierAssignments, d.verifierAssignments),
           verificationAttempts: keep(n.verificationAttempts, d.verificationAttempts),
+          verificationExceptions: keep(n.verificationExceptions ?? [], d.verificationExceptions ?? []),
           customRoles: keep(n.customRoles, d.customRoles),
           logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
           ssoConnections: keep(n.ssoConnections, d.ssoConnections ?? []),
@@ -483,15 +511,27 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'sso/discard': return orKeep(state, applyDiscardSsoChanges(state, action));
     case 'sso/link': return orKeep(state, applyLinkSsoIdentity(state, action));
     case 'sso/unlink': return orKeep(state, applyUnlinkSsoIdentity(state, action));
-    case 'verify/start': return orKeep(state, applyStartAttempt(state, action));
-    case 'verify/complete': return orKeep(state, applyCompleteAttempt(state, action.input));
-    case 'verify/lookup': return orKeep(state, applyExternalLookup(state, action));
-    case 'verify/externalComplete': return orKeep(state, applyExternalComplete(state, action.input));
-    case 'verify/end': return orKeep(state, applyEndExternal(state, action));
-    case 'verify/reuse': return orKeep(state, applyReuseResult(state, action));
-    case 'verify/cancel': return orKeep(state, applyCancelAttempt(state, action));
+    case 'verify/start': return afterVerification(state, orKeep(state, applyStartAttempt(state, action)), action.attemptId, action.at);
+    case 'verify/complete': return afterVerification(state, orKeep(state, applyCompleteAttempt(state, action.input)), action.input.attemptId, action.input.at);
+    case 'verify/lookup': return afterVerification(state, orKeep(state, applyExternalLookup(state, action)), action.attemptId, action.at);
+    case 'verify/externalComplete': return afterVerification(state, orKeep(state, applyExternalComplete(state, action.input)), action.input.attemptId, action.input.at);
+    case 'verify/end': return afterVerification(state, orKeep(state, applyEndExternal(state, action)), action.attemptId, action.at);
+    case 'verify/reuse': return afterVerification(state, orKeep(state, applyReuseResult(state, action)), action.attemptId, action.at);
+    case 'verify/cancel': return afterVerification(state, orKeep(state, applyCancelAttempt(state, action)), action.attemptId, action.at);
+    case 'exceptions/assign': return orKeep(state, applyAssignException(state, action));
+    case 'exceptions/startReview': return orKeep(state, applyStartReview(state, action));
+    case 'exceptions/note': return orKeep(state, applyExceptionNote(state, action));
+    case 'exceptions/requestInfo': return orKeep(state, applyRequestInformation(state, action));
+    case 'exceptions/resolve': return orKeep(state, applyResolveException(state, action));
+    case 'exceptions/close': return orKeep(state, applyCloseException(state, action));
+    case 'audit/accessDenied': return applyAccessDenied(state, action);
+    case 'api/statusRequest': return applyStatusRequestAudit(state, action);
     case 'verify/fail': return orKeep(state, applyFailAttempt(state, action));
-    case 'verify/refer': return orKeep(state, applyReferAttempt(state, action));
+    case 'verify/refer': {
+      const next = orKeep(state, applyReferAttempt(state, action));
+      // A verifier's referral opens an exception for an authorized reviewer.
+      return next === state ? state : raiseException(next, action.attemptId, action.at, { referred: true });
+    }
     case 'verify/recordEntry': return orKeep(state, applyRecordEntry(state, action));
     case 'verify/denyEntry': return orKeep(state, applyDenyEntry(state, action));
     case 'verify/expire': return applyExpireAttempts(state, action);

@@ -13,6 +13,7 @@ import { WorkspaceHome } from './WorkspaceHome';
 import { selectOrgData, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { ActiveDashboard } from './ActiveDashboard';
 import { FirstTimeDashboard } from './FirstTimeDashboard';
+import { VerificationOperations } from './VerificationOperations';
 import { PREVIEW_OPTIONS, previewData, useDashboardPreview, type DashboardPreview } from './preview';
 
 function PreviewControl({ value, onChange }: { value: DashboardPreview; onChange: (v: DashboardPreview) => void }) {
@@ -90,6 +91,7 @@ function OrganizationDashboard() {
 
   // The "active" preview shows an established sample organization, read-only.
   if (preview === 'active') return <ActiveDashboard headerActions={control} data={selectOrgData(state, SAMPLE_ORGANIZATION_ID)} />;
-  if (!firstTimeData) return <ActiveDashboard headerActions={control} />;
-  return <FirstTimeDashboard data={firstTimeData} adminName={admin.name} headerActions={control} />;
+  // Verification operations always describe the signed-in workspace's own records.
+  if (!firstTimeData) return <><ActiveDashboard headerActions={control} /><VerificationOperations /></>;
+  return <><FirstTimeDashboard data={firstTimeData} adminName={admin.name} headerActions={control} />{preview === 'automatic' && <VerificationOperations />}</>;
 }

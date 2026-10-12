@@ -188,7 +188,7 @@ describe('#013 role-based navigation and role switching', () => {
     const conference = byName(s, 'Annual Staff Conference');
     s = assign(s, me(s).id, [conference.id]);
     const { user } = renderApp('/', s);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
 
     await user.click(screen.getByRole('button', { name: /Account menu for/ }));
     await user.click(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: /^Verifier/ }));

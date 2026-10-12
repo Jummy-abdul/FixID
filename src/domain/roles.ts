@@ -14,7 +14,8 @@ export type Permission =
   | 'verification.results.view'
   | 'administrators.view' | 'administrators.invite' | 'administrators.manage'
   | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'sso.manage' | 'audit.view'
-  | 'organizations.view' | 'organizations.manage' | 'integrations.view' | 'integrations.manage' | 'programmes.view' | 'programmes.manage';
+  | 'organizations.view' | 'organizations.manage' | 'integrations.view' | 'integrations.manage' | 'programmes.view' | 'programmes.manage'
+  | 'exceptions.view' | 'exceptions.review' | 'reports.view';
 
 export interface PermissionInfo {
   id: Permission;
@@ -50,6 +51,9 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'verification.verifiers.assign', label: 'Assign verifiers to activities', area: 'Verification Activities' },
   { id: 'verification.execute', label: 'Perform verifications (assigned activities only)', area: 'Verification Activities' },
   { id: 'verification.results.view', label: 'View the organization’s verification history', area: 'Verification History' },
+  { id: 'exceptions.view', label: 'View verification exceptions (read-only)', area: 'Exceptions' },
+  { id: 'exceptions.review', label: 'Assign, review and resolve verification exceptions', area: 'Exceptions', sensitive: true },
+  { id: 'reports.view', label: 'View verification and exception reports, and export aggregates', area: 'Reports' },
   { id: 'administrators.view', label: 'View administrators and roles', area: 'Administration' },
   { id: 'administrators.invite', label: 'Invite administrators', area: 'Administration', sensitive: true },
   { id: 'administrators.manage', label: 'Deactivate and reactivate administrators', area: 'Administration', sensitive: true },
@@ -129,7 +133,7 @@ export const SYSTEM_ROLES: Role[] = [
   {
     id: 'auditor', name: 'Auditor', system: true,
     description: 'Read-only access for review and oversight, including the audit log.',
-    permissions: ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'administrators.view', 'organization.view', 'audit.view', 'organizations.view', 'integrations.view', 'programmes.view'],
+    permissions: ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'administrators.view', 'organization.view', 'audit.view', 'organizations.view', 'integrations.view', 'programmes.view', 'exceptions.view', 'reports.view'],
     highlights: ['View users, groups, credentials, verification activities and history', 'View the organization profile, administrators and roles', 'Review the audit log'],
     limits: ['Read-only: can’t create, edit, delete, issue, verify or approve anything', 'No access to raw biometric captures or templates'],
   },

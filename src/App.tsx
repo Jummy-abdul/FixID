@@ -1,3 +1,8 @@
+import { StatusApiDemoPage } from './pages/developer/StatusApiDemoPage';
+import { ReportsPage } from './pages/reports/ReportsPage';
+import { ProgrammeOrganizationPage } from './pages/programmes/ProgrammeOversight';
+import { ExceptionsPage } from './pages/exceptions/ExceptionsPage';
+import { ExceptionDetailPage } from './pages/exceptions/ExceptionDetailPage';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AcceptInvitationPage } from './pages/auth/AcceptInvitationPage';
 import { OrganizationDetailPage, OrganizationsPage } from './pages/organizations/OrganizationsPage';
@@ -131,7 +136,12 @@ export function AppRoutes() {
         <Route path="activities/:activityId" element={<EventRedirect />} />
         <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><VerificationHistoryPage /></RequirePermission>} />
         <Route path="verification-history/:recordId" element={<RequirePermission permission="verification.results.view"><VerificationRecordPage /></RequirePermission>} />
+        <Route path="developer/status-api" element={<RequirePermission permission="verification.results.view"><StatusApiDemoPage /></RequirePermission>} />
+        <Route path="reports" element={<RequirePermission permission="reports.view"><ReportsPage /></RequirePermission>} />
+        <Route path="exceptions" element={<RequirePermission permission={['exceptions.view', 'exceptions.review']}><ExceptionsPage /></RequirePermission>} />
+        <Route path="exceptions/:exceptionId" element={<RequirePermission permission={['exceptions.view', 'exceptions.review']}><ExceptionDetailPage /></RequirePermission>} />
         <Route path="programmes" element={<RequirePermission permission="programmes.view"><ProgrammesPage /></RequirePermission>} />
+        <Route path="programmes/:programmeId/organizations/:orgId" element={<RequirePermission permission="programmes.view"><ProgrammeOrganizationPage /></RequirePermission>} />
         <Route path="programmes/:programmeId" element={<RequirePermission permission="programmes.view"><ProgrammeDetailPage /></RequirePermission>} />
         <Route path="organizations" element={<RequirePermission permission="organizations.view"><OrganizationsPage /></RequirePermission>} />
         <Route path="organizations/:orgId" element={<RequirePermission permission="organizations.view"><OrganizationDetailPage /></RequirePermission>} />

@@ -13,6 +13,7 @@ import { useActions, useSession, useStore } from '@/store/AppStore';
 import { activityPath } from '../verification/paths';
 import { ParticipationBadge, ProgrammeStatusBadge } from './ProgrammesPage';
 import { ProgrammeWizard } from './ProgrammeWizard';
+import { ProgrammeOverview } from './ProgrammeOversight';
 
 type Transition = 'activate' | 'suspend' | 'resume' | 'complete' | 'archive';
 const TRANSITION_COPY: Record<Transition, { label: string; body: string; tone?: 'danger' }> = {
@@ -82,6 +83,8 @@ export function ProgrammeDetailPage() {
         </p>
       )}
 
+      {owner && p.status !== 'draft' && <ProgrammeOverview programme={p} />}
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader title="Verification requirements" description={owner ? 'Mandatory for every activity under this programme.' : 'Mandatory, set by the programme owner. Read-only.'} />
@@ -102,7 +105,7 @@ export function ProgrammeDetailPage() {
 
       {owner && (
         <Card className="mt-6">
-          <CardHeader title="Participating organizations" description={p.scope === 'own' ? `This programme applies to ${ownerName} only.` : 'Programme-level status only: their other records stay private.'} />
+          <CardHeader title="Participation management" description={p.scope === 'own' ? `This programme applies to ${ownerName} only.` : 'Programme-level status only: their other records stay private.'} />
           {p.scope === 'own' ? null : (
             <DataTable
               rows={p.participants}
@@ -111,14 +114,6 @@ export function ProgrammeDetailPage() {
                 { key: 'org', header: 'Organization', cell: (x) => <span className="font-medium text-slate-900">{orgName(x.organizationId)}</span> },
                 { key: 'status', header: 'Enrollment', cell: (x) => <ParticipationBadge status={x.status} /> },
                 { key: 'acts', header: 'Programme activities', cell: (x) => { const list = activities.filter((a) => a.organizationId === x.organizationId); return `${list.length} (${list.filter((a) => a.status === 'active').length} active)`; } },
-                {
-                  // Programme-level counts only: no people, references or results of individual transactions.
-                  key: 'tx', header: 'Verification transactions', cell: (x) => {
-                    const tx = state.data.verificationAttempts.filter((a) => a.programmeId === p.id && a.organizationId === x.organizationId && a.status !== 'in-progress');
-                    const n = (d: string) => tx.filter((a) => a.decision === d).length;
-                    return tx.length ? `${tx.length} (${n('allow')} allowed, ${n('pending-review')} pending review)` : 'None yet';
-                  },
-                },
                 { key: 'since', header: 'Added', cell: (x) => formatDate(x.addedAt) },
                 {
                   key: 'actions', header: 'Actions', className: 'w-24 text-right', cell: (x) => canManage && x.status !== 'removed' ? (

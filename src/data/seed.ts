@@ -33,6 +33,7 @@ import { templateForDesign } from '@/domain/templates';
 import { buildChecks } from '@/domain/verification';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { invitationToken } from '@/lib/tokens';
+import type { VerificationException } from '@/domain/exceptions';
 import { DEFAULT_DECISION_RULES, type VerificationProgramme, type VerificationSettings } from '@/domain/programmes';
 import { CONTRACT_VERSION, SIMULATED_BASE_URL, type CustomIntegration, type IntegrationCheck } from '@/domain/integrations';
 import { B2_RECORDS_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C, ORG_D, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
@@ -75,6 +76,7 @@ export interface SeedData {
   customIntegrations: CustomIntegration[];
   /** Verification Programmes, each owned by one organization. */
   verificationProgrammes: VerificationProgramme[];
+  verificationExceptions: VerificationException[];
 }
 
 const DAY = 86_400_000;
@@ -931,6 +933,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     ssoConnections: [],
     customIntegrations: seedIntegrations(today),
     verificationProgrammes: scenarios.verificationProgrammes,
+    verificationExceptions: [],
     organizationRelationships: Object.entries(SEEDED_SUB_ORGANIZATIONS).map(([child, parent]) => ({
       id: `rel_${child}`, parentOrganizationId: parent, childOrganizationId: child, type: 'sub-organization' as const, origin: 'created-by-parent' as const,
       status: 'active' as const, initialAdministratorId: `${child}_adm_owner`, createdAt: iso(addMonths(today, -14)), createdBy: 'Victor Hale',

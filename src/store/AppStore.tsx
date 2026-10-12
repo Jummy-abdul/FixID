@@ -1,3 +1,5 @@
+import type { ResolutionOutcome } from '@/domain/exceptions';
+import { applyAssignException, applyCloseException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview } from './exceptionOps';
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
   AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, ActivityConfig, ActivityVersion, VerifierAssignment, Member, Organization, Transaction, VerificationActivity, LogoAsset,
@@ -282,6 +284,37 @@ export function useActions() {
         const at = new Date().toISOString();
         return run(() => applyParticipantStatus(getState(), { organizationId, programmeId, participantId, status, at }), { type: 'programmes/participant', organizationId, programmeId, participantId, status, at });
       },
+      /** Exception review. Each re-checks exceptions.review in the organization the exception is routed to. */
+      assignException: (organizationId: string, exceptionId: string, reviewerId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyAssignException(getState(), { organizationId, exceptionId, reviewerId, at }), { type: 'exceptions/assign', organizationId, exceptionId, reviewerId, at });
+      },
+      startExceptionReview: (organizationId: string, exceptionId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyStartReview(getState(), { organizationId, exceptionId, at }), { type: 'exceptions/startReview', organizationId, exceptionId, at });
+      },
+      addExceptionNote: (organizationId: string, exceptionId: string, comment: string, evidenceRefs?: string[]) => {
+        const at = new Date().toISOString();
+        return run(() => applyExceptionNote(getState(), { organizationId, exceptionId, comment, evidenceRefs, at }), { type: 'exceptions/note', organizationId, exceptionId, comment, evidenceRefs, at });
+      },
+      requestExceptionInformation: (organizationId: string, exceptionId: string, comment: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyRequestInformation(getState(), { organizationId, exceptionId, comment, at }), { type: 'exceptions/requestInfo', organizationId, exceptionId, comment, at });
+      },
+      resolveException: (organizationId: string, exceptionId: string, outcome: ResolutionOutcome, reason: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyResolveException(getState(), { organizationId, exceptionId, outcome, reason, at }), { type: 'exceptions/resolve', organizationId, exceptionId, outcome, reason, at });
+      },
+      closeException: (organizationId: string, exceptionId: string, comment?: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyCloseException(getState(), { organizationId, exceptionId, comment, at }), { type: 'exceptions/close', organizationId, exceptionId, comment, at });
+      },
+      /** Records a refused attempt to open another organization's transaction or exception. */
+      recordAccessDenied: (organizationId: string, resourceType: 'verification-transaction' | 'exception', resourceId: string) =>
+        dispatch({ type: 'audit/accessDenied', organizationId, resourceType, resourceId, at: new Date().toISOString() }),
+      /** Records a (simulated) status API request in the calling client's organization's audit log. */
+      recordStatusRequest: (clientId: string | undefined, transactionId: string) =>
+        dispatch({ type: 'api/statusRequest', clientId, transactionId, at: new Date().toISOString() }),
       /** Custom identity services. Each re-checks integrations.manage in the organization that owns it. */
       saveIntegration: (organizationId: string, values: IntegrationFormValues, id?: string) => {
         const input = { organizationId, id: id ?? newId('int'), values, at: new Date().toISOString() };

@@ -1,0 +1,149 @@
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { CheckCircle2, ClipboardList, FlaskConical, Layers3, ListChecks, ShieldAlert, XCircle } from 'lucide-react';
+import { Badge, Card, CardHeader, EmptyState, FilterSelect, StatCard } from '@/components/ui';
+import { useAuthorization } from '@/auth/authorization';
+import { ActivityStatusBadge } from '@/components/verification/parts';
+import { DecisionBadge, sourceName } from '@/components/verification/transactionParts';
+import { EXCEPTION_REASON_LABEL, isUnresolved } from '@/domain/exceptions';
+import { formatDateTime } from '@/lib/dates';
+import { currentDecision, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
+import { integrationsOf } from '@/store/integrationOps';
+import { participation } from '@/store/programmeOps';
+import { organizationTransactions, oversight, summarize } from '@/store/reporting';
+import { useSession, useStore } from '@/store/AppStore';
+import { useVerificationService } from '@/verification/useVerificationService';
+import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
+
+const PERIODS = { '7d': 7, '30d': 30, all: 0 } as const;
+
+/**
+ * Verification operations for the current workspace, from its stored transactions and exceptions: what
+ * happened, what needs review, and whether activities and identity services are working. Read-only; each
+ * section appears only with the permission to see it. Programme owners also see their programmes' totals.
+ */
+export function VerificationOperations() {
+  const { organization } = useSession();
+  const { state } = useStore();
+  const { can } = useAuthorization();
+  const service = useVerificationService();
+  const [period, setPeriod] = useState<keyof typeof PERIODS>('30d');
+  const from = useMemo(() => (PERIODS[period] ? new Date(Date.now() - PERIODS[period] * 86_400_000).toISOString() : undefined), [period]);
+  const showResults = can('verification.results.view');
+  const showExceptions = can('exceptions.view') || can('exceptions.review');
+  if (!showResults && !showExceptions && !can('programmes.view')) return null;
+
+  const tx = organizationTransactions(state, organization.id, { from });
+  const s = summarize(state, tx);
+  const activities = state.data.activityConfigs.filter((a) => a.organizationId === organization.id);
+  const recent = [...tx].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).slice(0, 5);
+  const exceptions = showExceptions ? exceptionsVisibleTo(state, organization.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [];
+  const integrations = integrationsOf(state, organization.id);
+  const faceMode = service.faceMode(organization.id);
+  const owned = can('programmes.view') ? (state.data.verificationProgrammes ?? []).filter((p) => participation(p, organization.id) === 'owner' && p.status !== 'draft') : [];
+
+  return (
+    <section aria-label="Verification operations" className="mt-8 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Verification operations</h2>
+          <p className="text-sm text-slate-500">From {organization.name}’s recorded transactions{s.simulated ? '; some used simulated services' : ''}.</p>
+        </div>
+        <FilterSelect label="Period" value={period} onChange={(v) => setPeriod(v as keyof typeof PERIODS)} options={[{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: 'all', label: 'All time' }]} />
+      </div>
+      {showResults && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <StatCard label="Active Verification Activities" value={activities.filter((a) => a.status === 'active').length} icon={<ListChecks className="h-4 w-4" />} />
+          <StatCard label="Verification Attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to="/verification-history" />
+          <StatCard label="Successful Outcomes" value={s.allowed} tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} to="/verification-history?decision=allow" />
+          <StatCard label="Unsuccessful Outcomes" value={s.denied} icon={<XCircle className="h-4 w-4" />} to="/verification-history?decision=deny" />
+          <StatCard label="Pending Reviews" value={s.pendingReview} tone="violet" icon={<ShieldAlert className="h-4 w-4" />} to={showExceptions ? '/exceptions?status=unresolved' : undefined} />
+          <StatCard label="Unable to Complete" value={s.unableToComplete} tone="amber" to="/verification-history?decision=unable-to-decide" />
+        </div>
+      )}
+      <div className="grid gap-6 xl:grid-cols-2">
+        {showResults && (
+          <Card>
+            <CardHeader title="Recent verification transactions" action={<Link to="/verification-history" className="text-sm font-medium text-brand-600 hover:text-brand-700">View history</Link>} />
+            {recent.length === 0 ? <EmptyState title="No verifications in this period" description="Transactions appear here as verifiers complete them." /> : (
+              <ul className="divide-y divide-slate-100" aria-label="Recent verification transactions">
+                {recent.map((a) => (
+                  <li key={a.id}>
+                    <Link to={`/verification-history/${a.id}`} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm hover:bg-slate-50">
+                      <span className="min-w-0 flex-1"><span className="block font-medium text-slate-900">{a.activityName}</span><span className="block text-xs text-slate-500">{a.id} · {sourceName(a)} · {formatDateTime(a.completedAt ?? a.startedAt)}</span></span>
+                      {a.simulated && <FlaskConical className="h-3.5 w-3.5 text-amber-600" aria-label="Simulated" />}
+                      {a.status === 'completed' ? <DecisionBadge decision={currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined)} /> : <Badge>{a.status}</Badge>}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+        {showExceptions && (
+          <Card>
+            <CardHeader title="Recent exceptions" description={`${exceptions.filter(isUnresolved).length} unresolved`} action={<Link to="/exceptions" className="text-sm font-medium text-brand-600 hover:text-brand-700">View exceptions</Link>} />
+            {exceptions.length === 0 ? <EmptyState title="No exceptions" description="Verifications needing review appear here." /> : (
+              <ul className="divide-y divide-slate-100" aria-label="Recent exceptions">
+                {exceptions.slice(0, 5).map((e) => (
+                  <li key={e.id}>
+                    <Link to={`/exceptions/${e.id}`} className="flex flex-wrap items-center gap-2 px-5 py-3 text-sm hover:bg-slate-50">
+                      <span className="min-w-0 flex-1"><span className="block font-medium text-slate-900">{EXCEPTION_REASON_LABEL[e.reason]}</span><span className="block text-xs text-slate-500">{e.id} · {e.activityName}{e.organizationId !== organization.id ? ` · ${state.data.organizations.find((o) => o.id === e.organizationId)?.name}` : ''}</span></span>
+                      <ExceptionStatusBadge status={e.status} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+        {can('verification.activities.view') && (
+          <Card>
+            <CardHeader title="Activity status" />
+            <ul className="divide-y divide-slate-100" aria-label="Activity status">
+              {activities.slice(0, 8).map((a) => (
+                <li key={a.id} className="flex flex-wrap items-center gap-2 px-5 py-2.5 text-sm">
+                  <Link to={`/verification-activities/${a.id}`} className="min-w-0 flex-1 truncate text-slate-900 hover:text-brand-700">{a.name}</Link>
+                  <ActivityStatusBadge status={a.status} />
+                </li>
+              ))}
+              {activities.length === 0 && <li className="px-5 py-3 text-sm text-slate-500">No activities yet.</li>}
+            </ul>
+          </Card>
+        )}
+        {showResults && (
+          <Card>
+            <CardHeader title="Identity service status" />
+            <ul className="divide-y divide-slate-100 text-sm" aria-label="Identity service status">
+              <li className="flex items-center gap-2 px-5 py-2.5"><span className="flex-1 text-slate-900">FixID facial verification (local)</span>
+                <Badge tone={faceMode === 'configured' ? 'success' : faceMode === 'simulated' ? 'warning' : 'neutral'}>{faceMode === 'configured' ? 'Available' : faceMode === 'simulated' ? 'Simulated' : 'Not configured'}</Badge></li>
+              {integrations.map((i) => (
+                <li key={i.id} className="flex items-center gap-2 px-5 py-2.5"><span className="flex-1 text-slate-900">{i.name}{i.connection.target === 'simulated' ? ' (simulated)' : ''}</span>
+                  <Badge tone={i.status === 'active' ? 'success' : i.status === 'error' ? 'danger' : 'neutral'}>{i.status === 'active' ? 'Active' : i.status === 'error' ? 'Error' : i.status === 'inactive' ? 'Inactive' : i.status === 'testing' ? 'Testing' : 'Draft'}</Badge></li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
+      {owned.length > 0 && (
+        <Card>
+          <CardHeader title="Programmes you oversee" description="Programme-level totals across participating organizations." />
+          <ul className="divide-y divide-slate-100" aria-label="Programmes you oversee">
+            {owned.map((p) => {
+              const o = oversight(state, p);
+              return (
+                <li key={p.id}>
+                  <Link to={`/programmes/${p.id}`} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50">
+                    <Layers3 className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 font-medium text-slate-900">{p.name}</span>
+                    <span className="text-slate-600">{o.participating} organizations · {o.summary.attempts} attempts · {o.summary.pendingReview} pending review · {o.exceptions.unresolved} open exceptions</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+    </section>
+  );
+}

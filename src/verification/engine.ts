@@ -15,6 +15,7 @@ import { MESSAGES, type LivenessStatus } from '@/domain/transactions';
 import type { IdentityLookupResult } from '@/services/integrations/contract';
 import { lookupIdentity, matchBiometric } from '@/services/integrations/integrationService';
 import { reusableFor, transactionPolicy } from '@/store/transactionOps';
+import { reverificationProblem } from '@/store/exceptionOps';
 import { simulatedHolderBinding, type HolderBindingScenario } from './simulatedProviders';
 import { simulatedFaceVerification, type SimulatedFaceOutcome, type SimulatedLivenessOutcome } from '@/services/simulatedFaceVerification';
 
@@ -449,7 +450,7 @@ export function createVerificationService(deps: ServiceDeps) {
     },
 
     /** Starts an attempt on the active version. Refusals are recorded in the Audit Log. */
-    startAttempt(organizationId: string, activityId: string, opts: { retryOf?: string } = {}): { ok: true; attempt: VerificationAttempt } | ServiceError {
+    startAttempt(organizationId: string, activityId: string, opts: { retryOf?: string; reverificationOf?: string } = {}): { ok: true; attempt: VerificationAttempt } | ServiceError {
       const at = now().toISOString();
       deps.dispatch({ type: 'verify/expire', organizationId, at });
       const s = deps.getState();
@@ -465,8 +466,9 @@ export function createVerificationService(deps: ServiceDeps) {
       const unavailable = activity ? executionUnavailable(s, activity) : null;
       if (unavailable) return { ok: false, error: unavailable, code: 'inactive' };
       const attemptId = newAttemptId();
-      deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client, ...(opts.retryOf ? { retryOf: opts.retryOf } : {}) });
+      deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client, ...(opts.retryOf ? { retryOf: opts.retryOf } : {}), ...(opts.reverificationOf ? { reverificationOf: opts.reverificationOf } : {}) });
       const attempt = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      if (!attempt && opts.reverificationOf) return { ok: false, error: reverificationProblem(s, opts.reverificationOf, activityId) ?? 'The reverification couldn’t be started.', code: 'operational' };
       return attempt ? { ok: true, attempt } : { ok: false, error: 'The verification couldn’t be started.', code: 'operational' };
     },
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -382,8 +382,10 @@ describe('screens', () => {
     const h = harness(tomi());
     await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
     renderApp(`/programmes/${DEMO_PROGRAMME_B}`, as('acct_demo_b_admin', ORG_B, h.state), 'acct_demo_b_admin');
-    const row = (await screen.findAllByRole('row')).find((r) => r.textContent?.includes('Meridian Harbourside'))!;
-    await waitFor(() => expect(row).toHaveTextContent('1 (1 allowed, 0 pending review)'));
+    const overview = await screen.findByRole('region', { name: 'Programme overview' });
+    const row = within(overview).getAllByRole('row').find((r) => r.textContent?.includes('Meridian Harbourside'))!;
+    // Three seeded demonstration transactions plus this one; counts only.
+    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(2, 6)).toEqual(['1', '4', '2', '2']);
     expect(document.body.textContent).not.toContain('DEMO-10001');
   });
 });

@@ -5,7 +5,7 @@ import { Badge, Button, Card, DataTable, Drawer, EmptyState, FilterSelect, PageH
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import type { AuditEvent } from '@/domain/types';
 import { formatDateTime } from '@/lib/dates';
-import { useOrgData } from '@/store/AppStore';
+import { useOrgData, useStore } from '@/store/AppStore';
 
 const PAGE_SIZE = 20;
 const ACTOR_TONE = { admin: 'brand', system: 'neutral', integration: 'info' } as const;
@@ -30,15 +30,18 @@ export function AuditPage() {
   return (
     <>
       <PageHeader title="Audit Log" description="Administrative, integration and security-sensitive activity in this organization. Records are append-only." />
+      <p className="mb-4 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+        No one can edit or delete audit entries through FixID. This log is stored in this browser’s local storage, so it is illustrative and not tamper-resistant audit evidence; no cryptographic immutability is claimed.
+      </p>
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search events or actors" className="sm:w-72" />
           <FilterSelect label="Area" value={area} onChange={setArea} options={[
             { value: 'all', label: 'All areas' }, { value: 'user', label: 'Users' }, { value: 'enrollment', label: 'Enrollment' }, { value: 'identifier', label: 'Identifiers' }, { value: 'credential', label: 'Credentials' },
-            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Earlier verification records' }, { value: 'organization', label: 'Organization' }, { value: 'admin', label: 'Administrators' }, { value: 'role', label: 'Roles' }, { value: 'sso', label: 'Single sign-on' }, { value: 'integration', label: 'Integrations' }, { value: 'programme', label: 'Programmes' }, { value: 'group', label: 'Groups' }, { value: 'issuance', label: 'Group issuance' }, { value: 'verification-activity', label: 'Verification activities' },
+            { value: 'wallet', label: 'Wallet' }, { value: 'activity', label: 'Earlier verification records' }, { value: 'organization', label: 'Organization' }, { value: 'admin', label: 'Administrators' }, { value: 'role', label: 'Roles' }, { value: 'sso', label: 'Single sign-on' }, { value: 'integration', label: 'Integrations' }, { value: 'programme', label: 'Programmes' }, { value: 'group', label: 'Groups' }, { value: 'issuance', label: 'Group issuance' }, { value: 'verification-activity', label: 'Verification activities' }, { value: 'verification.', label: 'Verification transactions' }, { value: 'exception', label: 'Exceptions' }, { value: 'access', label: 'Access denied' }, { value: 'api', label: 'Status API' },
           ]} />
           <FilterSelect label="Result" value={result} onChange={setResult} options={[
-            { value: 'all', label: 'Any result' }, { value: 'success', label: 'Success' }, { value: 'partial', label: 'Partial' }, { value: 'failure', label: 'Failure' },
+            { value: 'all', label: 'Any result' }, { value: 'success', label: 'Success' }, { value: 'partial', label: 'Partial' }, { value: 'failure', label: 'Failure' }, { value: 'denied', label: 'Denied' },
           ]} />
         </div>
         <DataTable<AuditEvent>
@@ -65,12 +68,19 @@ export function AuditPage() {
 }
 
 function AuditEventDrawer({ event: e, organizationName, onClose }: { event: AuditEvent | null; organizationName: string; onClose: () => void }) {
+  const { state } = useStore();
   if (!e) return null;
+  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
   const rows: [string, React.ReactNode][] = [
     ['Event ID', <span className="font-mono text-xs">{e.id}</span>],
     ['Time', formatDateTime(e.occurredAt)],
     ['Organization', organizationName],
     ['Actor', e.actor],
+    ...(e.actorId ? [['Actor ID', <span className="font-mono text-xs">{e.actorId}</span>] as [string, React.ReactNode]] : []),
+    ...(e.actorOrganizationId ? [['Actor organization', orgName(e.actorOrganizationId)] as [string, React.ReactNode]] : []),
+    ['Resource', <span className="text-xs"><span className="text-slate-500">{e.resourceType}</span> <span className="font-mono">{e.resourceId}</span></span>],
+    ...(e.targetOrganizationId ? [['Target organization', orgName(e.targetOrganizationId)] as [string, React.ReactNode]] : []),
+    ...(e.correlationId ? [['Correlation ID', <span className="font-mono text-xs">{e.correlationId}</span>] as [string, React.ReactNode]] : []),
     ['Action', <span className="font-mono text-xs">{e.action}</span>],
     ...(e.subject ? [[{ administrator: 'Affected administrator', group: 'Affected group', 'verification-activity': 'Activity' }[e.resourceType as string] ?? 'Affected record', e.subject.name] as [string, React.ReactNode]] : []),
     ...(e.related?.length ? [[e.related.length === 1 ? 'Affected user' : `Affected users (${e.related.length})`, (
@@ -108,5 +118,5 @@ function AuditEventDrawer({ event: e, organizationName, onClose }: { event: Audi
 }
 
 export function ResultBadgeFor({ result }: { result: AuditEvent['result'] }) {
-  return <Badge tone={result === 'success' ? 'success' : result === 'partial' ? 'warning' : 'danger'} dot>{result}</Badge>;
+  return <Badge tone={result === 'success' ? 'success' : result === 'partial' || result === 'denied' ? 'warning' : 'danger'} dot>{result}</Badge>;
 }

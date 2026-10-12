@@ -4,6 +4,7 @@ import { actorPermissions as actorPermissionsFor, actorRecord } from './adminOps
 import type { AppState } from './state';
 import { activityPolicy } from './programmeOps';
 import { localTransactionFields } from './transactionOps';
+import { reverificationProblem } from './exceptionOps';
 import { LOCATION_LABEL, evaluateLocation, formatCoordinate } from '@/domain/location';
 import type { DeviceLocation } from '@/services/location';
 import { formatDateTime } from '@/lib/dates';
@@ -53,7 +54,7 @@ export function replaceAttempt(state: AppState, attempt: VerificationAttempt, au
   };
 }
 
-export function applyStartAttempt(state: AppState, input: { organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef; retryOf?: string }): Result {
+export function applyStartAttempt(state: AppState, input: { organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef; retryOf?: string; reverificationOf?: string }): Result {
   const prior = findAttempt(state, input.attemptId);
   if (prior) return { ok: true, state, attempt: prior };
   const auth = authorizeExecution(state, input.organizationId, input.activityId, input.client);
@@ -62,6 +63,11 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
   const version = state.data.activityVersions.find((v) => v.id === activity.activeVersionId);
   if (!version || version.checks.length === 0) return { ok: false, error: 'This activity’s configuration can’t be used right now. Ask an administrator to review it.', code: 'invalid-configuration' };
   const admin = state.data.administrators.find((a) => a.id === auth.adminId)!;
+  // A reverification must be one an exception reviewer requested, for the same activity.
+  if (input.reverificationOf) {
+    const problem = reverificationProblem(state, input.reverificationOf, activity.id);
+    if (problem) return { ok: false, error: problem, code: 'invalid-configuration' };
+  }
   // The identity source, integration and programme come from the authoritative configuration, never the verifier.
   const policy = activityPolicy(state, activity);
   const external = policy.effective.identitySource.kind === 'external';
@@ -77,6 +83,7 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
     ...(policy.programme ? { programmeId: policy.programme.id } : {}),
     ...(external && policy.integration ? { integrationId: policy.integration.id, serviceName: policy.integration.name } : {}),
     // A retry links to the transaction it follows; that result is never changed.
+    ...(input.reverificationOf ? { reverificationOf: input.reverificationOf } : {}),
     ...(input.retryOf && state.data.verificationAttempts.some((p) => p.id === input.retryOf && p.activityId === activity.id && p.status !== 'in-progress') ? { retryOf: input.retryOf } : {}),
   };
   return { ok: true, state: replaceAttempt(state, attempt), attempt };

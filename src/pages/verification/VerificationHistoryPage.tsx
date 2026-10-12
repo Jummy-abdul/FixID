@@ -1,9 +1,11 @@
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Download, FlaskConical, Repeat, X } from 'lucide-react';
 import { DecisionBadge, EligibilityStatusBadge, LivenessBadge, MatchBadge, SimulatedBadge, StageBadge, lookupLabel, sourceName } from '@/components/verification/transactionParts';
 import { useAuthorization } from '@/auth/authorization';
-import { DECISION_LABEL } from '@/domain/transactions';
+import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
+import { DECISION_LABEL, ELIGIBILITY_STATUS_LABEL, MATCH_LABEL, STAGE_LABEL, stageOf } from '@/domain/transactions';
+import { currentDecision, exceptionFor } from '@/store/exceptionOps';
 import type { ActivityDecision } from '@/domain/programmes';
 import { Badge, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice, type Column } from '@/components/ui';
 import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
@@ -14,7 +16,8 @@ import type { Transaction, VerificationAttempt, VerificationOutcome } from '@/do
 import { OUTCOME_LABEL, checkById, providersFor } from '@/domain/verification';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDateTime } from '@/lib/dates';
-import { useOrgData, useSession, useStore } from '@/store/AppStore';
+import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
+import { RESOLUTION_LABEL } from '@/domain/exceptions';
 import { AttemptBadge } from '@/components/verification/attemptParts';
 import { TransactionDetailPage } from '../TransactionDetailPage';
 import { activityPath } from './paths';
@@ -41,6 +44,11 @@ interface HistoryRow {
   eligibility: ReactNode;
   decision: ReactNode;
   decisionKey?: ActivityDecision;
+  programmeId?: string;
+  matchKey?: string;
+  eligibilityKey?: string;
+  stageKey: string;
+  simulated: boolean;
   status: ReactNode;
   outcome: ReactNode;
   outcomeKey?: VerificationOutcome;
@@ -51,7 +59,7 @@ interface HistoryRow {
   search: string;
 }
 
-function fromAttempt(a: VerificationAttempt, organization = ''): HistoryRow {
+function fromAttempt(a: VerificationAttempt, organization = '', current: ActivityDecision | undefined = a.reviewDisposition?.decision ?? a.decision): HistoryRow {
   return {
     id: a.id, at: a.completedAt ?? a.startedAt, activityId: a.activityId, activityName: a.activityName, activityHref: activityPath(a.activityId),
     memberId: a.subject?.memberId, subject: a.subject?.label ?? 'Not identified', verifier: a.verifierName, organization,
@@ -59,8 +67,10 @@ function fromAttempt(a: VerificationAttempt, organization = ''): HistoryRow {
     // Transactions record identity match and eligibility separately; earlier records show their identity and eligibility results.
     identity: a.match ? <MatchBadge status={a.match.status} /> : <IdentityResultBadge attempt={a} />,
     eligibility: a.eligibilityStatus ? <EligibilityStatusBadge status={a.eligibilityStatus} /> : <EligibilityBadge attempt={a} />,
-    decision: <span className="inline-flex items-center gap-1"><DecisionBadge decision={a.decision} />{a.reusedFrom && <Repeat className="h-3.5 w-3.5 text-sky-600" aria-label="Reused identity result" />}</span>,
-    decisionKey: a.decision, status: <StageBadge attempt={a} />,
+    // The current disposition (after any review); the original decision stays on the transaction.
+    decision: <span className="inline-flex items-center gap-1"><DecisionBadge decision={a.status === 'completed' ? current : undefined} />{a.reviewDisposition && <span className="text-xs text-slate-500">Reviewed</span>}{a.reusedFrom && <Repeat className="h-3.5 w-3.5 text-sky-600" aria-label="Reused identity result" />}{a.simulated && <FlaskConical className="h-3.5 w-3.5 text-amber-600" aria-label="Used simulated services" />}</span>,
+    decisionKey: a.status === 'completed' ? current : undefined, status: <StageBadge attempt={a} />,
+    programmeId: a.programmeId, matchKey: a.match?.status, eligibilityKey: a.eligibilityStatus, stageKey: stageOf(a), simulated: a.simulated,
     outcome: <span className="inline-flex items-center gap-1"><AttemptBadge attempt={a} />{a.simulated && <FlaskConical className="h-3.5 w-3.5 text-amber-600" aria-label="Used simulated providers" />}</span>,
     outcomeKey: a.status === 'completed' ? a.outcome : undefined,
     access: <AccessBadge attempt={a} />, location: <LocationBadge attempt={a} />, entry: <EntryBadge attempt={a} />, entered: a.entry?.status === 'entered',
@@ -108,19 +118,26 @@ export function VerificationHistoryPage() {
   const [entry, setEntry] = useQueryState('entry', 'all');
   const [decision, setDecision] = useQueryState('decision', 'all');
   const [source, setSource] = useQueryState('source', 'all');
+  const [programme, setProgramme] = useQueryState('programme', 'all');
+  const [match, setMatch] = useQueryState('match', 'all');
+  const [elig, setElig] = useQueryState('eligibility', 'all');
+  const [stage, setStage] = useQueryState('status', 'all');
+  const [sim, setSim] = useQueryState('simulated', 'all');
   const [person, setPerson] = useQueryState('person', '');
   const [page, setPage] = usePageParam();
   const now = useMemo(() => new Date(), []);
 
   const attempts = useMemo(() => state.data.verificationAttempts.filter((a) => a.organizationId === organization.id && a.status !== 'in-progress'), [state.data.verificationAttempts, organization.id]);
   const configs = state.data.activityConfigs.filter((a) => a.organizationId === organization.id);
+  // Programmes this organization's transactions ran under (by name only).
+  const programmes = (state.data.verificationProgrammes ?? []).filter((p) => attempts.some((a) => a.programmeId === p.id));
   const all = useMemo(() => {
     const legacyName = new Map(activities.map((a) => [a.id, a.name]));
     const legacy = (t: Transaction): HistoryRow => {
       const m = t.memberId ? memberById.get(t.memberId) : undefined;
       return {
         id: t.id, at: t.occurredAt, activityId: t.activityId, activityName: legacyName.get(t.activityId) ?? '—', memberId: m?.id, subject: m?.displayName ?? 'Unknown', verifier: t.verifier,
-        organization: organization.name, source: 'FixID Local Records', sourceKey: 'local', decision: <DecisionBadge decision={LEGACY_DECISION[t.decision]} />, decisionKey: LEGACY_DECISION[t.decision],
+        organization: organization.name, source: 'FixID Local Records', sourceKey: 'local', stageKey: 'completed', simulated: false, decision: <DecisionBadge decision={LEGACY_DECISION[t.decision]} />, decisionKey: LEGACY_DECISION[t.decision],
         status: <StageBadge attempt={{ status: 'completed', outcome: LEGACY_OUTCOME[t.decision] }} />,
         identity: <ResultBadge result={t.result} />, eligibility: <span className="text-slate-400">—</span>,
         outcome: <AttemptBadge attempt={{ status: 'completed', outcome: LEGACY_OUTCOME[t.decision] }} />, outcomeKey: LEGACY_OUTCOME[t.decision],
@@ -128,8 +145,8 @@ export function VerificationHistoryPage() {
         search: [t.id, t.reason, m?.displayName, t.credentialId && credentialById.get(t.credentialId)?.identifier, legacyName.get(t.activityId)].join(' ').toLowerCase(),
       };
     };
-    return [...attempts.map((a) => fromAttempt(a, organization.name)), ...transactions.map(legacy)].sort((a, b) => b.at.localeCompare(a.at));
-  }, [attempts, transactions, activities, memberById, credentialById, organization.name]);
+    return [...attempts.map((a) => fromAttempt(a, organization.name, a.status === 'completed' ? currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined) : undefined)), ...transactions.map(legacy)].sort((a, b) => b.at.localeCompare(a.at));
+  }, [attempts, transactions, activities, memberById, credentialById, organization.name, state]);
 
   const filtered = useMemo(() => {
     const start = rangeStart(range as TimeRange, now)?.toISOString();
@@ -139,11 +156,16 @@ export function VerificationHistoryPage() {
       (outcome === 'all' || r.outcomeKey === outcome) &&
       (decision === 'all' || r.decisionKey === decision) &&
       (source === 'all' || r.sourceKey === source) &&
+      (programme === 'all' || (programme === 'none' ? !r.programmeId : r.programmeId === programme)) &&
+      (match === 'all' || r.matchKey === match) &&
+      (elig === 'all' || r.eligibilityKey === elig) &&
+      (stage === 'all' || r.stageKey === stage) &&
+      (sim === 'all' || (sim === 'yes') === r.simulated) &&
       (activity === 'all' || r.activityId === activity) &&
       (entry === 'all' || (entry === 'entered') === r.entered) &&
       (!person || r.memberId === person) &&
       (!query || r.search.includes(query)));
-  }, [all, range, outcome, decision, source, activity, entry, person, q, now]);
+  }, [all, range, outcome, decision, source, programme, match, elig, stage, sim, activity, entry, person, q, now]);
 
   const { pageRows, pageCount, current } = usePageSlice(filtered, page, PAGE_SIZE);
   const personName = person ? memberById.get(person)?.displayName : null;
@@ -154,7 +176,12 @@ export function VerificationHistoryPage() {
       <PageHeader
         title="Verification History"
         description="Every verification: what was checked, the outcome, the access decision, and whether entry was recorded."
-        actions={<PlannedButton icon={<Download className="h-4 w-4" />} info={PLANNED.export}>Export CSV</PlannedButton>}
+        actions={(
+          <div className="flex flex-wrap gap-2">
+            {DEMO_AUTH_ENABLED && <Link to="/developer/status-api" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-amber-800 ring-1 ring-inset ring-amber-300 hover:bg-amber-50"><FlaskConical className="h-4 w-4" aria-hidden="true" />Status API (simulated)</Link>}
+            <PlannedButton icon={<Download className="h-4 w-4" />} info={PLANNED.export}>Export CSV</PlannedButton>
+          </div>
+        )}
       />
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
@@ -168,6 +195,11 @@ export function VerificationHistoryPage() {
             options={[{ value: 'all', label: 'All decisions' }, ...(Object.keys(DECISION_LABEL) as ActivityDecision[]).map((d) => ({ value: d, label: DECISION_LABEL[d] }))]} />
           <FilterSelect label="Identity source" value={source} onChange={setSource}
             options={[{ value: 'all', label: 'All identity sources' }, { value: 'local', label: 'FixID Local Records' }, { value: 'external', label: 'External identity services' }]} />
+          {programmes.length > 0 && <FilterSelect label="Programme" value={programme} onChange={setProgramme} options={[{ value: 'all', label: 'All programmes' }, { value: 'none', label: 'No programme' }, ...programmes.map((p) => ({ value: p.id, label: p.name }))]} />}
+          <FilterSelect label="Identity match" value={match} onChange={setMatch} options={[{ value: 'all', label: 'Any identity match' }, ...(Object.keys(MATCH_LABEL) as (keyof typeof MATCH_LABEL)[]).map((k) => ({ value: k, label: MATCH_LABEL[k] }))]} />
+          <FilterSelect label="Eligibility" value={elig} onChange={setElig} options={[{ value: 'all', label: 'Any eligibility' }, ...(Object.keys(ELIGIBILITY_STATUS_LABEL) as (keyof typeof ELIGIBILITY_STATUS_LABEL)[]).map((k) => ({ value: k, label: ELIGIBILITY_STATUS_LABEL[k] }))]} />
+          <FilterSelect label="Transaction status" value={stage} onChange={setStage} options={[{ value: 'all', label: 'Any status' }, ...(['completed', 'pending-review', 'failed', 'unable-to-complete', 'cancelled'] as const).map((k) => ({ value: k, label: STAGE_LABEL[k] }))]} />
+          <FilterSelect label="Simulation" value={sim} onChange={setSim} options={[{ value: 'all', label: 'Simulated or not' }, { value: 'yes', label: 'Simulated' }, { value: 'no', label: 'Not simulated' }]} />
           <FilterSelect label="Entry" value={entry} onChange={setEntry}
             options={[{ value: 'all', label: 'Any entry status' }, { value: 'entered', label: 'Entered' }, { value: 'not-entered', label: 'Not entered' }]} />
           {personName && (
@@ -194,7 +226,11 @@ export function VerificationRecordPage() {
   const { recordId } = useParams();
   const { state } = useStore();
   const { organization } = useSession();
+  const { recordAccessDenied } = useActions();
   const attempt = state.data.verificationAttempts.find((a) => a.id === recordId && a.organizationId === organization.id);
+  // Another organization's transaction is never shown; the refused attempt is audited.
+  const elsewhere = !attempt && state.data.verificationAttempts.some((a) => a.id === recordId);
+  useEffect(() => { if (elsewhere && recordId) recordAccessDenied(organization.id, 'verification-transaction', recordId); }, [elsewhere, recordId, organization.id, recordAccessDenied]);
   return attempt ? <AttemptDetail attempt={attempt} /> : <TransactionDetailPage />;
 }
 
@@ -296,6 +332,9 @@ function TransactionDetails({ attempt: a, programmeName }: { attempt: Verificati
         {a.eligibilityStatus && row('Eligibility', <><EligibilityStatusBadge status={a.eligibilityStatus} />{a.eligibilityExplanation && <span className="block text-xs text-slate-500">{a.eligibilityExplanation}</span>}</>)}
         {row('Activity Decision', <><DecisionBadge decision={a.decision} />{a.decisionExplanation && <span className="block text-xs text-slate-500">{a.decisionExplanation}</span>}</>)}
         {a.failureReason && row('Failure or exception reason', a.failureReason)}
+        {a.exceptionId && row('Exception', <Link to={`/exceptions/${a.exceptionId}`} className="font-mono text-brand-700 hover:underline">{a.exceptionId}</Link>)}
+        {a.reviewDisposition && row('Current disposition (after review)', <><DecisionBadge decision={a.reviewDisposition.decision} /><span className="block text-xs text-slate-500">{RESOLUTION_LABEL[a.reviewDisposition.outcome]} · {a.reviewDisposition.by} · {formatDateTime(a.reviewDisposition.at)}. The original decision above is unchanged.</span></>)}
+        {a.reverificationOf && row('Reverification for exception', <Link to={`/exceptions/${a.reverificationOf}`} className="font-mono text-brand-700 hover:underline">{a.reverificationOf}</Link>)}
         {a.reusedFrom && row('Reused result from', <Link to={`/verification-history/${a.reusedFrom}`} className="font-mono text-brand-700 hover:underline">{a.reusedFrom}</Link>)}
         {a.retryOf && row('Retry of', <Link to={`/verification-history/${a.retryOf}`} className="font-mono text-brand-700 hover:underline">{a.retryOf}</Link>)}
         {row('Simulation', a.simulated ? <SimulatedBadge label="Simulated result" /> : 'No simulated services were used')}

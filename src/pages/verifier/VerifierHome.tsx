@@ -1,3 +1,4 @@
+import { DecisionBadge } from '@/components/verification/transactionParts';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CalendarClock, MapPin, Play, ScanFace, ShieldOff } from 'lucide-react';
@@ -203,7 +204,9 @@ export function VerifierDashboard() {
                   <span className="block text-xs text-slate-500">{a.activityName} · {formatDateTime(a.completedAt ?? a.startedAt)}</span>
                 </span>
                 <AttemptBadge attempt={a} />
+                {a.decision && <DecisionBadge decision={a.reviewDisposition?.decision ?? a.decision} />}
                 {a.entry && <EntryBadge attempt={a} />}
+                <Link to={`/verify/attempts/${a.id}`} className="font-medium text-brand-600 hover:text-brand-700">View<span className="sr-only"> {a.id}</span></Link>
               </li>
             ))}
           </ul>
