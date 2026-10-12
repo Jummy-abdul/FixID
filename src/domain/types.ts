@@ -37,6 +37,31 @@ export interface Organization {
   status?: 'active' | 'inactive';
   /** Set for organizations created by a signed-up administrator (not demo data). */
   ownerAccountId?: string;
+  /**
+   * Onboarding of a sub-organization created by its parent: it waits for its initial Organization Admin to
+   * accept their invitation. Missing means complete (registered organizations onboard themselves).
+   */
+  onboarding?: 'awaiting-administrator' | 'complete';
+}
+
+/**
+ * A relationship between two organizations. Phase 1 supports one kind: a sub-organization created by its
+ * parent (one level, one parent per organization). The record is separate from the organizations so later
+ * phases can add other origins (an existing organization invited to join, `pending` until it accepts) or
+ * other relationship types without changing the organizations themselves. A relationship grants the parent
+ * no access to the child's records: each organization's data stays in its own workspace.
+ */
+export interface OrganizationRelationship {
+  id: string;
+  parentOrganizationId: string;
+  childOrganizationId: string;
+  type: 'sub-organization';
+  origin: 'created-by-parent' | 'invited';
+  status: 'active' | 'pending' | 'ended';
+  /** The administrator record invited to run the sub-organization. */
+  initialAdministratorId?: string;
+  createdAt: ISODate;
+  createdBy: string;
 }
 
 export interface OrganizationIntegrations {
@@ -431,6 +456,8 @@ export type AuditAction =
   | 'admin.joined'
   | 'admin.sso-linked'
   | 'admin.sso-unlinked'
+  | 'organization.sub-created'
+  | 'organization.sub-invitation-resent'
   | 'sso.saved'
   | 'sso.tested'
   | 'sso.test-failed'

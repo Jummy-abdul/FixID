@@ -1,3 +1,4 @@
+import { ORG_B1 } from '@/data/demoPersonas';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -37,7 +38,10 @@ beforeEach(() => {
 describe('current prototype account', () => {
   it('is an active Organization Admin with every organization permission, in its own organizations only', () => {
     const s = sampleState();
-    for (const org of s.data.organizations) {
+    // Its organizations are the top-level sample organizations; it isn't a member of any sub-organization.
+    expect(s.data.admin.organizationIds).not.toContain(ORG_B1);
+    expect(actorPermissions(s, ORG_B1).size).toBe(0);
+    for (const org of s.data.organizations.filter((o) => s.data.admin.organizationIds.includes(o.id))) {
       const rec = actorRecord(s, org.id)!;
       expect(rec).toMatchObject({ status: 'active', roleIds: ['organization-admin'] });
       expect([...actorPermissions(s, org.id)].sort()).toEqual(PERMISSIONS.map((p) => p.id).sort());

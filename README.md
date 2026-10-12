@@ -58,7 +58,7 @@ Deployed on Vercel from this repository. `vercel.json` rewrites all paths to `in
 
 ## Demo workspaces
 
-The app opens in **Crestfield Academy**, a brand-new organization with no users, credentials or activities, so the first-time journey runs on real data. Northbridge University, Meridian Health Group and Lagos Tech Summit are established sample organizations. Switch under **Settings → Demo data**.
+The app opens in **Crestfield Academy**, a brand-new organization with no users, credentials or activities, so the first-time journey runs on real data. Northbridge University, Meridian Health Group (with two sub-organizations) and Brightwater Tech Summit are established sample organizations; all names, places and identifiers in sample data are fictional. Switch under **Settings → Demo data**, or sign in with a demonstration account (see Organizations, workspaces and demo accounts).
 
 ## Sign in, sign up and onboarding
 
@@ -95,6 +95,38 @@ Each signed-up organization has its own records (`ownerAccountId` on the organiz
 **Access control (Stories 07–09).** Navigation, pages, actions, direct URLs and store operations follow the Roles and Permissions Matrix (Organization Admin, Verifier, Auditor and created custom roles); `sso.manage` is the only new permission. The Auditor stays read-only and never sees raw biometric captures or templates (FixID never stores them: live captures are held in memory for one comparison only). Every change is refused for another organization in the reducer, whichever way the administrator signed in; records are looked up within the current organization only. Verifiers act only on activities they're assigned to, and removing an assignment removes access immediately (`authorizeVerifier`).
 
 **Prototype limits.** All of this runs in the browser: route checks, permissions, lockout, session expiry and token checks can be bypassed by someone editing local storage. Production needs a FixID backend for OIDC (secret storage, discovery, PKCE, ID-token validation), server-side sessions and revocation, rate limiting, email delivery, and server-side authorization and tenant isolation for every request.
+
+## Organizations, workspaces and demo accounts (Phase 1)
+
+**Organization model.** Every organization registers the same way (no organization-type choice). An organization becomes a parent only by creating sub-organizations. Relationships are separate records (`data.organizationRelationships`: parent, child, type `sub-organization`, origin, status, initial administrator), so later phases can add other origins, such as inviting an existing organization (`pending` until accepted), without changing organizations. Phase 1 rules, enforced in the store (`src/store/orgOps.ts`): one level only (a sub-organization can't create sub-organizations), one parent per organization, and an existing organization is never reassigned.
+
+**Organizations** (navigation → Organizations, `/organizations`; `organizations.view` to see, `organizations.manage` to create and resend; Organization Admin has both, Auditor has view only):
+- **Create Organization:** Organization Name (required), Short Name, Industry, Organization Email, Organization Phone Number (optional), Initial Administrator Email (required), Default Person Label and Time Zone (default from the parent). The Organization ID is generated; the country is inherited. Creating it adds a separate workspace (status *Awaiting administrator*), the parent relationship, and a 72-hour single-use invitation for its Organization Admin through the existing invitation flow (simulated delivery shows the link). It becomes *Active* when they accept. The creator gets no membership or access in it.
+- **List:** Organization Name, Organization ID, Administrator (with invitation state), Status, Date Created and Actions (View details, Resend invitation), with search and an empty state.
+- **Details** (`/organizations/:id`): organization information, relationship, initial administrator and invitation status, and the count of active administrators. Nothing else: the sub-organization's people, biometric data, credentials, activities, administrators' details and settings stay private, and any other ID shows "Organization not available".
+- **In a sub-organization**, the page shows its parent relationship and what the parent can see.
+
+**Isolation.** Each organization's data stays in its own workspace. Every change is refused in the reducer unless it targets the organization being worked in, with the actor's permissions there (`ACTION_PERMISSIONS`, `targetOrganization`). Pages only read records of the current organization, so changing an ID in a URL shows "not found" or "no access". A parent's administrators aren't members of its sub-organizations, and siblings can't see each other. This is a client-side demonstration model; production needs the same scoping on the server for every request.
+
+**Workspace context.** The header shows the current organization, your role, and "Sub-organization of …" where relevant. A switcher appears only for accounts with explicit memberships in several organizations (administrator records); relationships never add workspaces. Switching returns to the dashboard of the new workspace. Memberships come from administrator records (`AuthProvider`). The repair of the demo account's role (`ensurePrimaryAdmins`) never creates memberships.
+
+**Platform Administrator** (`/platform`): a separate platform context, not an organization role (it can't be assigned or created in Roles & Permissions). It shows registered organizations, statuses, relationships and counts, and **no** people, identity records, biometric data, credentials or secrets. Platform controls that need a backend (suspension, support access) aren't part of the prototype and aren't shown.
+
+**Demonstration data** (fictional; `src/data/demoPersonas.ts`): **Organization A** = Northbridge University (independent). **Organization B** = Meridian Health Group, with sub-organizations **B1** = Meridian Harbourside Hospital and **B2** = Meridian Eastgate Clinic, each with its own administrators, people and activities. B2 has one custom role, *Records Officer*, created by its administrator for the custom-role demonstration account: an intentional, documented exception to "no prepopulated custom roles". New organizations still start with none. Sample data no longer uses real place or regulator names.
+
+**Demo accounts** (demo builds only; Sign in → *Demonstration accounts (prototype only)* → Use; they sign in through the normal password check, all with `FixIDDemo2026!`; the list and credentials don't exist when `VITE_DEMO_AUTH=off`):
+
+| Account | Workspace and role |
+| --- | --- |
+| platform.admin@fixid.example | Platform Administrator (`/platform`) |
+| esther.lawal@northbridge.example | Organization A — Organization Admin (independent) |
+| victor.hale@meridian.example | Organization B — Organization Admin (with sub-organizations) |
+| lina.ford@harbourside.example | B1 — Organization Admin (sub-organization) |
+| tomi.okon@harbourside.example | B1 — Verifier (assigned to two activities) |
+| adaora.nwosu@northbridge.edu.ng | Organization A — Auditor |
+| joel.park@eastgate.example | B2 — custom role *Records Officer* |
+| mira.santos@eastgate.example | B2 — Organization Admin |
+| demo@fixid.app | Multi-workspace Organization Admin (Crestfield, A, B, Brightwater; no sub-organizations) |
 
 ## Administrators & Roles
 

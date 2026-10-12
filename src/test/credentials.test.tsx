@@ -70,7 +70,7 @@ describe('Credentials landing', () => {
     expect(screen.getAllByRole('button', { name: 'Create credential' })).toHaveLength(1);
     expect(screen.queryByRole('table')).toBeNull();
     expect(screen.queryByRole('tablist')).toBeNull();
-    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(within(screen.getByRole('main')).queryByRole('combobox')).toBeNull();
     expect(screen.getByRole('main').textContent).not.toMatch(/wallet/i);
   });
 });

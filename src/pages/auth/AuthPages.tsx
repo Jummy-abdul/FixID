@@ -8,6 +8,7 @@ import { DEMO_AUTH_ENABLED, RESET_LINK_MINUTES, SESSION_EXPIRED_FLAG, SIGNED_OUT
 import { DEMO_ADMIN } from '@/data/seed';
 import { useStore } from '@/store/AppStore';
 import { loadMailbox } from '@/auth/demoMailbox';
+import { DEMO_PERSONAS, personaName } from '@/data/demoPersonas';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
 import { OtpInput, PasswordField, PasswordRules } from './fields';
 
@@ -40,7 +41,7 @@ export function RequireApp() {
   const { state } = useStore();
   const location = useLocation();
   if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
-  if (account.onboarding !== 'complete') return <Navigate to={homeFor(account)} replace />;
+  if (account.onboarding !== 'complete' || account.platformRole) return <Navigate to={homeFor(account)} replace />;
   // Never render another organization's data while the workspace is being switched.
   if (state.data.admin.id !== (isDemo ? DEMO_ADMIN.id : account.id)) return null;
   // Access follows the administrator record: deactivated administrators, or roles without any permission, can't enter.
@@ -289,7 +290,46 @@ export function SignInPage() {
       <Link to="/signin/sso" className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50">
         <KeyRound className="h-4 w-4" aria-hidden="true" /> Sign in with SSO
       </Link>
+      {DEMO_AUTH_ENABLED && <DemoAccounts onUse={(e) => { setEmail(e); setPassword(DEMO_PASSWORD); setErrors({}); }} />}
     </AuthLayout>
+  );
+}
+
+/** The shared password of the demonstration accounts (demo builds only). */
+const DEMO_PASSWORD = 'FixIDDemo2026!';
+
+/**
+ * Demo builds only: fictional accounts for each kind of user. Choosing one fills in the form; signing in
+ * still goes through the normal password check. Not rendered when demo mode is off (VITE_DEMO_AUTH=off).
+ */
+function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
+  const accounts = [
+    { email: 'demo@fixid.app', persona: 'Multi-workspace Organization Admin', name: 'Tobyson TE', description: 'Belongs to several sample organizations and can switch between them.' },
+    ...DEMO_PERSONAS.map((p) => ({ email: p.email, persona: p.persona, name: personaName(p), description: p.description })),
+  ];
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-6 rounded-xl border border-dashed border-amber-300 bg-amber-50/60 text-sm">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((x) => !x)} className="w-full px-4 py-3 text-left font-semibold text-amber-900">
+        Demonstration accounts (prototype only)
+      </button>
+      {/* Credentials are only shown once someone asks for them. */}
+      {open && <div className="space-y-2 border-t border-amber-200 px-4 py-3">
+        <p className="text-amber-900">Fictional accounts for testing each kind of user. They all use the password <span className="font-mono">{DEMO_PASSWORD}</span>. Not available in production builds.</p>
+        <ul className="space-y-1.5" aria-label="Demonstration accounts">
+          {accounts.map((a) => (
+            <li key={a.email} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-amber-200">
+              <span className="min-w-0">
+                <span className="block font-medium text-slate-900">{a.persona}</span>
+                <span className="block text-xs text-slate-500">{a.name} · {a.email}</span>
+                <span className="block text-xs text-slate-500">{a.description}</span>
+              </span>
+              <button type="button" onClick={() => onUse(a.email)} aria-label={`Use ${a.persona} account`} className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-700">Use</button>
+            </li>
+          ))}
+        </ul>
+      </div>}
+    </div>
   );
 }
 

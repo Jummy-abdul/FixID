@@ -1,6 +1,6 @@
 import type { Permission } from '@/domain/roles';
 import {
-  BadgeCheck, ClipboardCheck, History, LayoutDashboard, Layers, ListChecks, ScanFace, ScrollText, Settings, Users, type LucideIcon,
+  BadgeCheck, Building2, ClipboardCheck, History, LayoutDashboard, Layers, ListChecks, ScanFace, ScrollText, Settings, Users, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -40,6 +40,12 @@ export const NAVIGATION: NavGroup[] = [
       { label: 'My Verification Activities', to: '/verify', icon: ScanFace, description: 'Activities you’re assigned to verify', permission: 'verification.execute', hiddenWith: 'verification.activities.view', alsoActiveOn: ['/verify/activities', '/verify/attempts'] },
       { label: 'Verification History', to: '/verification-history', icon: History, description: 'Verification attempts and decisions', permission: 'verification.results.view' },
       { label: 'My Verification History', to: '/verify/history', icon: ClipboardCheck, description: 'Verifications you performed', permission: 'verification.execute', hiddenWith: 'verification.results.view' },
+    ],
+  },
+  {
+    label: 'Organizations',
+    items: [
+      { label: 'Organizations', to: '/organizations', icon: Building2, description: 'Sub-organizations and organization relationships', permission: 'organizations.view' },
     ],
   },
   {

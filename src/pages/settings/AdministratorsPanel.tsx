@@ -116,7 +116,7 @@ function RolePicker({ value, onChange, grantable, legend = 'Role', current }: {
  * Simulated delivery: no email service is connected, so the invitation link is shown to the inviting
  * administrator to pass on. It is never presented as a sent email.
  */
-function InvitationLink({ token }: { token: string }) {
+export function InvitationLink({ token }: { token: string }) {
   const toast = useToast();
   const url = `${window.location.origin}${invitationPath(token)}`;
   const copy = async () => {

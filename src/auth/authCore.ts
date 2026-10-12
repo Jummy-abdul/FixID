@@ -5,6 +5,8 @@
  * hashed with PBKDF2 before being kept in local storage.
  */
 
+import { DEMO_PERSONAS } from '@/data/demoPersonas';
+
 /** Demo mode is on unless explicitly disabled at build time (VITE_DEMO_AUTH=off). */
 export const DEMO_AUTH_ENABLED = import.meta.env.VITE_DEMO_AUTH !== 'off';
 /** Role preview is a design and review aid, available only in demo builds and never in production. */
@@ -33,6 +35,11 @@ export interface Account {
   createdAt: string;
   /** Sessions issued before this time are revoked (set by a password reset). */
   sessionsValidAfter?: string;
+  /**
+   * Platform-level operator (FixID staff), not a member of any organization. Opens the separate platform
+   * overview instead of an organization workspace. Not an organization role and never assignable.
+   */
+  platformRole?: 'platform-admin';
 }
 
 /**
@@ -98,6 +105,19 @@ export const DEMO_ACCOUNT: Account = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 export const DEMO_SESSION: AuthSession = { accountId: DEMO_ACCOUNT.id };
+
+/**
+ * Demonstration accounts for each kind of user (demo builds only). They use the demo account's password and
+ * sign in through the normal password check; they don't exist when demo mode is off.
+ */
+export const DEMO_PERSONA_ACCOUNTS: Account[] = DEMO_PERSONAS.map((p) => ({
+  id: p.accountId, email: p.email, password: DEMO_ACCOUNT.password, emailVerified: true, firstName: p.firstName, lastName: p.lastName,
+  onboarding: 'complete', createdAt: DEMO_ACCOUNT.createdAt,
+  ...(p.organizationId ? { organizationId: p.organizationId } : {}), ...(p.platform ? { platformRole: 'platform-admin' as const } : {}),
+}));
+
+/** Built-in demonstration accounts (none outside demo builds). */
+export const builtInAccounts = (): Account[] => (DEMO_AUTH_ENABLED ? [DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS] : []);
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const normalizeEmail = (e: string) => e.trim().toLowerCase();

@@ -313,14 +313,16 @@ export function applyAcceptInvite(state: AppState, input: { adminId: string; use
     invitation: target.invitation ? { ...target.invitation, token: undefined, acceptedAt: input.at } : undefined,
   };
   // The event is by the new administrator, not whoever was last signed in.
-  return {
-    ok: true,
-    state: withEvent(state, state.data.administrators.map((a) => (a.id === target.id ? joined : a)), {
-      organizationId: target.organizationId, action: 'admin.joined', target: joined, occurredAt: input.at, actor: joined.name,
-      summary: (actor) => `${actor} accepted the invitation and joined as ${roleNames(target.roleIds)}.`,
-      changes: [{ field: 'Status', from: 'Invited', to: 'Active' }],
-    }),
-  };
+  // A sub-organization's onboarding completes when an Organization Admin accepts.
+  const onboarded = target.roleIds.includes(ORG_ADMIN)
+    ? state.data.organizations.map((o) => (o.id === target.organizationId && o.onboarding === 'awaiting-administrator' ? { ...o, onboarding: 'complete' as const } : o))
+    : state.data.organizations;
+  const next = withEvent(state, state.data.administrators.map((a) => (a.id === target.id ? joined : a)), {
+    organizationId: target.organizationId, action: 'admin.joined', target: joined, occurredAt: input.at, actor: joined.name,
+    summary: (actor) => `${actor} accepted the invitation and joined as ${roleNames(target.roleIds)}.`,
+    changes: [{ field: 'Status', from: 'Invited', to: 'Active' }],
+  });
+  return { ok: true, state: { ...next, data: { ...next.data, organizations: onboarded } } };
 }
 
 /**
@@ -353,10 +355,11 @@ export function ownerRecord(organizationId: string, userId: string, email: strin
 }
 
 /**
- * The prototype's primary account in each organization (the demo administrator in sample
- * organizations, the owner in organizations created through sign-up) is an active Organization Admin.
- * Restores that assignment in saved data where it has drifted; other administrators are untouched.
- * Production would make this a provisioning step on the server, not a client-side repair.
+ * The prototype's primary account in an organization stays an active Organization Admin: the owner of an
+ * organization created through sign-up, or the demo account in the sample organizations it belongs to.
+ * Restores that assignment in saved data where it has drifted; other administrators are untouched. It never
+ * makes anyone a member of an organization they don't already belong to (so a parent's administrators don't
+ * become administrators of its sub-organizations). Production would do this server-side at provisioning.
  */
 export function ensurePrimaryAdmins(state: AppState): AppState {
   let admins = state.data.administrators;
@@ -365,14 +368,13 @@ export function ensurePrimaryAdmins(state: AppState): AppState {
     const userId = org.ownerAccountId ?? DEMO_ADMIN.id;
     const rec = admins.find((a) => a.organizationId === org.id && a.userId === userId);
     if (rec && rec.status === 'active' && rec.roleIds.includes(ORG_ADMIN)) continue;
-    changed = true;
     if (rec) {
+      changed = true;
       admins = admins.map((a) => (a === rec ? { ...a, status: 'active', roleIds: [ORG_ADMIN] } : a));
-    } else {
+    } else if (org.ownerAccountId) {
+      changed = true;
       const self = state.data.admin.id === userId ? state.data.admin : undefined;
-      const name = self?.name ?? (userId === DEMO_ADMIN.id ? DEMO_ADMIN.name : undefined);
-      const email = self?.email ?? (userId === DEMO_ADMIN.id ? DEMO_ADMIN.email : org.contactEmail);
-      admins = [...admins, { ...ownerRecord(org.id, userId, email, name ?? email, org.createdAt), lastActiveAt: undefined }];
+      admins = [...admins, { ...ownerRecord(org.id, userId, self?.email ?? org.contactEmail, self?.name ?? org.contactEmail, org.createdAt), lastActiveAt: undefined }];
     }
   }
   return changed ? { ...state, data: { ...state.data, administrators: admins } } : state;

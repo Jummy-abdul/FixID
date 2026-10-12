@@ -18,6 +18,7 @@ import {
 } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
+import { applyCreateSubOrganization, applyResendSubOrganizationInvite, type CreateSubOrganizationInput, type SubOrganizationValues } from './orgOps';
 import { newId } from '@/lib/identifiers';
 import {
   applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity,
@@ -244,6 +245,21 @@ export function useActions() {
         const at = new Date().toISOString();
         const token = invitationToken();
         const r = run(() => applyResendInvite(getState(), { organizationId, adminId, token, at }), { type: 'admins/resend', organizationId, adminId, token, at });
+        return r.ok ? { ...r, token } : r;
+      },
+      /** Creates a sub-organization of the current organization and invites its initial Organization Admin. */
+      createSubOrganization: (parentOrganizationId: string, values: SubOrganizationValues) => {
+        const input: CreateSubOrganizationInput = {
+          parentOrganizationId, values, token: invitationToken(), at: new Date().toISOString(),
+          ids: { organizationId: `org_${invitationToken().slice(0, 10)}`, administratorId: newId('adm'), relationshipId: newId('rel') },
+        };
+        const r = run(() => applyCreateSubOrganization(getState(), input), { type: 'organizations/createSub', organizationId: parentOrganizationId, input });
+        return r.ok ? { ...r, organizationId: input.ids.organizationId, token: input.token } : r;
+      },
+      resendSubOrganizationInvite: (organizationId: string, childOrganizationId: string) => {
+        const at = new Date().toISOString();
+        const token = invitationToken();
+        const r = run(() => applyResendSubOrganizationInvite(getState(), { organizationId, childOrganizationId, token, at }), { type: 'organizations/resendSubInvite', organizationId, childOrganizationId, token, at });
         return r.ok ? { ...r, token } : r;
       },
       /** Single sign-on. Each re-checks sso.manage (linking needs only the administrator's own active account). */

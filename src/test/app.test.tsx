@@ -35,9 +35,9 @@ describe('navigation', () => {
   };
 
   it('has the approved sidebar structure and order', () => {
-    expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Administration']);
+    expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Organizations', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'My Verification Activities', 'Verification History', 'My Verification History', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'My Verification Activities', 'Verification History', 'My Verification History', 'Organizations', 'Audit Log', 'Settings',
     ]);
   });
 
@@ -102,11 +102,15 @@ describe('navigation', () => {
 });
 
 describe('top bar', () => {
-  it('contains only the App Launcher and the profile avatar', () => {
+  it('shows the workspace context, the App Launcher and the profile avatar', () => {
     renderApp('/');
     const header = screen.getByRole('banner');
-    expect(within(header).queryByRole('combobox')).not.toBeInTheDocument();
-    expect(within(header).queryByText(/northbridge/i)).not.toBeInTheDocument();
+    // The current organization and role; a switcher only because this account has several explicit memberships.
+    const workspace = within(header).getByRole('region', { name: 'Workspace' });
+    expect(within(workspace).getByRole('combobox', { name: 'Switch organization' })).toHaveDisplayValue('Northbridge University');
+    expect(workspace).toHaveTextContent('Organization Admin');
+    // Only explicit memberships: no sub-organization of Meridian is offered to this account.
+    expect(within(workspace).queryByRole('option', { name: /Harbourside|Eastgate/ })).toBeNull();
     expect(within(header).queryByRole('button', { name: /add person/i })).not.toBeInTheDocument();
     const buttons = within(header).getAllByRole('button').filter((b) => !/navigation/i.test(b.getAttribute('aria-label') ?? ''));
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Applications', 'Account menu for Tobyson TE']);

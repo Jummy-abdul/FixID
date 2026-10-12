@@ -1,4 +1,5 @@
 import type { SeedData } from '@/data/seed';
+import { applyCreateSubOrganization, applyResendSubOrganizationInvite, type CreateSubOrganizationInput } from './orgOps';
 import {
   applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity, type SsoSaveInput,
 } from './ssoOps';
@@ -73,6 +74,8 @@ export type Action =
   | { type: 'roles/delete'; organizationId: string; roleId: string; at: string }
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string; token?: string }
+  | { type: 'organizations/createSub'; organizationId: string; input: CreateSubOrganizationInput }
+  | { type: 'organizations/resendSubInvite'; organizationId: string; childOrganizationId: string; token: string; at: string }
   | { type: 'sso/save'; input: SsoSaveInput }
   | { type: 'sso/testResult'; organizationId: string; versionId: string; ok: boolean; message: string; mode: 'live' | 'demonstration'; at: string }
   | { type: 'sso/activate'; organizationId: string; at: string }
@@ -133,6 +136,8 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'admins/expire': ['administrators.invite'],
   'admins/roles': ['roles.assign'],
   'admins/status': ['administrators.manage'],
+  'organizations/createSub': ['organizations.manage'],
+  'organizations/resendSubInvite': ['organizations.manage'],
   'sso/save': ['sso.manage'],
   'sso/testResult': ['sso.manage'],
   'sso/activate': ['sso.manage'],
@@ -367,6 +372,8 @@ export function reducer(state: AppState, action: Action): AppState {
           customRoles: keep(n.customRoles, d.customRoles),
           logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
           ssoConnections: keep(n.ssoConnections, d.ssoConnections ?? []),
+          // Relationships of kept organizations; never both sides from different data sets.
+          organizationRelationships: [...(n.organizationRelationships ?? []), ...(d.organizationRelationships ?? []).filter((r) => owned.has(r.parentOrganizationId) && owned.has(r.childOrganizationId))],
         },
       };
     }
@@ -426,6 +433,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
+    case 'organizations/createSub': return action.input.parentOrganizationId === action.organizationId ? orKeep(state, applyCreateSubOrganization(state, action.input)) : state;
+    case 'organizations/resendSubInvite': return orKeep(state, applyResendSubOrganizationInvite(state, action));
     case 'sso/save': return orKeep(state, applySaveSso(state, action.input));
     case 'sso/testResult': return orKeep(state, applySsoTestResult(state, action));
     case 'sso/activate': return orKeep(state, applyActivateSso(state, action));

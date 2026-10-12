@@ -341,7 +341,7 @@ describe('Administrators & Roles', () => {
     expect(section).toHaveTextContent('View users (allowed)');
     expect(within(section).getByRole('button', { name: 'Edit Records Officer' })).toBeInTheDocument();
     expect(within(section).getByRole('button', { name: 'Delete Records Officer' })).toBeInTheDocument();
-    expect(loadState()!.data.customRoles).toEqual([expect.objectContaining({ name: 'Records Officer', organizationId: NEW_ORGANIZATION_ID })]);
+    expect(loadState()!.data.customRoles.filter((r) => r.organizationId === NEW_ORGANIZATION_ID)).toEqual([expect.objectContaining({ name: 'Records Officer', organizationId: NEW_ORGANIZATION_ID })]);
 
     // Now it can be chosen when inviting.
     await user.click(screen.getByRole('tab', { name: 'Administrators' }));

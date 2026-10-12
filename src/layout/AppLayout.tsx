@@ -5,6 +5,7 @@ import { RolePreviewBanner } from '@/auth/authorization';
 import { AdminMenu } from './AdminMenu';
 import { AppLauncher } from './AppLauncher';
 import { Sidebar } from './Sidebar';
+import { WorkspaceContext } from './WorkspaceContext';
 
 export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -31,6 +32,7 @@ export function AppLayout() {
           <button type="button" onClick={() => setMobileOpen(true)} aria-label="Open navigation" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden">
             <Menu className="h-5 w-5" />
           </button>
+          <WorkspaceContext />
           <div className="ml-auto flex items-center gap-2">
             <AppLauncher />
             <AdminMenu />

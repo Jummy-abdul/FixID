@@ -16,6 +16,7 @@ import { applySaveActivity } from '@/store/activityOps';
 import { loadState, saveState } from '@/store/persistence';
 import { PREVIEW_READ_ONLY, authorizeAction, createInitialState, effectivePermissions, reducer, type AppState } from '@/store/state';
 import { withExampleCustomRoles } from './helpers/roles';
+import { ORG_B2 } from '@/data/demoPersonas';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
@@ -80,9 +81,10 @@ describe('system roles and permissions', () => {
 
   it('starts every organization with only the three system roles; custom roles come from administrators', () => {
     const fresh = createInitialState(new Date());
-    expect(fresh.data.customRoles).toEqual([]);
-    for (const o of fresh.data.organizations) expect(rolesFor(fresh.data.customRoles, o.id).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
-    expect(fresh.data.administrators.every((a) => findRole(fresh.data.customRoles, a.organizationId, a.roleIds[0]!)?.system)).toBe(true);
+    // The only custom role in demo data backs the custom-role demonstration account in sub-organization B2.
+    expect(fresh.data.customRoles.map((r) => [r.organizationId, r.name])).toEqual([[ORG_B2, 'Records Officer']]);
+    for (const o of fresh.data.organizations.filter((x) => x.id !== ORG_B2)) expect(rolesFor(fresh.data.customRoles, o.id).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
+    expect(fresh.data.administrators.filter((a) => a.organizationId !== ORG_B2).every((a) => findRole(fresh.data.customRoles, a.organizationId, a.roleIds[0]!)?.system)).toBe(true);
     // A created role belongs only to the organization that created it.
     const created = ok(applySaveRole(base(), officer())).state;
     expect(findRole(created.data.customRoles, ORG, 'role_records')!.name).toBe('Student Records Officer');
@@ -309,7 +311,7 @@ describe('screens', () => {
   it('shows the Auditor a read-only workspace', async () => {
     const p = reducer(base(), { type: 'preview/start', roleId: 'auditor' });
     const { user, unmount } = renderApp('/users', p);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Organizations', 'Audit Log', 'Settings']);
     await screen.findByRole('heading', { level: 1, name: 'Users' });
     expect(screen.queryByRole('link', { name: 'Add user' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Import Users' })).toBeNull();

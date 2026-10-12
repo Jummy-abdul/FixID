@@ -6,7 +6,7 @@ import type { AdminUser, CardDesign, Organization } from '@/domain/types';
 import { useStore } from '@/store/AppStore';
 import { acceptProblem, invitationByToken } from '@/store/adminOps';
 import {
-  DEMO_ACCOUNT, DEMO_AUTH_ENABLED, RESET_LINK_MINUTES, SESSION_EXPIRED_FLAG, SIGNED_OUT_FLAG, SIGN_IN_LOCKOUT, clearFailedSignIns, hashPassword, loadAuth,
+  DEMO_ACCOUNT, DEMO_AUTH_ENABLED, builtInAccounts, RESET_LINK_MINUTES, SESSION_EXPIRED_FLAG, SIGNED_OUT_FLAG, SIGN_IN_LOCKOUT, clearFailedSignIns, hashPassword, loadAuth,
   lockedMinutes, newSession, normalizeEmail, passwordIsStrong, passwordMatches, randomToken, recordFailedSignIn, saveAuth, saveSignup, sessionProblem, sha256Hex,
   type Account, type AuthSession, type AuthStore,
 } from './authCore';
@@ -54,6 +54,7 @@ const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 
 
 /** Where an account belongs next: an onboarding step or the app. */
 export function homeFor(account: Account): string {
+  if (account.platformRole) return '/platform';
   if (account.onboarding === 'personal') return '/onboarding/personal';
   if (account.onboarding === 'organization') return '/onboarding/organization';
   return '/';
@@ -72,26 +73,29 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
 
   const findAccount = useCallback((email: string): Account | undefined => {
     const e = normalizeEmail(email);
-    if (DEMO_AUTH_ENABLED && e === DEMO_ACCOUNT.email) return DEMO_ACCOUNT;
-    return storeRef.current.accounts.find((a) => a.email === e);
+    return builtInAccounts().find((a) => a.email === e) ?? storeRef.current.accounts.find((a) => a.email === e);
   }, []);
 
   const account = useMemo(() => {
     const id = store.session?.accountId;
     if (!id) return null;
-    if (DEMO_AUTH_ENABLED && id === DEMO_ACCOUNT.id) return DEMO_ACCOUNT;
-    return store.accounts.find((a) => a.id === id) ?? null;
+    return builtInAccounts().find((a) => a.id === id) ?? store.accounts.find((a) => a.id === id) ?? null;
   }, [store]);
   const isDemo = account?.id === DEMO_ACCOUNT.id;
 
   // Keep the workspace (signed-in administrator and organization) in step with the account.
   const orgs = state.data.organizations;
+  const records = state.data.administrators;
   useEffect(() => {
-    if (!account || account.onboarding !== 'complete') return;
+    // Platform Administrators have no organization workspace.
+    if (!account || account.onboarding !== 'complete' || account.platformRole) return;
     let admin: AdminUser;
     let organizationId: string;
+    // Workspaces come only from explicit memberships (administrator records), never from organization
+    // relationships: a parent organization's administrators aren't members of its sub-organizations.
+    const membershipsOf = (userId: string) => orgs.filter((o) => records.some((r) => r.organizationId === o.id && r.userId === userId && r.status !== 'invited')).map((o) => o.id);
     if (isDemo) {
-      const demoOrgIds = orgs.filter((o) => !o.ownerAccountId).map((o) => o.id);
+      const demoOrgIds = membershipsOf(DEMO_ADMIN.id);
       admin = { ...DEMO_ADMIN, organizationIds: demoOrgIds };
       // An SSO sign-in opens the organization signed in to; otherwise the last one used.
       const ssoOrg = store.session?.method === 'sso' ? store.session.organizationId : undefined;
@@ -100,13 +104,15 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
     } else {
       if (!account.organizationId || !orgs.some((o) => o.id === account.organizationId)) return;
       const name = displayName(account);
-      admin = { id: account.id, name, initials: initialsOf(name), email: account.email, role: 'Owner', organizationIds: [account.organizationId] };
-      organizationId = account.organizationId;
+      const memberships = [...new Set([account.organizationId, ...membershipsOf(account.id)])];
+      admin = { id: account.id, name, initials: initialsOf(name), email: account.email, role: 'Owner', organizationIds: memberships };
+      // Stay in the workspace in use when it's one of this account's own; otherwise open the home organization.
+      organizationId = state.data.admin.id === account.id && memberships.includes(state.session.currentOrganizationId) ? state.session.currentOrganizationId : account.organizationId;
     }
     if (JSON.stringify(admin) !== JSON.stringify(state.data.admin) || organizationId !== state.session.currentOrganizationId) {
       dispatch({ type: 'session/signIn', admin, organizationId });
     }
-  }, [account, isDemo, orgs, state.data.admin, state.session.currentOrganizationId, dispatch, store.session]);
+  }, [account, isDemo, orgs, records, state.data.admin, state.session.currentOrganizationId, dispatch, store.session]);
 
   // Session lifetime: activity keeps a session alive up to its maximum; idle, expired or revoked sessions end.
   const issuedAt = store.session?.issuedAt;
@@ -176,7 +182,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
       const admin = linkedAdministrator(state, organizationId, identity.issuer, identity.subject);
       if (!admin) return { ok: false, error: 'This identity isn’t linked to a FixID administrator account in this organization. Sign in with your email and password, then link SSO from My Profile.' };
       if (admin.status !== 'active') return { ok: false, error: 'This administrator account is inactive. Contact your Organization Admin.' };
-      const target = DEMO_AUTH_ENABLED && admin.userId === DEMO_ADMIN.id ? DEMO_ACCOUNT : storeRef.current.accounts.find((a) => a.id === admin.userId);
+      const target = DEMO_AUTH_ENABLED && admin.userId === DEMO_ADMIN.id ? DEMO_ACCOUNT : builtInAccounts().find((a) => a.id === admin.userId) ?? storeRef.current.accounts.find((a) => a.id === admin.userId);
       if (!target || (target.id !== DEMO_ACCOUNT.id && target.organizationId !== organizationId)) return { ok: false, error: 'This identity isn’t linked to a FixID administrator account in this organization.' };
       saveSignup(null);
       dispatch({ type: 'preview/stop' });

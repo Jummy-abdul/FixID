@@ -1,5 +1,6 @@
 import { METHOD_ASSURANCE, meetsAssurance } from '@/domain/rules';
 import type {
+  OrganizationRelationship,
   SsoConnection,
   CustomRole, LogoAsset,
   AdminUser,
@@ -32,6 +33,7 @@ import { templateForDesign } from '@/domain/templates';
 import { buildChecks } from '@/domain/verification';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { invitationToken } from '@/lib/tokens';
+import { B2_RECORDS_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -65,6 +67,8 @@ export interface SeedData {
   logoAssets: LogoAsset[];
   /** Each organization's single sign-on (OIDC) connection, when configured. */
   ssoConnections: SsoConnection[];
+  /** Parent and sub-organization relationships. */
+  organizationRelationships: OrganizationRelationship[];
 }
 
 const DAY = 86_400_000;
@@ -77,13 +81,34 @@ export function seedAdministrators(organizations: Pick<Organization, 'id' | 'con
   const iso = (d: Date) => d.toISOString();
   const ago = (days: number) => iso(new Date(today.getTime() - days * DAY));
   const out: OrgAdministrator[] = [];
+  const record = (orgId: string, key: string, name: string, email: string, userId: string, roleId: string, createdDaysAgo: number): OrgAdministrator => ({
+    id: `${orgId}_adm_${key}`, organizationId: orgId, email, name, userId, roleIds: [roleId], status: 'active', createdAt: ago(createdDaysAgo), lastActiveAt: ago(1),
+  });
   for (const org of organizations) {
     const domain = org.contactEmail.split('@')[1] ?? 'example.org';
+    // Sub-organizations have their own administrators only: the parent's administrators aren't members.
+    if (SEEDED_SUB_ORGANIZATIONS[org.id]) {
+      if (org.id === ORG_B1) {
+        out.push(
+          record(org.id, 'owner', 'Lina Ford', 'lina.ford@harbourside.example', 'acct_demo_b1_admin', 'organization-admin', 200),
+          record(org.id, 'verifier', 'Tomi Okon', 'tomi.okon@harbourside.example', 'acct_demo_b1_verifier', 'verifier', 150),
+        );
+      } else if (org.id === ORG_B2) {
+        out.push(
+          record(org.id, 'owner', 'Mira Santos', 'mira.santos@eastgate.example', 'acct_demo_b2_admin', 'organization-admin', 190),
+          record(org.id, 'records', 'Joel Park', 'joel.park@eastgate.example', 'acct_demo_b2_records', B2_RECORDS_ROLE, 120),
+        );
+      }
+      continue;
+    }
     out.push({
       id: `${org.id}_adm_owner`, organizationId: org.id, email: 'tobyson.te@fixid.demo', name: 'Tobyson TE', userId: 'usr_tobyson',
       roleIds: ['organization-admin'], status: 'active', createdAt: org.createdAt, lastActiveAt: iso(today),
     });
     if (org.id === NEW_ORGANIZATION_ID) continue;
+    // Demonstration accounts' own Organization Admin records (Organization A and B).
+    if (org.id === ORG_A) out.push(record(org.id, 'lead', 'Esther Lawal', 'esther.lawal@northbridge.example', 'acct_demo_a_admin', 'organization-admin', 330));
+    if (org.id === ORG_B) out.push(record(org.id, 'lead', 'Victor Hale', 'victor.hale@meridian.example', 'acct_demo_b_admin', 'organization-admin', 330));
     // Invitations last 72 hours: the first is pending, the second has expired. Link tokens are random.
     const invite = (sentDaysAgo: number) => ({ sentAt: ago(sentDaysAgo), expiresAt: ago(sentDaysAgo - 3), sendCount: 1, invitedBy: 'Tobyson TE', token: invitationToken() });
     out.push(
@@ -144,11 +169,11 @@ export function seedVerificationActivities(
   const iso = (x: Date) => x.toISOString();
   const ago = (days: number) => iso(new Date(today.getTime() - days * DAY));
   const ahead = (days: number, hour: number) => { const x = new Date(today.getTime() + days * DAY); x.setHours(hour, 0, 0, 0); return iso(x); };
-  const by = 'Tobyson TE';
   const out = { activityConfigs: [] as ActivityConfig[], activityVersions: [] as ActivityVersion[], verifierAssignments: [] as VerifierAssignment[] };
   const outcome = { onRequiredFailure: 'not-verified' as const, onInconclusive: 'unable-to-verify' as const };
   for (const org of organizations) {
     if (org.id === NEW_ORGANIZATION_ID || !org.integrations.idSwitch.connected) continue;
+    const by = ({ [ORG_B1]: 'Lina Ford', [ORG_B2]: 'Mira Santos' } as Record<string, string>)[org.id] ?? 'Tobyson TE';
     const types = d.credentialTypes.filter((t) => t.organizationId === org.id && t.status === 'active');
     const volunteers = d.groups.find((g) => g.id === `${org.id}_grp_volunteers`);
     const firstGroup = d.groups.find((g) => g.organizationId === org.id && g.id !== volunteers?.id);
@@ -250,6 +275,8 @@ interface OrgBlueprint {
   activities: ActivityBlueprint[];
   registrySlice: number[];
   dailyTransactions: [number, number];
+  /** Who set the organization up in the sample data (defaults to the demo administrator). */
+  author?: string;
 }
 
 const BLUEPRINTS: OrgBlueprint[] = [
@@ -388,14 +415,14 @@ const BLUEPRINTS: OrgBlueprint[] = [
       { value: 'Clinician', weight: 0.35 }, { value: 'Nurse', weight: 0.35 },
       { value: 'Administrator', weight: 0.2 }, { value: 'Visiting Clinician', weight: 0.1 },
     ],
-    units: ['Ikoyi Hospital', 'Lekki Clinic', 'Abuja Specialist Centre', 'Central Pharmacy'],
+    units: ['Harbourside Hospital', 'Eastgate Clinic', 'Northfield Specialist Centre', 'Central Pharmacy'],
     externalRef: (rel, rng) => rel === 'Visiting Clinician'
-      ? { label: 'MDCN folio', value: `MDCN/${rng.int(30000, 89999)}`, source: 'Provided at onboarding' }
+      ? { label: 'Practice licence', value: `PL/${rng.int(30000, 89999)}`, source: 'Provided at onboarding' }
       : { label: 'Employee ID', value: `MHG-E${rng.int(1000, 9999)}`, source: 'Fixiam' },
     activities: [
       {
         key: 'theatre', name: 'Theatre Wing Access', purpose: 'entry', description: 'High-assurance access to operating theatres.',
-        location: 'Ikoyi Hospital, Level 2', eligibleTypes: ['clinical', 'locum'], relationships: ['Clinician', 'Nurse', 'Visiting Clinician'],
+        location: 'Harbourside Hospital, Level 2', eligibleTypes: ['clinical', 'locum'], relationships: ['Clinician', 'Nurse', 'Visiting Clinician'],
         primaryMethod: 'face', fallback: { permitted: true, methods: ['fingerprint'] }, assuranceLevel: 'high', outcome: 'Grant entry',
         status: 'active', verifiers: ['Theatre door terminal'], volume: 2,
       },
@@ -409,7 +436,7 @@ const BLUEPRINTS: OrgBlueprint[] = [
         key: 'attendance', name: 'Shift Attendance', purpose: 'attendance', description: 'Record clock-in for all staff shifts.',
         location: 'All sites', eligibleTypes: ['clinical', 'admin', 'locum'], relationships: ['Clinician', 'Nurse', 'Administrator', 'Visiting Clinician'],
         primaryMethod: 'nfc', fallback: { permitted: true, methods: ['face'] }, assuranceLevel: 'substantial', outcome: 'Record attendance',
-        status: 'active', verifiers: ['Ikoyi staff entrance', 'Lekki staff entrance', 'Abuja staff entrance'], volume: 3,
+        status: 'active', verifiers: ['Harbourside staff entrance', 'Eastgate staff entrance', 'Northfield staff entrance'], volume: 3,
       },
     ],
     registrySlice: range(52, 92),
@@ -418,12 +445,12 @@ const BLUEPRINTS: OrgBlueprint[] = [
   {
     org: {
       id: 'org_lts',
-      name: 'Lagos Tech Summit 2026',
+      name: 'Brightwater Tech Summit 2026',
       shortName: 'LTS',
       industry: 'events',
       country: 'Nigeria',
       timezone: 'Africa/Lagos',
-      contactEmail: 'accreditation@lagostechsummit.com',
+      contactEmail: 'accreditation@brightwatersummit.example',
       memberLabel: 'Participant',
       integrations: {
         idSwitch: { connected: true, tenantRef: 'ids-tenant-lts-26' },
@@ -455,19 +482,106 @@ const BLUEPRINTS: OrgBlueprint[] = [
     activities: [
       {
         key: 'hall', name: 'Hall 1 Entry', purpose: 'entry', description: 'Main hall admission for all badge holders.',
-        location: 'Eko Convention Centre', eligibleTypes: ['attendee', 'speaker'], relationships: ['Attendee', 'Speaker'],
+        location: 'Brightwater Convention Centre', eligibleTypes: ['attendee', 'speaker'], relationships: ['Attendee', 'Speaker'],
         primaryMethod: 'qr', fallback: { permitted: true, methods: ['manual'] }, assuranceLevel: 'low', outcome: 'Grant entry',
         status: 'active', window: [-3, 1], verifiers: ['Hall 1 scanner A', 'Hall 1 scanner B'], volume: 5,
       },
       {
         key: 'vip', name: 'VIP Lounge', purpose: 'entry', description: 'Speakers only.',
-        location: 'Eko Convention Centre, Mezzanine', eligibleTypes: ['speaker'], relationships: ['Speaker'],
+        location: 'Brightwater Convention Centre, Mezzanine', eligibleTypes: ['speaker'], relationships: ['Speaker'],
         primaryMethod: 'qr', fallback: { permitted: false, methods: [] }, assuranceLevel: 'low', outcome: 'Grant entry',
         status: 'active', window: [-3, 1], verifiers: ['VIP host phone'], volume: 1,
       },
     ],
     registrySlice: [...range(40, 52), ...range(92, 122)],
     dailyTransactions: [20, 60],
+  },
+  // Organization B1 and B2: sub-organizations of Meridian Health Group (Organization B). Fictional.
+  {
+    org: {
+      id: ORG_B1,
+      name: 'Meridian Harbourside Hospital',
+      shortName: 'MHH',
+      industry: 'healthcare',
+      country: 'Nigeria',
+      timezone: 'Africa/Lagos',
+      contactEmail: 'admin@harbourside.example',
+      memberLabel: 'Staff member',
+      integrations: {
+        idSwitch: { connected: true, tenantRef: 'ids-tenant-mhh-01' },
+        seamfixWallet: { connected: true, issuerDid: 'did:sfx:issuer:harbourside' },
+        fixiam: { connected: false },
+      },
+    },
+    design: {
+      primaryColor: '#0e7490', accentColor: '#a5f3fc', textColor: '#ffffff', layout: 'horizontal',
+      showPhoto: true, showQr: true, fields: ['name', 'identifier', 'relationship', 'unit', 'expiry'],
+    },
+    types: [
+      {
+        key: 'staff', name: 'Hospital Staff Badge', description: 'Identity badge for hospital staff.',
+        prefix: 'MHH-S-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 },
+        renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
+        status: 'active', holders: ['Clinician', 'Nurse'],
+      },
+    ],
+    relationships: [{ value: 'Clinician', weight: 0.5 }, { value: 'Nurse', weight: 0.5 }],
+    units: ['Emergency', 'Outpatients', 'Theatres'],
+    externalRef: (_rel, rng) => ({ label: 'Employee ID', value: `MHH-E${rng.int(1000, 9999)}`, source: 'HR system' }),
+    activities: [
+      {
+        key: 'ward', name: 'Ward Access', purpose: 'entry', description: 'Access to inpatient wards.',
+        location: 'Harbourside Hospital, Wards', eligibleTypes: ['staff'], relationships: ['Clinician', 'Nurse'],
+        primaryMethod: 'nfc', fallback: { permitted: true, methods: ['face'] }, assuranceLevel: 'substantial', outcome: 'Grant entry',
+        status: 'active', verifiers: ['Ward door reader'], volume: 1,
+      },
+    ],
+    registrySlice: range(122, 131),
+    dailyTransactions: [3, 8],
+    author: 'Lina Ford',
+  },
+  {
+    org: {
+      id: ORG_B2,
+      name: 'Meridian Eastgate Clinic',
+      shortName: 'MEC',
+      industry: 'healthcare',
+      country: 'Nigeria',
+      timezone: 'Africa/Lagos',
+      contactEmail: 'admin@eastgate.example',
+      memberLabel: 'Staff member',
+      integrations: {
+        idSwitch: { connected: true, tenantRef: 'ids-tenant-mec-01' },
+        seamfixWallet: { connected: false, issuerDid: '' },
+        fixiam: { connected: false },
+      },
+    },
+    design: {
+      primaryColor: '#4d7c0f', accentColor: '#d9f99d', textColor: '#ffffff', layout: 'horizontal',
+      showPhoto: true, showQr: true, fields: ['name', 'identifier', 'relationship', 'expiry'],
+    },
+    types: [
+      {
+        key: 'staff', name: 'Clinic Staff Badge', description: 'Identity badge for clinic staff.',
+        prefix: 'MEC-S-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 },
+        renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
+        status: 'active', holders: ['Clinician', 'Administrator'],
+      },
+    ],
+    relationships: [{ value: 'Clinician', weight: 0.6 }, { value: 'Administrator', weight: 0.4 }],
+    units: ['Reception', 'Consulting rooms'],
+    externalRef: (_rel, rng) => ({ label: 'Employee ID', value: `MEC-E${rng.int(1000, 9999)}`, source: 'HR system' }),
+    activities: [
+      {
+        key: 'records', name: 'Records Room Access', purpose: 'entry', description: 'Access to the medical records room.',
+        location: 'Eastgate Clinic, Records room', eligibleTypes: ['staff'], relationships: ['Clinician', 'Administrator'],
+        primaryMethod: 'nfc', fallback: { permitted: false, methods: [] }, assuranceLevel: 'substantial', outcome: 'Unlock door',
+        status: 'active', verifiers: ['Records room reader'], volume: 1,
+      },
+    ],
+    registrySlice: range(131, 140),
+    dailyTransactions: [2, 6],
+    author: 'Mira Santos',
   },
 ];
 
@@ -587,7 +701,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
         })(),
         factors: { fingerprint: rng.chance(0.3) },
         joinedAt: iso(addDays(today, -(bp.org.industry === 'events' ? rng.int(4, 45) : rng.int(5, 400)))),
-        createdBy: ADMIN_NAME,
+        createdBy: (bp.author ?? ADMIN_NAME),
       });
     });
     // One enrolled sample user shows how an approved portrait is presented. Decorative demo image, not a capture.
@@ -696,7 +810,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     const recentMembers = [...orgMembers].sort((a, b) => b.joinedAt.localeCompare(a.joinedAt)).slice(0, 8);
     for (const m of recentMembers) {
       audit.push({
-        id: '', organizationId: orgId, action: 'user.created', actor: ADMIN_NAME, actorType: 'admin',
+        id: '', organizationId: orgId, action: 'user.created', actor: (bp.author ?? ADMIN_NAME), actorType: 'admin',
         resourceType: 'member', resourceId: m.id, result: 'success', occurredAt: m.joinedAt, href: `/users/${m.id}`,
         summary: `Added ${m.displayName}`,
       });
@@ -706,7 +820,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     for (const c of recentCredentials) {
       const m = memberById.get(c.memberId)!;
       audit.push({
-        id: '', organizationId: orgId, action: 'credential.issued', actor: ADMIN_NAME, actorType: 'admin',
+        id: '', organizationId: orgId, action: 'credential.issued', actor: (bp.author ?? ADMIN_NAME), actorType: 'admin',
         resourceType: 'credential', resourceId: c.id, result: 'success', occurredAt: c.issuedAt, href: `/credentials/${c.id}`,
         summary: `Issued ${typeById.get(c.credentialTypeId)!.name} ${c.identifier} to ${m.displayName}`,
       });
@@ -722,7 +836,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
       const m = memberById.get(c.memberId)!;
       audit.push({
         id: '', organizationId: orgId, action: c.status === 'revoked' ? 'credential.revoked' : 'credential.suspended',
-        actor: ADMIN_NAME, actorType: 'admin', resourceType: 'credential', resourceId: c.id, result: 'success',
+        actor: (bp.author ?? ADMIN_NAME), actorType: 'admin', resourceType: 'credential', resourceId: c.id, result: 'success',
         occurredAt: iso(addDays(today, -rng.int(1, 20))), href: `/credentials/${c.id}`,
         summary: `${c.status === 'revoked' ? 'Revoked' : 'Suspended'} ${c.identifier} (${m.displayName})`,
       });
@@ -760,9 +874,17 @@ export function buildSeed(now: Date = new Date()): SeedData {
 
   const administrators = seedAdministrators(organizations, today);
   const seededGroups = seedGroups(organizations, members, today);
+  const activitiesSeed = seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today);
+  // The B1 Verifier is assigned to two of B1's activities, so the Verifier experience has work to show.
+  for (const key of ['visitor', 'conference']) {
+    if (activitiesSeed.activityConfigs.some((a) => a.id === `${ORG_B1}_va_${key}`)) {
+      activitiesSeed.verifierAssignments.push({ organizationId: ORG_B1, activityId: `${ORG_B1}_va_${key}`, administratorId: `${ORG_B1}_adm_verifier`, status: 'active', assignedAt: iso(addDays(today, -10)), assignedBy: 'Lina Ford' });
+    }
+  }
   return {
     organizations,
-    admin: { ...DEMO_ADMIN, organizationIds: organizations.map((o) => o.id) },
+    // The demo account (Tobyson) belongs to every top-level sample organization, but to no sub-organization.
+    admin: { ...DEMO_ADMIN, organizationIds: organizations.filter((o) => !SEEDED_SUB_ORGANIZATIONS[o.id]).map((o) => o.id) },
     cardDesigns,
     credentialTypes,
     identifierConfigs,
@@ -774,12 +896,21 @@ export function buildSeed(now: Date = new Date()): SeedData {
     administrators,
     ...seededGroups,
     issuanceBatches: [],
-    ...seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today),
+    ...activitiesSeed,
     verificationAttempts: [],
-    // No organization starts with custom roles: they appear only when an administrator creates them.
-    customRoles: [],
+    // Organizations never start with custom roles. The one exception is demonstration data: B2's administrator
+    // created "Records Officer" for the custom-role demonstration account. New organizations get none.
+    customRoles: [{
+      id: B2_RECORDS_ROLE, organizationId: ORG_B2, name: 'Records Officer', description: 'Keeps user records up to date. No access to credentials, verification or settings.',
+      permissions: ['users.view', 'users.create', 'users.import', 'groups.view'], system: false,
+      createdAt: iso(addDays(today, -130)), createdBy: 'Mira Santos', updatedAt: iso(addDays(today, -130)), updatedBy: 'Mira Santos',
+    }],
     logoAssets: [],
     ssoConnections: [],
+    organizationRelationships: Object.entries(SEEDED_SUB_ORGANIZATIONS).map(([child, parent]) => ({
+      id: `rel_${child}`, parentOrganizationId: parent, childOrganizationId: child, type: 'sub-organization' as const, origin: 'created-by-parent' as const,
+      status: 'active' as const, initialAdministratorId: `${child}_adm_owner`, createdAt: iso(addMonths(today, -14)), createdBy: 'Victor Hale',
+    })),
   };
 }
 

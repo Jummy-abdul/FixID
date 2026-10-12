@@ -13,7 +13,8 @@ export type Permission =
   | 'verification.verifiers.assign' | 'verification.execute'
   | 'verification.results.view'
   | 'administrators.view' | 'administrators.invite' | 'administrators.manage'
-  | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'sso.manage' | 'audit.view';
+  | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'sso.manage' | 'audit.view'
+  | 'organizations.view' | 'organizations.manage';
 
 export interface PermissionInfo {
   id: Permission;
@@ -58,6 +59,8 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'settings.manage', label: 'Update the organization profile', area: 'Administration', sensitive: true },
   { id: 'sso.manage', label: 'Manage SSO configuration', area: 'Administration', sensitive: true },
   { id: 'audit.view', label: 'View the audit log', area: 'Administration' },
+  { id: 'organizations.view', label: 'View sub-organizations and their onboarding', area: 'Organizations' },
+  { id: 'organizations.manage', label: 'Create sub-organizations and resend their initial invitations', area: 'Organizations', sensitive: true },
 ];
 
 export const PERMISSION_AREAS = [...new Set(PERMISSIONS.map((p) => p.area))];
@@ -122,7 +125,7 @@ export const SYSTEM_ROLES: Role[] = [
   {
     id: 'auditor', name: 'Auditor', system: true,
     description: 'Read-only access for review and oversight, including the audit log.',
-    permissions: ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'administrators.view', 'organization.view', 'audit.view'],
+    permissions: ['users.view', 'groups.view', 'credentials.view', 'verification.activities.view', 'verification.results.view', 'administrators.view', 'organization.view', 'audit.view', 'organizations.view'],
     highlights: ['View users, groups, credentials, verification activities and history', 'View the organization profile, administrators and roles', 'Review the audit log'],
     limits: ['Read-only: can’t create, edit, delete, issue, verify or approve anything', 'No access to raw biometric captures or templates'],
   },
