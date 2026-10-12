@@ -140,7 +140,8 @@ describe('integration lifecycle and access (store)', () => {
     const s = createInitialState(new Date());
     expect(integrationsOf(s, ORG_A)).toEqual([]);
     expect(integrationsOf(s, ORG_B).map((i) => [i.name, i.status])).toEqual([['Group Identity Service', 'active']]);
-    expect(integrationsOf(s, ORG_C).map((i) => i.status)).toEqual(['draft']);
+    // Brightwater: the draft Attendee Records Service, plus the active Delegate Identity Service used by programme scenarios C and D.
+    expect(integrationsOf(s, ORG_C).map((i) => [i.name, i.status])).toEqual([['Attendee Records Service', 'draft'], ['Delegate Identity Service', 'active']]);
     expect(integrationsOf(s, ORG_B1).map((i) => i.status)).toEqual(['error']);
     // Parent and sub-organization never see each other's integrations.
     expect(integrationFor(s, ORG_B, 'int_d_hospital')).toBeUndefined();

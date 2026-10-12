@@ -1,3 +1,4 @@
+import type { VerificationSettings } from './programmes';
 import type { LocationCheckConfig, LocationCheckRecord } from './location';
 import type { Role } from './roles';
 /**
@@ -462,6 +463,14 @@ export type AuditAction =
   | 'integration.test-failed'
   | 'integration.activated'
   | 'integration.deactivated'
+  | 'programme.created'
+  | 'programme.updated'
+  | 'programme.activated'
+  | 'programme.suspended'
+  | 'programme.resumed'
+  | 'programme.completed'
+  | 'programme.archived'
+  | 'programme.participant-changed'
   | 'organization.sub-created'
   | 'organization.sub-invitation-resent'
   | 'sso.saved'
@@ -512,7 +521,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'programme';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others. */
   result: 'success' | 'partial' | 'failure';
@@ -710,7 +719,15 @@ export interface ActivityConfig {
   /** Optional check of the verifier device's location during verification. Reported only; never decides entry. */
   locationCheck?: LocationCheckConfig;
   /** Drafts only: the editor step to reopen on, so a draft continues where it was left. */
-  editorStep?: 'details' | 'people' | 'review';
+  editorStep?: 'details' | 'requirements' | 'people' | 'review';
+  /** The Verification Programme the activity runs under, if any (set at creation). Independent activities have none. */
+  programmeId?: string;
+  /**
+   * How people are verified: identity source, method, liveness, reverification, exceptions, eligibility
+   * approach and decision rules. For programme-linked activities the programme's minimums apply on top
+   * (see effectiveSettings). Missing on activities saved before this existed: derived from their configuration.
+   */
+  verification?: VerificationSettings;
   createdAt: ISODate;
   createdBy: string;
   updatedAt: ISODate;

@@ -81,6 +81,8 @@ describe('#009 / #010 activity drafts and verifiers', () => {
     await user.type(screen.getByLabelText(/Activity Name/), 'Volunteer Briefing');
     await user.type(screen.getByLabelText(/Description/), 'Entry to the volunteer briefing');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('heading', { name: 'Identity & Requirements' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     // Saved as one draft as soon as the first step was done.
     await waitFor(() => expect(loadState()!.data.activityConfigs.filter((a) => a.name === 'Volunteer Briefing')).toHaveLength(1));
     const draft = loadState()!.data.activityConfigs.find((a) => a.name === 'Volunteer Briefing')!;
@@ -101,7 +103,7 @@ describe('#009 / #010 activity drafts and verifiers', () => {
 
     // Back where it stopped, with everything kept.
     expect(await screen.findByRole('heading', { level: 1, name: 'Edit Volunteer Briefing' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Participants & Verifiers/ })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByRole('button', { name: /Eligibility & Verifiers/ })).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('checkbox', { name: /Select group Volunteers/ })).toBeChecked();
     expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me(s).name!)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Activity Details/ }));
@@ -138,7 +140,7 @@ describe('#009 / #010 activity drafts and verifiers', () => {
     const section = review.closest('section')!;
     expect(section).not.toHaveTextContent(/biometric|provider|integration/i);
     expect(section).not.toHaveTextContent('No verifier assigned');
-    await user.click(screen.getByRole('button', { name: /Participants & Verifiers/ }));
+    await user.click(screen.getByRole('button', { name: /Eligibility & Verifiers/ }));
     await user.click(screen.getByRole('button', { name: `Unassign ${me(s).name}` }));
     await user.click(screen.getByRole('button', { name: /Review & Activate/ }));
     const again = (await screen.findByRole('heading', { name: 'Review & Activate' })).closest('section')!;
@@ -186,7 +188,7 @@ describe('#013 role-based navigation and role switching', () => {
     const conference = byName(s, 'Annual Staff Conference');
     s = assign(s, me(s).id, [conference.id]);
     const { user } = renderApp('/', s);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Organizations', 'Audit Log', 'Settings']);
 
     await user.click(screen.getByRole('button', { name: /Account menu for/ }));
     await user.click(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: /^Verifier/ }));

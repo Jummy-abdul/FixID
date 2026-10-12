@@ -2,6 +2,8 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { AcceptInvitationPage } from './pages/auth/AcceptInvitationPage';
 import { OrganizationDetailPage, OrganizationsPage } from './pages/organizations/OrganizationsPage';
 import { PlatformPage } from './pages/platform/PlatformPage';
+import { ProgrammesPage } from './pages/programmes/ProgrammesPage';
+import { ProgrammeDetailPage } from './pages/programmes/ProgrammeDetailPage';
 import { IntegrationDetailPage } from './pages/settings/IntegrationDetailPage';
 import { DemoProviderPage, SsoCallbackPage, SsoSignInPage } from './pages/auth/SsoPages';
 import { AppLayout } from './layout/AppLayout';
@@ -129,6 +131,8 @@ export function AppRoutes() {
         <Route path="activities/:activityId" element={<EventRedirect />} />
         <Route path="verification-history" element={<RequirePermission permission="verification.results.view"><VerificationHistoryPage /></RequirePermission>} />
         <Route path="verification-history/:recordId" element={<RequirePermission permission="verification.results.view"><VerificationRecordPage /></RequirePermission>} />
+        <Route path="programmes" element={<RequirePermission permission="programmes.view"><ProgrammesPage /></RequirePermission>} />
+        <Route path="programmes/:programmeId" element={<RequirePermission permission="programmes.view"><ProgrammeDetailPage /></RequirePermission>} />
         <Route path="organizations" element={<RequirePermission permission="organizations.view"><OrganizationsPage /></RequirePermission>} />
         <Route path="organizations/:orgId" element={<RequirePermission permission="organizations.view"><OrganizationDetailPage /></RequirePermission>} />
         <Route path="settings/integrations/:integrationId" element={<RequirePermission permission="integrations.view"><IntegrationDetailPage /></RequirePermission>} />

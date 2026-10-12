@@ -18,6 +18,7 @@ import {
 } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
+import { applyParticipantStatus, applyProgrammeTransition, applySaveProgramme, type ProgrammeInput } from './programmeOps';
 import {
   applyActivateIntegration, applyDeactivateIntegration, applyIntegrationTestResult, applyIntegrationTestStarted, applySaveIntegration, integrationFor,
 } from './integrationOps';
@@ -266,6 +267,20 @@ export function useActions() {
         const token = invitationToken();
         const r = run(() => applyResendSubOrganizationInvite(getState(), { organizationId, childOrganizationId, token, at }), { type: 'organizations/resendSubInvite', organizationId, childOrganizationId, token, at });
         return r.ok ? { ...r, token } : r;
+      },
+      /** Verification Programmes, managed by the owning organization only. */
+      saveProgramme: (organizationId: string, input: Omit<ProgrammeInput, 'organizationId' | 'id' | 'at'>, id?: string) => {
+        const full: ProgrammeInput = { ...input, organizationId, id: id ?? newId('prg'), at: new Date().toISOString() };
+        const r = run(() => applySaveProgramme(getState(), full), { type: 'programmes/save', input: full });
+        return r.ok ? { ...r, programmeId: full.id } : r;
+      },
+      programmeTransition: (organizationId: string, programmeId: string, transition: 'activate' | 'suspend' | 'resume' | 'complete' | 'archive') => {
+        const at = new Date().toISOString();
+        return run(() => applyProgrammeTransition(getState(), { organizationId, programmeId, transition, at }), { type: 'programmes/transition', organizationId, programmeId, transition, at });
+      },
+      setProgrammeParticipant: (organizationId: string, programmeId: string, participantId: string, status: 'active' | 'suspended' | 'removed') => {
+        const at = new Date().toISOString();
+        return run(() => applyParticipantStatus(getState(), { organizationId, programmeId, participantId, status, at }), { type: 'programmes/participant', organizationId, programmeId, participantId, status, at });
       },
       /** Custom identity services. Each re-checks integrations.manage in the organization that owns it. */
       saveIntegration: (organizationId: string, values: IntegrationFormValues, id?: string) => {

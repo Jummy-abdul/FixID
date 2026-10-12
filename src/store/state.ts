@@ -1,4 +1,5 @@
 import type { SeedData } from '@/data/seed';
+import { applyParticipantStatus, applyProgrammeTransition, applySaveProgramme, type ProgrammeInput } from './programmeOps';
 import {
   applyActivateIntegration, applyDeactivateIntegration, applyIntegrationTestResult, applyIntegrationTestStarted, applySaveIntegration, type SaveIntegrationInput,
 } from './integrationOps';
@@ -80,6 +81,9 @@ export type Action =
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string; token?: string }
   | { type: 'organizations/createSub'; organizationId: string; input: CreateSubOrganizationInput }
   | { type: 'organizations/resendSubInvite'; organizationId: string; childOrganizationId: string; token: string; at: string }
+  | { type: 'programmes/save'; input: ProgrammeInput }
+  | { type: 'programmes/transition'; organizationId: string; programmeId: string; transition: 'activate' | 'suspend' | 'resume' | 'complete' | 'archive'; at: string }
+  | { type: 'programmes/participant'; organizationId: string; programmeId: string; participantId: string; status: 'active' | 'suspended' | 'removed'; at: string }
   | { type: 'integrations/save'; input: SaveIntegrationInput }
   | { type: 'integrations/testStarted'; organizationId: string; integrationId: string; at: string }
   | { type: 'integrations/testResult'; organizationId: string; integrationId: string; run: IntegrationTestRun; at: string }
@@ -147,6 +151,9 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'admins/status': ['administrators.manage'],
   'organizations/createSub': ['organizations.manage'],
   'organizations/resendSubInvite': ['organizations.manage'],
+  'programmes/save': ['programmes.manage'],
+  'programmes/transition': ['programmes.manage'],
+  'programmes/participant': ['programmes.manage'],
   'integrations/save': ['integrations.manage'],
   'integrations/testStarted': ['integrations.manage'],
   'integrations/testResult': ['integrations.manage'],
@@ -387,6 +394,7 @@ export function reducer(state: AppState, action: Action): AppState {
           logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
           ssoConnections: keep(n.ssoConnections, d.ssoConnections ?? []),
           customIntegrations: keep(n.customIntegrations, d.customIntegrations ?? []),
+          verificationProgrammes: [...(n.verificationProgrammes ?? []), ...(d.verificationProgrammes ?? []).filter((p) => owned.has(p.ownerOrganizationId))],
           // Relationships of kept organizations; never both sides from different data sets.
           organizationRelationships: [...(n.organizationRelationships ?? []), ...(d.organizationRelationships ?? []).filter((r) => owned.has(r.parentOrganizationId) && owned.has(r.childOrganizationId))],
         },
@@ -450,6 +458,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
     case 'organizations/createSub': return action.input.parentOrganizationId === action.organizationId ? orKeep(state, applyCreateSubOrganization(state, action.input)) : state;
     case 'organizations/resendSubInvite': return orKeep(state, applyResendSubOrganizationInvite(state, action));
+    case 'programmes/save': return orKeep(state, applySaveProgramme(state, action.input));
+    case 'programmes/transition': return orKeep(state, applyProgrammeTransition(state, action));
+    case 'programmes/participant': return orKeep(state, applyParticipantStatus(state, action));
     case 'integrations/save': return orKeep(state, applySaveIntegration(state, action.input));
     case 'integrations/testStarted': return orKeep(state, applyIntegrationTestStarted(state, action));
     case 'integrations/testResult': return orKeep(state, applyIntegrationTestResult(state, action));

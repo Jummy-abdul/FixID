@@ -1,29 +1,41 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronRight, Save, ShieldCheck, UserCheck, UserPlus, Users } from 'lucide-react';
-import { Button, Card, Field, Input, Textarea, useToast } from '@/components/ui';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronRight, Lock, Save, ShieldCheck, UserCheck, UserPlus, Users } from 'lucide-react';
+import { Button, Card, Field, Input, Select, Textarea, useToast } from '@/components/ui';
 import { NoAccess, useAuthorization } from '@/auth/authorization';
 import { LocationCheckEditor, type LocationDraft } from '@/components/verification/LocationCheckEditor';
 import { ParticipantsPicker, useEligibleCount, type Participants } from '@/components/verification/ParticipantsPicker';
 import { IssuesList, VerifierPicker } from '@/components/verification/parts';
+import { RequirementsStep } from '@/components/verification/RequirementsStep';
+import { ActivitySettingsSummary } from '@/components/verification/RequirementsSummary';
 import { formatCoordinate, formatRadius, locationConfigProblem, type LocationCheckConfig } from '@/domain/location';
 import type { ActivityConfig, ActivityVersion } from '@/domain/types';
 import {
-  DEFAULT_OUTCOME, activeAssignments, buildChecks, currentVersion, describeRequirements, eligibleVerifiers, identityUnavailable, standardRequirementsFor,
-  validateConfiguration,
+  ELIGIBILITY_DESCRIPTION, ELIGIBILITY_LABEL, defaultSettings, effectiveSettings, type EligibilityApproach, type VerificationSettings,
+} from '@/domain/programmes';
+import {
+  activeAssignments, currentVersion, describeRequirements, eligibleVerifiers, identityUnavailable, validateConfiguration,
 } from '@/domain/verification';
 import { cn } from '@/lib/cn';
 import { NO_VERIFIER_WARNING, nameProblem, validationContext, type ActivityForm } from '@/store/activityOps';
+import { integrationsOf } from '@/store/integrationOps';
+import { accessibleIntegration, activityPolicyProblems, configFromSettings, linkableProgrammes, settingsEditable, settingsFromVersion } from '@/store/programmeOps';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { saveState } from '@/store/persistence';
 import { formatDateTime } from '@/lib/dates';
 import { NotFoundPage } from '../NotFoundPage';
 import { activityPath } from './paths';
 
-type Step = 'details' | 'people' | 'review';
+type Step = 'details' | 'requirements' | 'people' | 'review';
 const STEPS: { id: Step; label: string }[] = [
-  { id: 'details', label: 'Activity Details' }, { id: 'people', label: 'Participants & Verifiers' }, { id: 'review', label: 'Review & Activate' },
+  { id: 'details', label: 'Activity Details' }, { id: 'requirements', label: 'Identity & Requirements' },
+  { id: 'people', label: 'Eligibility & Verifiers' }, { id: 'review', label: 'Review & Activate' },
 ];
+const APPROACHES: EligibilityApproach[] = ['local-population', 'external-source', 'reference-list', 'none'];
+/** Datetime-local value <-> ISO. */
+const toLocal = (iso?: string) => { if (!iso) return ''; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const fromLocal = (v: string) => (v ? new Date(v).toISOString() : undefined);
+const parseReferences = (text: string) => [...new Set(text.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean))];
 
 
 type DraftStatus = { kind: 'idle' } | { kind: 'saved'; at: string } | { kind: 'error'; message: string } | { kind: 'conflict' };
@@ -43,8 +55,13 @@ interface FormState {
   location: LocationDraft;
   participants: Participants;
   verifierIds: string[];
-  /** Only for an existing activity without a participant list whose administrator chooses to add one. */
-  addEligibility: boolean;
+  /** New activities only: the programme it runs under, if any. */
+  programmeId: string;
+  /** The activity's own verification settings (stricter than or equal to its programme's). */
+  settings: VerificationSettings;
+  referenceText: string;
+  startsAt: string;
+  endsAt: string;
 }
 
 const DEFAULT_RADIUS = 100;
@@ -59,9 +76,10 @@ function toConfig(d: LocationDraft): LocationCheckConfig {
 }
 
 /**
- * Create or edit a verification activity in three stages: details (with an optional location check),
- * participants and verifiers, then review. How identity and eligibility are verified is FixID's job:
- * new activities use the strongest identity method genuinely available, existing ones keep theirs.
+ * Create or edit a verification activity: details (optional programme, schedule and location check), identity
+ * source and requirements, eligibility and verifiers, then review. A programme-linked activity inherits the
+ * programme's mandatory requirements and can only make them stricter. Credential-based or customized
+ * configurations from earlier versions are kept as they are and shown read-only.
  */
 function Editor({ activity }: { activity?: ActivityConfig }) {
   const { state, getState } = useStore();
@@ -74,6 +92,7 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const [params, setParams] = useSearchParams();
   const isNew = !activity;
   const version = activity ? currentVersion(state.data, activity) : undefined;
+  const editable = settingsEditable(version);
 
   const [f, setF] = useState<FormState>(() => ({
     name: activity?.name ?? '', description: activity?.description || activity?.purpose || '',
@@ -82,7 +101,15 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
     // A new activity starts with the administrator creating it as its verifier, when they can verify.
     verifierIds: activity ? activeAssignments(state.data, organization.id, activity.id).map((v) => v.administratorId)
       : record && eligibleVerifiers(state.data, organization.id).some((a) => a.id === record.id) ? [record.id] : [],
-    addEligibility: false,
+    programmeId: activity?.programmeId ?? (linkableProgrammes(state, organization.id).some((p) => p.id === params.get('programme')) ? params.get('programme')! : ''),
+    settings: (() => {
+      const own = activity?.verification ?? (activity ? settingsFromVersion(version) : defaultSettings());
+      const pid = activity?.programmeId ?? params.get('programme');
+      const programme = pid ? (state.data.verificationProgrammes ?? []).find((p) => p.id === pid) : undefined;
+      return effectiveSettings(own, programme?.requirements);
+    })(),
+    referenceText: (activity?.verification?.eligibility.referenceList ?? []).join('\n'),
+    startsAt: toLocal(activity?.schedule?.startsAt), endsAt: toLocal(activity?.schedule?.endsAt),
   }));
   const [nameError, setNameError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -99,15 +126,40 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const canAssign = can('verification.verifiers.assign');
   const canActivate = can('verification.activities.activate');
 
-  // The verification configuration: FixID's standard one for a new activity; an existing activity keeps its own.
-  const canAddEligibility = !isNew && !!version?.requirements && !version.customized && !version.requirements.eligibility;
-  let k = 0;
-  const make = (r: NonNullable<ActivityVersion['requirements']>, outcome: ActivityVersion['outcome']) => ({ requirements: r, ...buildChecks(r, organization, () => `new_${++k}`), outcome });
-  const generated = isNew
-    ? make(standardRequirementsFor(organization), DEFAULT_OUTCOME)
-    : canAddEligibility && f.addEligibility ? make({ ...version!.requirements!, eligibility: 'participants' }, version!.outcome) : null;
+  // The programme (new activities choose one; existing ones keep theirs) and the settings that apply.
+  const programmeOf = (x: FormState) => { const id = activity ? activity.programmeId : x.programmeId || undefined; return { id, p: id ? (state.data.verificationProgrammes ?? []).find((p) => p.id === id) : undefined }; };
+  const { id: programmeId, p: programme } = programmeOf(f);
+  const linkable = isNew ? linkableProgrammes(state, organization.id) : [];
+  // Everything saved is derived from a form state, so the save on leaving the page uses the latest one.
+  const derive = (x: FormState) => {
+    const { id: pid, p: programme } = programmeOf(x);
+    const own: VerificationSettings = x.settings.eligibility.approach === 'reference-list'
+      ? { ...x.settings, eligibility: { approach: 'reference-list', referenceList: parseReferences(x.referenceText) } } : { ...x.settings, eligibility: { approach: x.settings.eligibility.approach } };
+    const eff = effectiveSettings(own, programme?.requirements);
+    // The configuration follows the settings for a new activity or when they change; otherwise it's kept.
+    const changed = editable && (isNew || JSON.stringify(own) !== JSON.stringify(activity?.verification ?? settingsFromVersion(version)));
+    let n = 0;
+    const identifierConfigId = version?.checks.find((c) => c.params.identifierConfigId)?.params.identifierConfigId;
+    const gen = changed ? configFromSettings(eff, organization, () => `new_${++n}`, identifierConfigId) : null;
+    // Untouched times keep their stored value exactly (the inputs only show minutes).
+    const time = (v: string, stored?: string) => (v && v === toLocal(stored) ? stored : fromLocal(v));
+    const startsAt = time(x.startsAt, activity?.schedule?.startsAt);
+    const endsAt = time(x.endsAt, activity?.schedule?.endsAt);
+    const sched = { ...(activity?.schedule?.enforced !== undefined ? { enforced: activity.schedule.enforced } : {}), ...(startsAt ? { startsAt } : {}), ...(endsAt ? { endsAt } : {}) };
+    return { own, eff, gen, sched, pid };
+  };
+  const { own: settings, eff: effective, gen: generated } = derive(f);
+  const ownIntegrations = integrationsOf(state, organization.id);
+  const src = effective.identitySource;
+  const integration = src.kind === 'external' ? accessibleIntegration(state, organization.id, src.integrationId, programme) : undefined;
+  const integrationOwner = integration && integration.organizationId !== organization.id ? state.data.organizations.find((o) => o.id === integration.organizationId)?.name : undefined;
+  const allowedApproaches = APPROACHES.filter((a) => (programme ? programme.requirements.allowedEligibility.includes(a) && !(programme.requirements.eligibilityRequired && a === 'none')
+    : effective.identitySource.kind === 'external' || (a !== 'external-source' && a !== 'reference-list')));
+
   const config: Pick<ActivityVersion, 'type' | 'checks' | 'outcome' | 'requirements' | 'customized'> | undefined = generated ?? version;
   const usesParticipants = !!config?.checks.some((c) => c.params.useParticipants);
+  const policyProblems = editable ? activityPolicyProblems(state, organization.id, programmeId, settings) : [];
+  const scheduleProblem = f.startsAt && f.endsAt && f.endsAt <= f.startsAt ? 'The schedule must end after it starts.' : null;
 
   const name = nameProblem(state, organization.id, f.name, activity?.id);
   const location = locationConfigProblem(toConfig(f.location));
@@ -116,7 +168,10 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const blockers = [...new Set([
     ...(name ? [name] : []),
     ...(location ? [location] : []),
-    ...(identity ? [identity] : []),
+    ...(scheduleProblem ? [scheduleProblem] : []),
+    ...policyProblems,
+    // An external identity source isn't checked against local providers.
+    ...(identity && src.kind === 'local' ? [identity] : []),
     // The plain identity message replaces the technical provider messages it summarizes.
     ...(validation?.blockers ?? []).filter((b) => !identity || !/unavailable|not configured/i.test(b.message)).map((b) => b.message),
     ...(!config ? ['This activity has no verification configuration.'] : []),
@@ -131,15 +186,18 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const adminName = (id: string) => { const a = state.data.administrators.find((x) => x.id === id); return a?.name ?? a?.email ?? 'Former administrator'; };
 
   const buildForm = (x: FormState, editorStep?: Step): ActivityForm | null => {
-    if (!config) return null;
+    const d = derive(x);
+    const cfg = d.gen ?? version;
+    if (!cfg) return null;
     const common = {
       name: x.name, description: x.description, purpose: x.description,
       locationCheck: toConfig(x.location), participants: x.participants, verifierIds: x.verifierIds, ...(editorStep ? { editorStep } : {}),
+      schedule: d.sched, ...(isNew && d.pid ? { programmeId: d.pid } : {}), ...(editable ? { verification: d.own } : {}),
     };
-    // Multiple-entry rules, schedules and other earlier settings aren't edited here: existing values are kept (left undefined).
-    return generated
-      ? { ...common, type: generated.type, checks: generated.checks, outcome: generated.outcome, requirements: generated.requirements, customized: false }
-      : { ...common, type: config.type, checks: config.checks, outcome: config.outcome, keepConfiguration: true };
+    // Multiple-entry rules and other earlier settings aren't edited here: existing values are kept (left undefined).
+    return d.gen
+      ? { ...common, type: d.gen.type, checks: d.gen.checks, outcome: d.gen.outcome, requirements: d.gen.requirements, customized: false }
+      : { ...common, type: cfg.type, checks: cfg.checks, outcome: cfg.outcome, keepConfiguration: true };
   };
 
   // ---- Draft preservation -------------------------------------------------------------------
@@ -238,11 +296,18 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
     if (step === 'details') {
       if (!f.name.trim()) { setNameError('Enter an activity name.'); return; }
       if (location) { setLocationError(location); return; }
-      goto('people');
-    } else goto('review');
+      if (scheduleProblem) return;
+      goto('requirements');
+    } else goto(step === 'requirements' ? 'people' : 'review');
   };
   const groupNames = f.participants.groupIds.map((id) => org.groupById.get(id)?.name ?? 'Removed group');
   const userNames = f.participants.memberIds.map((id) => org.memberById.get(id)?.displayName ?? 'Removed user');
+  const chooseProgramme = (id: string) => {
+    const p = linkable.find((x) => x.id === id);
+    // Leaving a programme drops its (possibly another organization's) identity source.
+    setF((x) => ({ ...x, programmeId: id, settings: p ? effectiveSettings(x.settings, p.requirements) : defaultSettings() }));
+  };
+  const setApproach = (a: EligibilityApproach) => set('settings', { ...f.settings, eligibility: { approach: a } });
 
   return (
     <>
@@ -284,6 +349,30 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
                 <Field label="Description" hint="Optional">
                   {(p) => <Textarea {...p} rows={2} placeholder="Describe the purpose of this verification activity" value={f.description} onChange={(e) => set('description', e.target.value)} />}
                 </Field>
+                {isNew ? (
+                  <Field label="Verification Programme" hint="Optional. Programme-linked activities inherit its mandatory requirements.">
+                    {(p) => (
+                      <Select {...p} value={f.programmeId} onChange={(e) => chooseProgramme(e.target.value)}>
+                        <option value="">None — independent activity</option>
+                        {linkable.map((x) => <option key={x.id} value={x.id}>{x.name}{x.ownerOrganizationId !== organization.id ? ` (${state.data.organizations.find((o) => o.id === x.ownerOrganizationId)?.name ?? ''})` : ''}</option>)}
+                      </Select>
+                    )}
+                  </Field>
+                ) : (
+                  <div className="text-sm">
+                    <p className="font-medium text-slate-700">Verification Programme</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-slate-600">{programme ? <><Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />{programme.name}</> : 'None — independent activity'}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">An activity’s programme is set when it’s created.</p>
+                  </div>
+                )}
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Starts" hint="Optional">
+                    {(p) => <Input {...p} type="datetime-local" value={f.startsAt} onChange={(e) => set('startsAt', e.target.value)} />}
+                  </Field>
+                  <Field label="Ends" hint="Optional" error={scheduleProblem ?? undefined}>
+                    {(p) => <Input {...p} type="datetime-local" value={f.endsAt} onChange={(e) => set('endsAt', e.target.value)} />}
+                  </Field>
+                </div>
               </fieldset>
               <div className="mt-6 max-w-2xl border-t border-slate-100 pt-5">
                 <LocationCheckEditor value={f.location} readOnly={!canDetails} error={locationError}
@@ -292,22 +381,57 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
             </form>
           )}
 
+          {step === 'requirements' && (
+            <div className="max-w-3xl space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Identity & Requirements</h2>
+                <p className="text-sm text-slate-500">{programme ? `Settings marked with a lock come from ${programme.name}. You can make the others stricter, not weaker.` : 'Where identities come from and how strictly they’re verified.'}</p>
+              </div>
+              {editable ? (
+                <RequirementsStep value={effective} onChange={(v) => set('settings', v)} programme={programme} integrations={ownIntegrations}
+                  programmeIntegration={programme ? integration : undefined} ownerName={integrationOwner} readOnly={!canDetails} />
+              ) : (
+                <div className="space-y-3">
+                  <p className="flex gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />This activity uses a credential-based or customized configuration from an earlier version. It’s kept as it is and can’t be changed here.</p>
+                  <ul className="list-disc pl-5 text-sm text-slate-900" aria-label="How people are verified">
+                    {config ? describeRequirements(config, credName).map((l) => <li key={l}>{l}</li>) : <li>—</li>}
+                  </ul>
+                </div>
+              )}
+              {editable && policyProblems.length > 0 && <IssuesList blockers={policyProblems} warnings={[]} />}
+            </div>
+          )}
+
           {step === 'people' && (
             <div className="space-y-8">
               <section aria-labelledby="participants-heading" className="space-y-3">
                 <div>
                   <h2 id="participants-heading" className="flex items-center gap-2 text-lg font-semibold text-slate-900"><Users className="h-5 w-5 text-slate-400" aria-hidden="true" />Eligible Participants</h2>
-                  <p className="text-sm text-slate-500">Select users or groups eligible for verification. Being on this list doesn’t prove who someone is.</p>
+                  <p className="text-sm text-slate-500">{usesParticipants ? 'Select users or groups eligible for verification.' : 'How FixID decides who is eligible.'} Eligibility never proves who someone is, and a verified identity never makes someone eligible.</p>
                 </div>
+                {editable && (
+                  <fieldset disabled={!canDetails} className="grid gap-2 sm:grid-cols-2" aria-label="Eligibility approach">
+                    {allowedApproaches.map((a) => (
+                      <label key={a} className={cn('flex cursor-pointer items-start gap-3 rounded-xl border p-3', effective.eligibility.approach === a ? 'border-brand-500 bg-brand-50/50 ring-1 ring-brand-500' : 'border-slate-200 hover:border-slate-300')}>
+                        <input type="radio" name="eligibility-approach" className="mt-0.5 h-4 w-4" checked={effective.eligibility.approach === a} onChange={() => setApproach(a)} />
+                        <span><span className="block text-sm font-semibold text-slate-900">{ELIGIBILITY_LABEL[a]}</span><span className="block text-sm text-slate-500">{ELIGIBILITY_DESCRIPTION[a]}</span></span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {programme && <p className="flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />{programme.name} allows: {programme.requirements.allowedEligibility.map((a) => ELIGIBILITY_LABEL[a]).join(', ')}{programme.requirements.eligibilityRequired ? '. Eligibility is required.' : '.'}</p>}
                 {usesParticipants ? (
                   <ParticipantsPicker value={f.participants} onChange={(p) => set('participants', p)} readOnly={!canDetails} />
+                ) : editable && effective.eligibility.approach === 'reference-list' ? (
+                  <Field label="Permitted external references" hint="One per line. Letters, numbers and hyphens, 2–40 characters. Use fictional references only.">
+                    {(p) => <Textarea {...p} rows={5} disabled={!canDetails} value={f.referenceText} onChange={(e) => set('referenceText', e.target.value)} placeholder={'REF-1001\nREF-1002'} />}
+                  </Field>
+                ) : editable && effective.eligibility.approach === 'external-source' ? (
+                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">Eligibility comes from the authorized lookup response of {integration?.name ?? 'the external identity service'}. Nobody is copied into FixID.</p>
                 ) : config?.requirements?.eligibility === 'external' ? (
                   <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">Eligibility for this activity comes from an external eligibility source, which isn’t connected yet.</p>
                 ) : (
-                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
-                    This activity doesn’t use a participant list: anyone whose identity is verified meets its conditions.
-                    {canAddEligibility && canDetails && <button type="button" className="ml-2 font-semibold text-brand-600 hover:text-brand-700" onClick={() => set('addEligibility', true)}>Add eligible participants</button>}
-                  </p>
+                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">This activity doesn’t use a participant list: anyone whose identity is verified meets its conditions.</p>
                 )}
               </section>
               <section aria-labelledby="verifiers-heading" className="space-y-3 border-t border-slate-100 pt-6">
@@ -341,6 +465,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
               <dl className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
                 <div><dt className="text-slate-500">Activity Name</dt><dd className="font-medium text-slate-900">{f.name || '—'}</dd></div>
                 <div><dt className="text-slate-500">Description</dt><dd className="text-slate-900">{f.description || '—'}</dd></div>
+                <div><dt className="text-slate-500">Verification programme</dt><dd className="text-slate-900">{programme ? programme.name : 'None — independent activity'}</dd></div>
+                <div><dt className="text-slate-500">Schedule</dt><dd className="text-slate-900">{f.startsAt || f.endsAt ? `${f.startsAt ? formatDateTime(fromLocal(f.startsAt)!) : 'Open'} – ${f.endsAt ? formatDateTime(fromLocal(f.endsAt)!) : 'Open'}` : 'No schedule'}</dd></div>
                 <div>
                   <dt className="text-slate-500">Eligible participants</dt>
                   <dd className="text-slate-900">{usesParticipants ? (
@@ -349,7 +475,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
                       {groupNames.length > 0 && <span className="block text-slate-600">Groups: {groupNames.join(', ')}</span>}
                       {userNames.length > 0 && <span className="block text-slate-600">Users: {userNames.length <= 5 ? userNames.join(', ') : `${userNames.slice(0, 5).join(', ')} and ${userNames.length - 5} more`}</span>}
                     </>
-                  ) : config?.requirements?.eligibility === 'external' ? 'External eligibility source' : 'Anyone whose identity is verified'}</dd>
+                  ) : editable ? ELIGIBILITY_LABEL[effective.eligibility.approach] + (effective.eligibility.approach === 'reference-list' ? ` (${settings.eligibility.referenceList?.length ?? 0} references)` : '')
+                    : config?.requirements?.eligibility === 'external' ? 'External eligibility source' : 'Anyone whose identity is verified'}</dd>
                 </div>
                 <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="text-slate-900">{f.verifierIds.length ? f.verifierIds.map(adminName).join(', ') : 'None yet'}</dd></div>
                 <div>
@@ -367,6 +494,12 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
                   <p className="mt-1 text-xs text-slate-500">Set by FixID. Officers record each entry decision separately.</p>
                 </dd></div>
               </dl>
+              {editable && (
+                <div className="border-t border-slate-100 pt-5">
+                  <h3 className="mb-3 text-sm font-semibold text-slate-900">Verification settings</h3>
+                  <ActivitySettingsSummary settings={effective} inherited={!!programme} integration={integration} ownerName={integrationOwner} />
+                </div>
+              )}
             </section>
           )}
         </div>

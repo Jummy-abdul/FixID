@@ -35,8 +35,6 @@ export function usableIntegration(state: AppState, organizationId: string, id: s
   return { ok: true, integration: i };
 }
 
-/** Configurations that use an integration (none yet; verification programmes will add references in Prompt 3). */
-export const integrationReferences = (_state: AppState, _integrationId: string): string[] => [];
 
 function write(state: AppState, next: CustomIntegration, e: Pick<AuditEvent, 'action' | 'summary'> & { changes?: AuditEvent['changes'] }, at: string): AppState {
   const max = state.data.audit.reduce((m, x) => Math.max(m, Number(x.id.replace(/\D/g, '')) || 0), 0);

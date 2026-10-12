@@ -231,10 +231,10 @@ describe('screens', () => {
     expect(dialog).not.toHaveTextContent(/biometric|provider/i);
   });
 
-  it('creates an activity in three stages: details, participants & verifiers, review & activate', async () => {
+  it('creates an activity in four stages: details, identity & requirements, eligibility & verifiers, review & activate', async () => {
     const s = sampleState();
     const user = renderApp('/verification-activities/new', s);
-    expect(within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['1Activity Details', '2Participants & Verifiers', '3Review & Activate']);
+    expect(within(screen.getByRole('list', { name: 'Steps' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['1Activity Details', '2Identity & Requirements', '3Eligibility & Verifiers', '4Review & Activate']);
     for (const t of [/Verification Requirements/, /Facial identity matching/, /Prevent multiple entries/, /Advanced configuration/]) expect(screen.queryByText(t)).toBeNull();
     // Location check is off by default, and nothing about location is asked.
     expect(screen.getByRole('switch', { name: /Enable Location Check/ })).not.toBeChecked();
@@ -245,6 +245,10 @@ describe('screens', () => {
     expect(screen.getByText('Enter an activity name.')).toBeInTheDocument();
     await user.type(screen.getByLabelText(/Activity Name/), 'Members Evening');
     await user.type(screen.getByLabelText(/Description/), 'Entry for registered members');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    // Identity & Requirements: an independent activity defaults to local records and face verification with liveness.
+    expect(screen.getByRole('radio', { name: /FixID Local Records/ })).toBeChecked();
+    expect(screen.getByLabelText('Liveness')).toHaveValue('required');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     // Participants: a group and a user who is also in it count once.
@@ -323,6 +327,7 @@ describe('screens', () => {
     expect(within(settings).getByLabelText('Selected location')).toHaveTextContent('6.51740, 3.38590 · within 250 m');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     const review = screen.getByRole('heading', { name: 'Review & Activate' }).closest('section')!;
     expect(review).toHaveTextContent('Location checkOn6.51740, 3.38590 · within 250 m');
     await user.click(screen.getByRole('button', { name: 'Save as Draft' }));
@@ -339,7 +344,7 @@ describe('screens', () => {
     expect(screen.getByLabelText(/Activity Name/)).toHaveValue(activity.name);
     await user.clear(screen.getByLabelText(/Description/));
     await user.type(screen.getByLabelText(/Description/), 'Staff conference entry');
-    await user.click(screen.getByRole('button', { name: /Participants & Verifiers/ }));
+    await user.click(screen.getByRole('button', { name: /Eligibility & Verifiers/ }));
     expect(screen.getAllByRole('checkbox', { checked: true }).length).toBe(activity.participants!.groupIds.length);
     await user.click(screen.getByRole('button', { name: /Review & Activate/ }));
     await user.click(screen.getByRole('button', { name: 'Save as Draft' }));

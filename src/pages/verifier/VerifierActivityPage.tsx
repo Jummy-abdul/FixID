@@ -12,6 +12,7 @@ import { describeRequirements, eligibleParticipants } from '@/domain/verificatio
 import { formatDateTime } from '@/lib/dates';
 import { useOrgData, useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
+import { activityPolicy, executionUnavailable } from '@/store/programmeOps';
 
 /** Where the activity takes place, from its location check or its descriptive location. */
 export function activityPlace(a: ActivityConfig): string | null {
@@ -61,6 +62,8 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
   const progress = useActivityProgress(activity);
   const place = activityPlace(activity);
   const usesFace = !!version?.checks.some((c) => c.type === 'face-match');
+  const policy = activityPolicy(state, activity);
+  const unavailable = executionUnavailable(state, activity);
   const mine = state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.verifierId === record?.id && a.status !== 'in-progress').slice(0, 5);
 
   const start = () => {
@@ -93,7 +96,8 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
       ) : (
         <div className="mt-5">
           {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
-          <Button size="lg" className="w-full sm:w-auto" icon={<Play className="h-5 w-5" />} disabled={readOnly} onClick={start}>Start Verification</Button>
+          {unavailable && <p role="status" className="mb-3 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{unavailable}</p>}
+          <Button size="lg" className="w-full sm:w-auto" icon={<Play className="h-5 w-5" />} disabled={readOnly || !!unavailable} onClick={start}>Start Verification</Button>
           {readOnly && <p className="mt-2 text-sm text-amber-800">Role preview is read-only. Exit the preview to verify.</p>}
         </div>
       )}
@@ -116,6 +120,10 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
       {version && (
         <Card className="mt-6 px-5 py-4">
           <h2 className="text-sm font-semibold text-slate-900">How people are verified</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Identity source: {policy.effective.identitySource.kind === 'local' ? 'FixID Local Records' : `${policy.integration?.name ?? 'External identity service'} (external)`}
+            {policy.programme && <> · Programme: {policy.programme.name}</>}
+          </p>
           <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-600">
             {describeRequirements(version, (id) => credentialTypeById.get(id)?.name ?? '').map((l) => <li key={l}>{l}</li>)}
           </ul>

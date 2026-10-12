@@ -78,6 +78,7 @@ function withoutSampleCustomRoles(state: AppState): AppState {
 function withLogoAssets(state: AppState): AppState {
   if (!Array.isArray(state.data.ssoConnections)) state = { ...state, data: { ...state.data, ssoConnections: [] } };
   if (!Array.isArray(state.data.organizationRelationships)) state = { ...state, data: { ...state.data, organizationRelationships: [] } };
+  if (!Array.isArray(state.data.verificationProgrammes)) state = { ...state, data: { ...state.data, verificationProgrammes: [] } };
   state = Array.isArray(state.data.customIntegrations) ? settleInterruptedTests(state) : { ...state, data: { ...state.data, customIntegrations: [] } };
   return Array.isArray(state.data.logoAssets) ? state : { ...state, data: { ...state.data, logoAssets: [] } };
 }

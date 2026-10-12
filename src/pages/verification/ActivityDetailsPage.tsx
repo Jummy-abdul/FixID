@@ -7,6 +7,7 @@ import {
 import { useAuthorization } from '@/auth/authorization';
 import { ParticipantsPicker, useEligibleCount, type Participants } from '@/components/verification/ParticipantsPicker';
 import { ActivityStatusBadge, IssuesList } from '@/components/verification/parts';
+import { ActivitySettingsSummary } from '@/components/verification/RequirementsSummary';
 import { memberCounts } from '@/domain/groups';
 import type { ActivityConfig } from '@/domain/types';
 import { activeAssignments, eligibleParticipants } from '@/domain/verification';
@@ -19,6 +20,7 @@ import { cn } from '@/lib/cn';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { NO_VERIFIER_WARNING, activationProblems } from '@/store/activityOps';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
+import { activityPolicy } from '@/store/programmeOps';
 import { NotFoundPage } from '../NotFoundPage';
 import { AttemptsTable } from './VerificationHistoryPage';
 import { activityPath } from './paths';
@@ -174,6 +176,9 @@ function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: 
   const list = (xs: string[]) => (xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} and ${xs.length - 5} more`);
   // Only issues an administrator can act on.
   const actionable = warnings.filter((w) => w === NO_VERIFIER_WARNING);
+  const policy = activityPolicy(state, activity);
+  // Simple local activities keep a plain overview (#012); governed or external ones show what applies and where it comes from.
+  const showSettings = !!policy.programme || policy.effective.identitySource.kind === 'external';
   return (
     <div className="space-y-6">
       <section aria-label="Activity summary" className="grid gap-4 sm:grid-cols-3">
@@ -201,9 +206,20 @@ function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: 
               ? <>On{loc.label && <span className="block">{loc.label}</span>}<span className="block text-slate-600">{formatCoordinate(loc.lat)}, {formatCoordinate(loc.lng)} · within {formatRadius(loc.radiusM)}</span></>
               : 'On, but no location selected'
             : 'Off'}</dd></div>
+          <div><dt className="text-slate-500">Verification programme</dt><dd className="mt-0.5 text-slate-900">{policy.programme
+            ? <Link to={`/programmes/${policy.programme.id}`} className="font-medium text-brand-700 hover:text-brand-800">{policy.programme.name}</Link>
+            : 'None — independent activity'}</dd></div>
           <div><dt className="text-slate-500">Last updated</dt><dd className="mt-0.5 text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
         </dl>
       </Card>
+      {showSettings && (
+        <Card className="px-6 py-5">
+          <h2 className="text-sm font-semibold text-slate-900">Verification settings</h2>
+          {policy.programme && <p className="mt-1 text-xs text-slate-500">Settings marked with a lock are set by {policy.programme.name}; this activity can only make them stricter.</p>}
+          <div className="mt-3"><ActivitySettingsSummary settings={policy.effective} inherited={!!policy.programme} integration={policy.integration}
+            ownerName={policy.integration && policy.integration.organizationId !== organization.id ? policy.integrationOwner : undefined} /></div>
+        </Card>
+      )}
       {loc?.enabled && validCoordinates(loc.lat, loc.lng) && maps.available && (
         <Card className="px-6 py-5">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">Location check area</h2>

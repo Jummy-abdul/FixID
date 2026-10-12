@@ -37,7 +37,7 @@ describe('navigation', () => {
   it('has the approved sidebar structure and order', () => {
     expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Organizations', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'My Verification Activities', 'Verification History', 'My Verification History', 'Organizations', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'My Verification Activities', 'Verification History', 'My Verification History', 'Organizations', 'Audit Log', 'Settings',
     ]);
   });
 

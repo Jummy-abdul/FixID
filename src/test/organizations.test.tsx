@@ -211,7 +211,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     const { user } = renderApp('/signin');
     await signInAs(user, 'Auditor');
     expect(await workspace()).toHaveTextContent('Northbridge University');
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Organizations', 'Audit Log', 'Settings']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create Organization' })).toBeNull();

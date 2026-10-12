@@ -47,7 +47,7 @@ src/
 | — | Dashboard | `/` |
 | User Management | Users · Groups | `/users` · `/groups`, `/groups/:id` |
 | Credential Management | Credentials · Templates | `/credentials` · `/templates` (card designs), `/templates/credential-types` |
-| Verification | Verification Activities · Verification History | `/verification-activities` · `/verification-history` |
+| Verification | Verification Programmes · Verification Activities · Verification History | `/programmes`, `/programmes/:id` · `/verification-activities` · `/verification-history` |
 | Administration | Audit Log · Settings | `/audit` · `/settings` |
 
 Previous paths (`/people`, `/transactions`, `/card-designs`, `/credential-types`, including detail pages and query strings) redirect to their new routes. The former Verification Events page is no longer in the navigation: `/activities` redirects to Verification Activities and `/activities/:id` to Verification History filtered to that event. Its sample records are kept and shown in Verification History.
@@ -117,7 +117,7 @@ Saving creates a **Draft** and never activates.
 **Lifecycle:** Draft → Testing → Active ⇄ Inactive; Error when a test fails.
 - **Activate** needs a successful test of the current configuration version, covering only the enabled capabilities: lookup-only doesn't need matching.
 - **Security-sensitive changes** (connection, authentication, capabilities) increase the configuration version, invalidate the earlier test and return an Active integration to Draft. A name or description change doesn't.
-- **Deactivate** (with confirmation) blocks new use (`usableIntegration`), keeps configuration, tests and audit records, and warns if the integration is referenced (none yet; verification programmes will add references).
+- **Deactivate** (with confirmation) blocks new use (`usableIntegration`), keeps configuration, tests and audit records, and warns about the programmes and activities that use it (`integrationUsage`).
 - **Audit:** every change and test is audited (Audit Log → *Integrations*).
 
 **Connection test** (`runConnectionTest`) runs the contract against the configured service and validates every response: configuration, authentication, lookup compatibility (FOUND and NOT_FOUND test references), matching compatibility (when enabled), schema validity and error handling. It reports *Connection successful.*, *Authentication failed.*, *Lookup / Matching contract validation failed.*, *Service unavailable.* or *Request timed out.*, with a timestamp and per-check details. The last 10 tests are kept, never with secrets.
@@ -141,8 +141,41 @@ Saving creates a **Draft** and never activates.
 **Demonstration data:**
 - **Organization A** (Northbridge): none; local verification only.
 - **Organization B** (Meridian): *Group Identity Service*, lookup and matching, tested and **Active**.
-- **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**.
+- **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**; and *Delegate Identity Service*, simulated lookup and matching, **Active** (used by programme scenarios C and D).
 - **Organization D** (sub-organization B1, Harbourside): *Hospital Identity Service*, an external configuration whose test failed (**Error**), so it can't be activated.
+
+## Verification programmes, activities and eligibility (Phase 3)
+
+**Verification Programmes** (`/programmes`, Verification group; `programmes.view` for Organization Admin and Auditor, `programmes.manage` for Organization Admin). Programmes are optional: an activity never needs one.
+- **Ownership and scope:** the owner is always the active workspace. A programme applies to its owner only, or to sub-organizations the owner selects explicitly (only active sub-organization relationships; none are added automatically).
+- **Participants:** Invited → Active (when the programme is activated) → Suspended ⇄ Active, or Removed. Only the owner changes participation.
+- **Requirements:** identity source (FixID Local Records, or one of the owner's active custom identity services with the capabilities the method needs), verification method, liveness (required / optional / not applicable), reverification, exception handling (with optional escalation to a programme reviewer), eligibility (required or not, and the approaches activities may use). Assurance shows *Assurance policy not yet defined.*
+- **Lifecycle:** Draft → Active ⇄ Suspended → Completed → Archived. A Draft can be incomplete; activation validates everything. Suspended, completed and archived programmes stop new programme-linked verification; nothing is deleted, and every change is audited (Audit Log → *Programmes*).
+- **List:** Programme Name, Owning Organization, Participating Organizations, Verification Source, Status, Date Created, Actions, with search and a status filter. **Create Programme** opens a four-step wizard (Programme Details, Participating Organizations, Verification Requirements, Review; Save as Draft or Save & Activate).
+- **Details:** requirements, participants (owner only, programme-level status and activity counts, never the participants' other records) and programme activities. A participant sees the requirements read-only and only its own activities; any other organization gets *Programme not available*.
+
+**Verification activities** keep their existing editor (autosave drafts, location check, verifiers) with four steps:
+1. **Activity Details:** name, description, an optional **Verification Programme** (only programmes the organization can use now; set at creation), optional start and end times, location check.
+2. **Identity & Requirements:** identity source, method, liveness, reverification, exception handling, decision rules, assurance. For a programme-linked activity the programme's mandatory settings are shown with a lock and *Set by the programme …*; only stricter choices are offered (for example *Liveness is required by the programme … and can't be disabled.*).
+3. **Eligibility & Verifiers:** the eligibility approach (only those the programme allows), then the local participant picker, a reference list, or a note that eligibility comes from the external lookup response; then verifiers.
+4. **Review & Activate:** including the programme and the effective verification settings.
+
+Inheritance is enforced in the store, not just the UI (`activityPolicyProblems`, `weakeningProblems`): a programme-linked activity can't replace the identity source or exception handling, weaken the method or liveness, lengthen reuse, or use an eligibility approach the programme doesn't allow. Only active participants (or the owner of an own-organization programme) can create activities under it. Activities saved before Phase 3 get settings derived from their configuration; credential-based or customized configurations are kept and shown read-only.
+
+**Eligibility approaches:** local eligible population (groups and users, as before), external source eligibility (from the authorized lookup response), reference list eligibility (permitted external references; letters, digits and hyphens, 2–40 characters), or no predefined population. Local eligibility requires local enrollment; the external approaches don't, and nothing is copied into FixID.
+
+**Decision model** (`decide` in `src/domain/programmes.ts`): identity match, eligibility and the activity decision are separate results. The activity allows only when identity matches **and** eligibility is confirmed or not required; a match never makes someone eligible. Inconclusive matches and service unavailability follow the activity's decision rules; no match or ineligible is denied when exceptions are *Mark unsuccessful*, otherwise sent for review.
+
+**Execution in this prototype:** local activities verify as before. Activities using an external identity service are configured and can be activated, but **Start Verification is disabled** with *Verification through an external identity service isn't available in this prototype yet.* External execution, the full exception workflow and reporting are later phases. Programme-linked activities also stop when the programme or the organization's participation isn't active.
+
+**Demonstration scenarios** (all fictional; sign in with the demonstration accounts):
+- **A — Northbridge:** *Site Access Check*, an independent activity on local records (face, liveness required, local population), with an assigned verifier.
+- **B — Meridian:** the *Group Staff Verification* programme uses *Group Identity Service* (face, liveness required, review with escalation, eligibility required: external source or reference list) for both sub-organizations. Harbourside's *Harbourside Staff Entry* (external source eligibility, Tomi Okon assigned) and Eastgate's *Eastgate Contractor Check* (reference list `CTR-1001`–`CTR-1003`, Mira Santos assigned).
+- **C — Brightwater:** *Delegate Check-in*, an independent activity on its own *Delegate Identity Service*, eligibility from the lookup response.
+- **D — Brightwater:** *Speaker Lounge Access*, eligibility from a reference list (`SPK-2001`–`SPK-2004`); speakers aren't enrolled in FixID.
+- **E — Liveness enforcement:** in a Meridian sub-organization, create an activity under *Group Staff Verification*: Liveness is locked at Required, and the store refuses an activity that asks for less.
+
+**Limitations:** access restrictions are enforced in the browser prototype only, not as production-grade security. Simulated identity services never compare real faces or perform liveness detection. Reverification reuse and programme-level exception escalation are recorded as rules but not executed yet. Browser data saved before Phase 3 keeps its activities; use Settings → Demo data → Reset to load the Phase 3 scenarios.
 
 ## Organizations, workspaces and demo accounts (Phase 1)
 

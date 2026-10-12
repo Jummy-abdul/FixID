@@ -4,6 +4,7 @@ import type {
 } from '@/domain/types';
 import { checkById, eligibleParticipants, providersFor } from '@/domain/verification';
 import { actorPermissions, actorRecord } from '@/store/adminOps';
+import { executionUnavailable } from '@/store/programmeOps';
 import { WEB_CLIENT, authorizeExecution, denyProblem, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
 import type { DeviceLocation } from '@/services/location';
 import { effectivePermissions, type Action, type AppState } from '@/store/state';
@@ -399,6 +400,10 @@ export function createVerificationService(deps: ServiceDeps) {
         }
         return auth;
       }
+      // Programme status and external identity sources are checked before anything starts.
+      const activity = s.data.activityConfigs.find((a) => a.id === activityId && a.organizationId === organizationId);
+      const unavailable = activity ? executionUnavailable(s, activity) : null;
+      if (unavailable) return { ok: false, error: unavailable, code: 'inactive' };
       const attemptId = newAttemptId();
       deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client });
       const attempt = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);

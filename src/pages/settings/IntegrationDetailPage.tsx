@@ -9,7 +9,8 @@ import { formatDateTime } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { TEST_SCENARIOS, type TestScenario } from '@/services/integrations/integrationService';
 import { SIMULATED_LOOKUP_REFERENCES, SIMULATED_MATCH_FIXTURES } from '@/services/integrations/simulatedIdentityService';
-import { integrationFor, integrationReferences } from '@/store/integrationOps';
+import { integrationFor } from '@/store/integrationOps';
+import { integrationUsage } from '@/store/programmeOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
 import { CapabilityBadges, IntegrationStatusBadge, SimulatedBadge } from './IntegrationsPanel';
 import { ContractReference } from './IntegrationContract';
@@ -44,7 +45,7 @@ export function IntegrationDetailPage() {
   const canManage = can('integrations.manage');
   const lastOk = i.tests.find((t) => t.ok);
   const lastFail = i.tests.find((t) => !t.ok);
-  const refs = integrationReferences(state, i.id);
+  const refs = integrationUsage(state, organization.id, i.id);
   const row = (label: string, value: React.ReactNode) => <div><dt className="text-sm text-slate-500">{label}</dt><dd className="mt-0.5 text-sm text-slate-900">{value}</dd></div>;
   const act = (r: { ok: true } | { ok: false; error: string }, title: string) => toast(r.ok ? { tone: 'success', title } : { tone: 'error', title: 'Nothing was changed', description: r.error });
 

@@ -33,6 +33,7 @@ import { templateForDesign } from '@/domain/templates';
 import { buildChecks } from '@/domain/verification';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { invitationToken } from '@/lib/tokens';
+import { DEFAULT_DECISION_RULES, type VerificationProgramme, type VerificationSettings } from '@/domain/programmes';
 import { CONTRACT_VERSION, SIMULATED_BASE_URL, type CustomIntegration, type IntegrationCheck } from '@/domain/integrations';
 import { B2_RECORDS_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C, ORG_D, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
@@ -72,6 +73,8 @@ export interface SeedData {
   organizationRelationships: OrganizationRelationship[];
   /** Custom identity services, each owned by one organization. */
   customIntegrations: CustomIntegration[];
+  /** Verification Programmes, each owned by one organization. */
+  verificationProgrammes: VerificationProgramme[];
 }
 
 const DAY = 86_400_000;
@@ -884,6 +887,10 @@ export function buildSeed(now: Date = new Date()): SeedData {
       activitiesSeed.verifierAssignments.push({ organizationId: ORG_B1, activityId: `${ORG_B1}_va_${key}`, administratorId: `${ORG_B1}_adm_verifier`, status: 'active', assignedAt: iso(addDays(today, -10)), assignedBy: 'Lina Ford' });
     }
   }
+  const scenarios = seedProgrammeScenarios(organizations, today);
+  activitiesSeed.activityConfigs.push(...scenarios.activityConfigs);
+  activitiesSeed.activityVersions.push(...scenarios.activityVersions);
+  activitiesSeed.verifierAssignments.push(...scenarios.verifierAssignments);
   return {
     organizations,
     // The demo account (Tobyson) belongs to every top-level sample organization, but to no sub-organization.
@@ -911,6 +918,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     logoAssets: [],
     ssoConnections: [],
     customIntegrations: seedIntegrations(today),
+    verificationProgrammes: scenarios.verificationProgrammes,
     organizationRelationships: Object.entries(SEEDED_SUB_ORGANIZATIONS).map(([child, parent]) => ({
       id: `rel_${child}`, parentOrganizationId: parent, childOrganizationId: child, type: 'sub-organization' as const, origin: 'created-by-parent' as const,
       status: 'active' as const, initialAdministratorId: `${child}_adm_owner`, createdAt: iso(addMonths(today, -14)), createdBy: 'Victor Hale',
@@ -920,7 +928,8 @@ export function buildSeed(now: Date = new Date()): SeedData {
 
 /**
  * Fictional custom identity services. Organization A has none (local verification only); B's is tested and
- * active; C's is a Draft; D's points at an external service, so its test fails (external requests are
+ * active; C has a Draft and an active simulated service (programme scenarios C and D); D's points at an external
+ * service, so its test fails (external requests are
  * disabled in the prototype) and it can't be activated.
  */
 export function seedIntegrations(today: Date): CustomIntegration[] {
@@ -953,6 +962,24 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
       createdAt: at(3), createdBy: 'Tobyson TE', updatedAt: at(3), updatedBy: 'Tobyson TE',
     },
     {
+      id: 'int_c_delegates', organizationId: ORG_C, name: 'Delegate Identity Service', description: 'Simulated service that looks up registered delegates and matches their faces. Used by the summit’s independent activities.',
+      capabilities: ['lookup', 'matching'], referenceLabel: 'Delegate Reference', permittedAttributes: ['displayName', 'recordStatus'],
+      connection: { target: 'simulated', baseUrl: SIMULATED_BASE_URL, authMethod: 'api-key', apiKey: { headerName: 'X-API-Key' }, credential: 'simulated', timeoutSeconds: 8 },
+      contractVersion: CONTRACT_VERSION, configVersion: 1, validatedConfigVersion: 1, status: 'active', lastSuccessfulTestAt: at(9),
+      tests: [{
+        id: 'test_c_1', at: at(9), by: 'Tobyson TE', configVersion: 1, ok: true, summary: 'Connection successful.', simulated: true, scenario: 'healthy',
+        checks: [
+          passed('configuration', 'Connection configuration', 'Contract 1.0, api-key authentication, 8s timeout.'),
+          passed('authentication', 'Authentication', 'Simulated credential accepted (no real secret is used).'),
+          passed('lookup', 'Lookup endpoint compatibility', 'FOUND and NOT_FOUND responses follow contract 1.0.'),
+          passed('matching', 'Matching endpoint compatibility', 'MATCH response follows contract 1.0. Simulated: no faces were compared.'),
+          passed('schema', 'Response schema validity', 'All responses validated against contract 1.0.'),
+          passed('errors', 'Error handling', 'An invalid request returned a well-formed ERROR.'),
+        ],
+      }],
+      createdAt: at(10), createdBy: 'Tobyson TE', updatedAt: at(9), updatedBy: 'Tobyson TE',
+    },
+    {
       id: 'int_d_hospital', organizationId: ORG_D, name: 'Hospital Identity Service', description: 'The hospital’s own identity service for staff records and face matching.',
       capabilities: ['lookup', 'matching'], referenceLabel: 'Staff Reference', permittedAttributes: ['displayName', 'recordStatus'],
       connection: { target: 'external', baseUrl: 'https://identity.harbourside.example/api', authMethod: 'oauth2-client-credentials', oauth: { tokenEndpoint: 'https://identity.harbourside.example/oauth/token', clientId: 'fixid-harbourside' }, credential: 'missing', timeoutSeconds: 15 },
@@ -968,6 +995,79 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
       createdAt: at(4), createdBy: 'Lina Ford', updatedAt: at(1), updatedBy: 'Lina Ford',
     },
   ];
+}
+
+/** The parent-governed programme in demonstration scenario B. */
+export const DEMO_PROGRAMME_B = 'prog_meridian_staff';
+
+/**
+ * Demonstration scenarios for verification programmes (all fictional):
+ * A — Northbridge: an independent activity using local records.
+ * B — Meridian: a programme using its external identity service, applied to both sub-organizations, each
+ *     with its own programme-linked activity (Harbourside: external eligibility; Eastgate: reference list).
+ * C — Brightwater: an independent activity using its own external identity service.
+ * D — Brightwater: eligibility from a reference list, without enrolling anybody locally.
+ * E — Liveness enforcement: B's programme requires liveness, which its activities can't disable.
+ */
+export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 'integrations'>[], today: Date):
+  Pick<SeedData, 'verificationProgrammes' | 'activityConfigs' | 'activityVersions' | 'verifierAssignments'> {
+  const at = (days: number) => new Date(today.getTime() - days * DAY).toISOString();
+  const out = { verificationProgrammes: [] as VerificationProgramme[], activityConfigs: [] as ActivityConfig[], activityVersions: [] as ActivityVersion[], verifierAssignments: [] as VerifierAssignment[] };
+  const has = (id: string) => organizations.some((o) => o.id === id);
+  const settings = (x: Partial<VerificationSettings>): VerificationSettings => ({
+    identitySource: { kind: 'local' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' }, exceptions: 'review',
+    eligibility: { approach: 'local-population' }, decisionRules: DEFAULT_DECISION_RULES, ...x,
+  });
+  const add = (orgId: string, key: string, by: string, a: Pick<ActivityConfig, 'name' | 'description'> & Partial<ActivityConfig>, v: VerificationSettings, verifierId?: string) => {
+    const org = organizations.find((o) => o.id === orgId) as Organization;
+    const id = `${orgId}_va_${key}`;
+    const vid = `${id}_v1`;
+    // Matches configFromSettings: external eligibility is decided by the external flow, not local checks.
+    const requirements: StandardRequirements = { identity: v.method, credential: null, eligibility: v.identitySource.kind === 'local' && v.eligibility.approach === 'local-population' ? 'participants' : null };
+    let n = 0;
+    const built = buildChecks(requirements, org, () => `${vid}_chk_${++n}`);
+    const review = v.exceptions !== 'unsuccessful';
+    out.activityVersions.push({
+      id: vid, organizationId: orgId, activityId: id, number: 1, type: built.type, checks: built.checks, requirements, customized: false,
+      outcome: { onRequiredFailure: review ? 'pending-review' : 'not-verified', onInconclusive: 'pending-review' },
+      status: 'active', createdAt: at(8), createdBy: by, updatedAt: at(8), activatedAt: at(8), activatedBy: by,
+    });
+    out.activityConfigs.push({
+      id, organizationId: orgId, entryPolicy: 'off', participants: { groupIds: [], memberIds: [] }, restrictVerifiers: false, purpose: a.description,
+      status: 'active', activeVersionId: vid, createdAt: at(9), createdBy: by, updatedAt: at(8), updatedBy: by, verification: v, ...a,
+    });
+    if (verifierId) out.verifierAssignments.push({ organizationId: orgId, activityId: id, administratorId: verifierId, status: 'active', assignedAt: at(8), assignedBy: by });
+  };
+
+  if (has(ORG_A)) {
+    add(ORG_A, 'site_access', 'Esther Lawal', { name: 'Site Access Check', description: 'Independent activity: registered staff verified against local records before entering the site.', participants: { groupIds: [`${ORG_A}_grp_volunteers`], memberIds: [] } },
+      settings({}), `${ORG_A}_adm_4`);
+  }
+  if (has(ORG_B) && has(ORG_B1) && has(ORG_B2)) {
+    out.verificationProgrammes.push({
+      id: DEMO_PROGRAMME_B, ownerOrganizationId: ORG_B, name: 'Group Staff Verification', description: 'Shared requirements for verifying staff across Meridian’s sub-organizations.',
+      purpose: 'Verify staff identity consistently at every Meridian site.', status: 'active', scope: 'sub-organizations',
+      participants: [ORG_B1, ORG_B2].map((organizationId) => ({ organizationId, status: 'active' as const, addedAt: at(12), addedBy: 'Victor Hale', updatedAt: at(12) })),
+      requirements: {
+        identitySource: { kind: 'external', integrationId: 'int_b_identity' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' },
+        exceptions: 'review', escalateToProgramme: true, eligibilityRequired: true, allowedEligibility: ['external-source', 'reference-list'],
+      },
+      createdAt: at(14), createdBy: 'Victor Hale', updatedAt: at(12), updatedBy: 'Victor Hale', activatedAt: at(12),
+    });
+    const external = { identitySource: { kind: 'external' as const, integrationId: 'int_b_identity' } };
+    add(ORG_B1, 'staff_entry', 'Lina Ford', { name: 'Harbourside Staff Entry', description: 'Programme-linked: staff verified through the group identity service; eligibility from its lookup response.', programmeId: DEMO_PROGRAMME_B },
+      settings({ ...external, eligibility: { approach: 'external-source' } }), `${ORG_B1}_adm_verifier`);
+    add(ORG_B2, 'contractor_check', 'Mira Santos', { name: 'Eastgate Contractor Check', description: 'Programme-linked: contractors on the permitted reference list, verified through the group identity service.', programmeId: DEMO_PROGRAMME_B },
+      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['CTR-1001', 'CTR-1002', 'CTR-1003'] } }), `${ORG_B2}_adm_owner`);
+  }
+  if (has(ORG_C)) {
+    const external = { identitySource: { kind: 'external' as const, integrationId: 'int_c_delegates' } };
+    add(ORG_C, 'delegate_checkin', 'Tobyson TE', { name: 'Delegate Check-in', description: 'Independent activity using the summit’s own external identity service; eligibility from its lookup response.' },
+      settings({ ...external, eligibility: { approach: 'external-source' }, exceptions: 'unsuccessful' }), `${ORG_C}_adm_4`);
+    add(ORG_C, 'speaker_lounge', 'Tobyson TE', { name: 'Speaker Lounge Access', description: 'Eligibility from a permitted reference list. Speakers aren’t enrolled in FixID.' },
+      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['SPK-2001', 'SPK-2002', 'SPK-2003', 'SPK-2004'] } }), `${ORG_C}_adm_4`);
+  }
+  return out;
 }
 
 /**
