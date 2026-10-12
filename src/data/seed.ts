@@ -1,5 +1,6 @@
 import { METHOD_ASSURANCE, meetsAssurance } from '@/domain/rules';
 import type {
+  SsoConnection,
   CustomRole, LogoAsset,
   AdminUser,
   AuditEvent,
@@ -62,6 +63,8 @@ export interface SeedData {
   customRoles: CustomRole[];
   /** Credential logos uploaded by each organization. */
   logoAssets: LogoAsset[];
+  /** Each organization's single sign-on (OIDC) connection, when configured. */
+  ssoConnections: SsoConnection[];
 }
 
 const DAY = 86_400_000;
@@ -776,6 +779,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     // No organization starts with custom roles: they appear only when an administrator creates them.
     customRoles: [],
     logoAssets: [],
+    ssoConnections: [],
   };
 }
 

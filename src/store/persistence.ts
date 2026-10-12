@@ -75,6 +75,7 @@ function withoutSampleCustomRoles(state: AppState): AppState {
 
 /** Saved data from before credential logos: no logos yet. */
 function withLogoAssets(state: AppState): AppState {
+  if (!Array.isArray(state.data.ssoConnections)) state = { ...state, data: { ...state.data, ssoConnections: [] } };
   return Array.isArray(state.data.logoAssets) ? state : { ...state, data: { ...state.data, logoAssets: [] } };
 }
 

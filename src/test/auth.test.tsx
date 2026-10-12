@@ -212,8 +212,8 @@ describe('sign in, demo account, recovery and sign out', () => {
     expect(await screen.findByRole('heading', { name: 'Welcome to FixID, Tobyson.' }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByLabelText('Dashboard preview')).toBeInTheDocument();
     await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Settings' }));
-    // Settings shows only Organization and Administrators & Roles; the demo tools aren't in the navigation.
-    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles']);
+    // Settings shows Organization, Administrators & Roles and Security; the demo tools aren't in the navigation.
+    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles', 'Security']);
     first.unmount();
     // The demo account still reaches its internal prototype tools by their address.
     const { user } = renderApp('/settings?tab=demo');
@@ -304,7 +304,7 @@ describe('sign in, demo account, recovery and sign out', () => {
     await user.type(screen.getByLabelText('Email address'), 'someone@crestfield.example');
     await user.click(screen.getByRole('button', { name: /Send reset link/ }));
     await heading('Check your inbox');
-    expect(screen.getByText("If an account exists for this email, you'll receive a password reset link shortly.")).toBeInTheDocument();
+    expect(screen.getByText(/^If an account exists for this email, you'll receive a password reset link shortly\./)).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: /Back to sign in/ }));
     await heading('Welcome back');
   });

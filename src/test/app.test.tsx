@@ -317,12 +317,12 @@ describe('settings', () => {
     expect(await screen.findByText(/Updated organization profile \(name, phone, address\)/)).toBeInTheDocument();
   });
 
-  it('shows only Organization and Administrators & Roles, and old Integrations links fall back to Organization', async () => {
+  it('shows Organization, Administrators & Roles and Security, and old Integrations links fall back to Organization', async () => {
     const before = createInitialState().data.organizations.map((o) => o.integrations);
     const { user } = renderApp('/settings?tab=integrations');
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
     expect(tabs).not.toContain('Integrations');
-    expect(tabs).toEqual(['Organization', 'Administrators & Roles']);
+    expect(tabs).toEqual(['Organization', 'Administrators & Roles', 'Security']);
     expect(screen.getByRole('tab', { name: 'Organization' })).toHaveAttribute('aria-selected', 'true');
     for (const gone of [/Identity service/, /Demonstration verification providers/, /Fixiam/, /check connection/i]) expect(screen.queryByText(gone)).toBeNull();
     // Organization and Administrators & Roles still work; organization configurations are untouched.

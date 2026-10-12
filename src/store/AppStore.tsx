@@ -18,6 +18,11 @@ import {
 } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
+import { newId } from '@/lib/identifiers';
+import {
+  applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity,
+} from './ssoOps';
+import type { SsoFormValues } from '@/domain/sso';
 import { normalizeProfile, profileValues, timezoneOptions, validateOrganizationProfile } from '@/domain/organization';
 import { authorizeAction, createInitialState, reducer, type Action, type AppState, type OrganizationProfileUpdate } from './state';
 
@@ -240,6 +245,35 @@ export function useActions() {
         const token = invitationToken();
         const r = run(() => applyResendInvite(getState(), { organizationId, adminId, token, at }), { type: 'admins/resend', organizationId, adminId, token, at });
         return r.ok ? { ...r, token } : r;
+      },
+      /** Single sign-on. Each re-checks sso.manage (linking needs only the administrator's own active account). */
+      saveSso: (organizationId: string, values: SsoFormValues) => {
+        const input = { organizationId, versionId: newId('sso'), values, at: new Date().toISOString() };
+        return run(() => applySaveSso(getState(), input), { type: 'sso/save', input });
+      },
+      recordSsoTest: (organizationId: string, versionId: string, ok: boolean, message: string, mode: 'live' | 'demonstration') => {
+        const at = new Date().toISOString();
+        return run(() => applySsoTestResult(getState(), { organizationId, versionId, ok, message, mode, at }), { type: 'sso/testResult', organizationId, versionId, ok, message, mode, at });
+      },
+      activateSso: (organizationId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyActivateSso(getState(), { organizationId, at }), { type: 'sso/activate', organizationId, at });
+      },
+      disableSso: (organizationId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyDisableSso(getState(), { organizationId, at }), { type: 'sso/disable', organizationId, at });
+      },
+      discardSsoChanges: (organizationId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyDiscardSsoChanges(getState(), { organizationId, at }), { type: 'sso/discard', organizationId, at });
+      },
+      linkSsoIdentity: (organizationId: string, identity: ExternalIdentity) => {
+        const at = new Date().toISOString();
+        return run(() => applyLinkSsoIdentity(getState(), { organizationId, identity, at }), { type: 'sso/link', organizationId, identity, at });
+      },
+      unlinkSsoIdentity: (organizationId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyUnlinkSsoIdentity(getState(), { organizationId, at }), { type: 'sso/unlink', organizationId, at });
       },
       /** Prototype only: makes a pending invitation expire now. */
       expireAdminInvite: (organizationId: string, adminId: string) => {

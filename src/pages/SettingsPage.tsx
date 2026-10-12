@@ -6,8 +6,9 @@ import { NoAccess, useAuthorization } from '@/auth/authorization';
 import { AdministratorsPanel } from './settings/AdministratorsPanel';
 import { useSession } from '@/store/AppStore';
 import { OrganizationForm } from './settings/OrganizationForm';
+import { SecurityPanel } from './settings/SecurityPanel';
 
-type Tab = 'organization' | 'admins';
+type Tab = 'organization' | 'admins' | 'security';
 
 export function SettingsPage() {
   const { organization } = useSession();
@@ -20,6 +21,7 @@ export function SettingsPage() {
   const tabs = [
     ...(can('settings.manage') || can('organization.view') ? [{ value: 'organization' as const, label: 'Organization' }] : []),
     ...(can('administrators.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
+    ...(can('sso.manage') ? [{ value: 'security' as const, label: 'Security' }] : []),
   ];
   const { isDemo } = useAuth();
   const internalDemo = tab === 'demo' && isDemo && can('settings.manage');
@@ -41,6 +43,7 @@ export function SettingsPage() {
       </div>
       {current === 'organization' && <OrganizationForm key={organization.id} organization={organization} />}
       {current === 'admins' && <AdministratorsPanel />}
+      {current === 'security' && <SecurityPanel />}
     </>
   );
 }

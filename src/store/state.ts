@@ -1,4 +1,7 @@
 import type { SeedData } from '@/data/seed';
+import {
+  applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity, type SsoSaveInput,
+} from './ssoOps';
 import { buildSeed } from '@/data/seed';
 import {
   EDITABLE_ORGANIZATION_FIELDS, normalizeProfile, profileValues, timezoneOptions, validateOrganizationProfile, type OrganizationProfileValues,
@@ -70,6 +73,13 @@ export type Action =
   | { type: 'roles/delete'; organizationId: string; roleId: string; at: string }
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string; token?: string }
+  | { type: 'sso/save'; input: SsoSaveInput }
+  | { type: 'sso/testResult'; organizationId: string; versionId: string; ok: boolean; message: string; mode: 'live' | 'demonstration'; at: string }
+  | { type: 'sso/activate'; organizationId: string; at: string }
+  | { type: 'sso/disable'; organizationId: string; at: string }
+  | { type: 'sso/discard'; organizationId: string; at: string }
+  | { type: 'sso/link'; organizationId: string; identity: ExternalIdentity; at: string }
+  | { type: 'sso/unlink'; organizationId: string; at: string }
   | { type: 'groups/create'; input: GroupInput & { id: string } }
   | { type: 'groups/update'; input: GroupInput & { groupId: string } }
   | { type: 'groups/remove'; organizationId: string; groupId: string; at: string }
@@ -123,6 +133,11 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'admins/expire': ['administrators.invite'],
   'admins/roles': ['roles.assign'],
   'admins/status': ['administrators.manage'],
+  'sso/save': ['sso.manage'],
+  'sso/testResult': ['sso.manage'],
+  'sso/activate': ['sso.manage'],
+  'sso/disable': ['sso.manage'],
+  'sso/discard': ['sso.manage'],
   'logos/upload': ['credentials.manage'],
   'users/create': ['users.create', 'users.import'],
   'users/importSummary': ['users.import'],
@@ -351,6 +366,7 @@ export function reducer(state: AppState, action: Action): AppState {
           verificationAttempts: keep(n.verificationAttempts, d.verificationAttempts),
           customRoles: keep(n.customRoles, d.customRoles),
           logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
+          ssoConnections: keep(n.ssoConnections, d.ssoConnections ?? []),
         },
       };
     }
@@ -410,6 +426,13 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/roles': return orKeep(state, applySetRoles(state, action));
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
+    case 'sso/save': return orKeep(state, applySaveSso(state, action.input));
+    case 'sso/testResult': return orKeep(state, applySsoTestResult(state, action));
+    case 'sso/activate': return orKeep(state, applyActivateSso(state, action));
+    case 'sso/disable': return orKeep(state, applyDisableSso(state, action));
+    case 'sso/discard': return orKeep(state, applyDiscardSsoChanges(state, action));
+    case 'sso/link': return orKeep(state, applyLinkSsoIdentity(state, action));
+    case 'sso/unlink': return orKeep(state, applyUnlinkSsoIdentity(state, action));
     case 'verify/start': return orKeep(state, applyStartAttempt(state, action));
     case 'verify/complete': return orKeep(state, applyCompleteAttempt(state, action.input));
     case 'verify/cancel': return orKeep(state, applyCancelAttempt(state, action));

@@ -13,7 +13,7 @@ export type Permission =
   | 'verification.verifiers.assign' | 'verification.execute'
   | 'verification.results.view'
   | 'administrators.view' | 'administrators.invite' | 'administrators.manage'
-  | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'audit.view';
+  | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'sso.manage' | 'audit.view';
 
 export interface PermissionInfo {
   id: Permission;
@@ -56,6 +56,7 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'roles.manage', label: 'Create, edit and delete custom roles', area: 'Administration', sensitive: true },
   { id: 'organization.view', label: 'View the organization profile', area: 'Administration' },
   { id: 'settings.manage', label: 'Update the organization profile', area: 'Administration', sensitive: true },
+  { id: 'sso.manage', label: 'Manage SSO configuration', area: 'Administration', sensitive: true },
   { id: 'audit.view', label: 'View the audit log', area: 'Administration' },
 ];
 

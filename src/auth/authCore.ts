@@ -31,15 +31,60 @@ export interface Account {
   organizationId?: string;
   onboarding: OnboardingStep;
   createdAt: string;
+  /** Sessions issued before this time are revoked (set by a password reset). */
+  sessionsValidAfter?: string;
 }
 
-export interface AuthSession { accountId: string; expiresAt?: string }
+/**
+ * A FixID session, the same whichever way the administrator signed in. Timestamps are optional only for
+ * fixed test sessions; every real sign-in sets them.
+ */
+export interface AuthSession {
+  accountId: string;
+  /** Absolute end: issuedAt + the maximum session duration. */
+  expiresAt?: string;
+  issuedAt?: string;
+  lastActiveAt?: string;
+  method?: 'password' | 'sso';
+  /** SSO sign-ins: the organization signed in to, and the provider's name (for the sign-out message). */
+  organizationId?: string;
+  providerName?: string;
+}
 
-export const SESSION_TTL_MS = 12 * 60 * 60_000;
+const envNumber = (v: string | undefined, fallback: number) => (v && Number(v) > 0 ? Number(v) : fallback);
+
+/**
+ * Session policy. PROVISIONAL defaults pending product/security confirmation, configurable per build
+ * (VITE_SESSION_IDLE_MINUTES, VITE_SESSION_MAX_HOURS). Not final product policy.
+ */
+export const SESSION_POLICY = {
+  idleMinutes: envNumber(import.meta.env.VITE_SESSION_IDLE_MINUTES, 30),
+  maxHours: envNumber(import.meta.env.VITE_SESSION_MAX_HOURS, 8),
+  provisional: true,
+};
 export const SESSION_EXPIRED_FLAG = 'fixid.auth.sessionExpired';
-export const newSession = (accountId: string, now = new Date()): AuthSession => ({ accountId, expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString() });
+export const SIGNED_OUT_FLAG = 'fixid.auth.signedOut';
 
-export interface AuthStore { accounts: Account[]; session: AuthSession | null }
+export function newSession(accountId: string, now = new Date(), extra: Pick<AuthSession, 'method' | 'organizationId' | 'providerName'> = { method: 'password' }): AuthSession {
+  const at = now.toISOString();
+  return { accountId, issuedAt: at, lastActiveAt: at, expiresAt: new Date(now.getTime() + SESSION_POLICY.maxHours * 3_600_000).toISOString(), ...extra };
+}
+
+/** Why a session can no longer be used, or null. Revocation follows a password reset. */
+export function sessionProblem(session: AuthSession, account: Pick<Account, 'sessionsValidAfter'> | undefined, now = new Date()): 'expired' | 'idle' | 'revoked' | null {
+  if (session.expiresAt && new Date(session.expiresAt) <= now) return 'expired';
+  if (session.lastActiveAt && now.getTime() - new Date(session.lastActiveAt).getTime() > SESSION_POLICY.idleMinutes * 60_000) return 'idle';
+  if (account?.sessionsValidAfter && (!session.issuedAt || new Date(session.issuedAt) < new Date(account.sessionsValidAfter))) return 'revoked';
+  return null;
+}
+
+/** A single-use password reset link. Only a hash of its token is kept. */
+export interface PasswordReset { tokenHash: string; accountId: string; createdAt: string; expiresAt: string; usedAt?: string }
+
+/** PROVISIONAL: reset links are valid for 30 minutes, pending confirmation (VITE_RESET_LINK_MINUTES). */
+export const RESET_LINK_MINUTES = envNumber(import.meta.env.VITE_RESET_LINK_MINUTES, 30);
+
+export interface AuthStore { accounts: Account[]; session: AuthSession | null; resets?: PasswordReset[] }
 
 /** The reusable demo account. Opens the existing sample organizations; only available in demo mode. */
 export const DEMO_ACCOUNT: Account = {
@@ -100,6 +145,53 @@ export async function passwordMatches(account: Account, password: string) {
   return sameHex(await hashPassword(password, account.password.salt, account.password.iterations), account.password.hash);
 }
 
+export async function sha256Hex(value: string): Promise<string> {
+  return toHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+}
+
+/* ---------------- Failed sign-in protection ---------------- */
+
+/**
+ * PROVISIONAL protective control: after 5 failed sign-ins for an email within 15 minutes, sign-in for that
+ * email is paused for 15 minutes. Applies equally to unknown emails so it reveals nothing. Browser-only in
+ * the prototype; production enforces rate limits on the server (per account and per source).
+ */
+export const SIGN_IN_LOCKOUT = { maxAttempts: 5, windowMinutes: 15, lockMinutes: 15 };
+const ATTEMPTS_KEY = 'fixid.auth.attempts';
+type Attempts = Record<string, { failures: number; firstAt: string; lockedUntil?: string }>;
+
+function loadAttempts(): Attempts {
+  try { return JSON.parse(window.localStorage.getItem(ATTEMPTS_KEY) ?? '{}') as Attempts; } catch { return {}; }
+}
+function saveAttempts(a: Attempts) {
+  try { window.localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(a)); } catch { /* storage unavailable */ }
+}
+
+/** Minutes until sign-in is allowed again for an email, or 0. */
+export function lockedMinutes(email: string, now = new Date()): number {
+  const until = loadAttempts()[normalizeEmail(email)]?.lockedUntil;
+  return until && new Date(until) > now ? Math.ceil((new Date(until).getTime() - now.getTime()) / 60_000) : 0;
+}
+
+/** Records a failed attempt; returns true when it starts a lockout. */
+export function recordFailedSignIn(email: string, now = new Date()): boolean {
+  const all = loadAttempts();
+  const key = normalizeEmail(email);
+  const prev = all[key];
+  const fresh = !prev || now.getTime() - new Date(prev.firstAt).getTime() > SIGN_IN_LOCKOUT.windowMinutes * 60_000;
+  const failures = fresh ? 1 : prev.failures + 1;
+  const locked = failures >= SIGN_IN_LOCKOUT.maxAttempts;
+  all[key] = { failures: locked ? 0 : failures, firstAt: fresh ? now.toISOString() : prev.firstAt, ...(locked ? { lockedUntil: new Date(now.getTime() + SIGN_IN_LOCKOUT.lockMinutes * 60_000).toISOString() } : {}) };
+  saveAttempts(all);
+  return locked;
+}
+
+export function clearFailedSignIns(email: string) {
+  const all = loadAttempts();
+  delete all[normalizeEmail(email)];
+  saveAttempts(all);
+}
+
 /* ---------------- Storage ---------------- */
 
 export function loadAuth(): AuthStore {
@@ -108,16 +200,17 @@ export function loadAuth(): AuthStore {
     if (raw) {
       const p = JSON.parse(raw) as AuthStore;
       if (Array.isArray(p.accounts)) {
-        // Expired sessions end here; Sign in explains why.
-        if (p.session?.expiresAt && new Date(p.session.expiresAt) <= new Date()) {
+        // Expired, idle and revoked sessions end here; Sign in explains why.
+        const account = p.session ? p.accounts.find((a) => a.id === p.session!.accountId) : undefined;
+        if (p.session && sessionProblem(p.session, account)) {
           try { window.sessionStorage.setItem(SESSION_EXPIRED_FLAG, '1'); } catch { /* ignore */ }
-          return { accounts: p.accounts, session: null };
+          return { accounts: p.accounts, session: null, resets: p.resets ?? [] };
         }
-        return { accounts: p.accounts, session: p.session ?? null };
+        return { accounts: p.accounts, session: p.session ?? null, resets: p.resets ?? [] };
       }
     }
   } catch { /* fall through */ }
-  return { accounts: [], session: null };
+  return { accounts: [], session: null, resets: [] };
 }
 
 export function saveAuth(store: AuthStore) {

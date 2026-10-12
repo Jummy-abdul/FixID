@@ -1,12 +1,13 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, MailCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, KeyRound, MailCheck } from 'lucide-react';
 import { Button, Field, Input, useToast } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
 import { PortalBlocked, useAuthorization } from '@/auth/authorization';
-import { SESSION_EXPIRED_FLAG, checkCode, emailError, issueCode, loadSignup, normalizeEmail, passwordIsStrong, saveSignup } from '@/auth/authCore';
+import { DEMO_AUTH_ENABLED, RESET_LINK_MINUTES, SESSION_EXPIRED_FLAG, SIGNED_OUT_FLAG, checkCode, emailError, issueCode, loadSignup, normalizeEmail, passwordIsStrong, saveSignup } from '@/auth/authCore';
 import { DEMO_ADMIN } from '@/data/seed';
 import { useStore } from '@/store/AppStore';
+import { loadMailbox } from '@/auth/demoMailbox';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
 import { OtpInput, PasswordField, PasswordRules } from './fields';
 
@@ -222,7 +223,7 @@ export function SignInPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const carried = location.state as { email?: string; from?: string } | null;
+  const carried = location.state as { email?: string; from?: string; passwordReset?: boolean } | null;
   const [email, setEmail] = useState(carried?.email ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
@@ -234,6 +235,15 @@ export function SignInPage() {
       return !!flag;
     } catch { return false; }
   });
+  // Shown once after Sign out. Signing out of FixID doesn't sign anyone out of their identity provider.
+  const [signedOut] = useState<{ provider: string | null } | null>(() => {
+    try {
+      const raw = window.sessionStorage.getItem(SIGNED_OUT_FLAG);
+      window.sessionStorage.removeItem(SIGNED_OUT_FLAG);
+      return raw ? JSON.parse(raw) as { provider: string | null } : null;
+    } catch { return null; }
+  });
+  const reset = carried && 'passwordReset' in carried;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -257,6 +267,12 @@ export function SignInPage() {
       <AuthHeading title="Welcome back" description="Sign in to your FixID account." />
       <form onSubmit={submit} noValidate className="space-y-5">
         {expired && !errors.form && <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Your session has expired. Sign in again to continue.</p>}
+        {reset && !errors.form && <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 ring-1 ring-inset ring-emerald-200">Your password has been reset and you’ve been signed out everywhere. Sign in with your new password.</p>}
+        {signedOut && !expired && !reset && !errors.form && (
+          <p role="status" className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
+            You’ve signed out of FixID.{signedOut.provider && ` You may still be signed in to ${signedOut.provider}; sign out there too if you’re using a shared device.`}
+          </p>
+        )}
         {errors.form && <FormError>{errors.form}</FormError>}
         <Field label="Email address" error={errors.email}>
           {(p) => <Input {...p} type="email" autoComplete="email" autoFocus={!email} className="h-11" value={email} onChange={(e) => setEmail(e.target.value)} />}
@@ -269,6 +285,10 @@ export function SignInPage() {
         </div>
         <Button type="submit" className="h-11 w-full" loading={busy}>Sign in</Button>
       </form>
+      <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wide text-slate-400"><span className="h-px flex-1 bg-slate-200" />or<span className="h-px flex-1 bg-slate-200" /></div>
+      <Link to="/signin/sso" className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50">
+        <KeyRound className="h-4 w-4" aria-hidden="true" /> Sign in with SSO
+      </Link>
     </AuthLayout>
   );
 }
@@ -278,6 +298,7 @@ export function SignInPage() {
 /* ------------------------------------------------------------------ */
 
 export function ForgotPasswordPage() {
+  const { requestPasswordReset } = useAuth();
   const location = useLocation();
   const [email, setEmail] = useState((location.state as { email?: string } | null)?.email ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -290,8 +311,8 @@ export function ForgotPasswordPage() {
     setError(err);
     if (err) return;
     setBusy(true);
-    // Recovery requests are accepted the same way whether or not the email is registered.
-    await pause(500);
+    // Recovery requests are answered the same way whether or not the email is registered.
+    await Promise.all([requestPasswordReset(email), pause(500)]);
     setBusy(false);
     setSent(true);
   };
@@ -301,7 +322,12 @@ export function ForgotPasswordPage() {
       <AuthLayout>
         <AuthHeading title="Check your inbox"
           eyebrow={<span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600"><MailCheck className="h-6 w-6" aria-hidden="true" /></span>}
-          description="If an account exists for this email, you'll receive a password reset link shortly." />
+          description={`If an account exists for this email, you'll receive a password reset link shortly. The link works once and expires in ${RESET_LINK_MINUTES} minutes.`} />
+        {DEMO_AUTH_ENABLED && (
+          <p role="note" className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+            Prototype: no email is sent. Messages FixID would send appear in the <Link to="/demo-mailbox" className="font-semibold underline">demonstration mailbox</Link>.
+          </p>
+        )}
         <Link to="/signin" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to sign in
         </Link>
@@ -318,9 +344,98 @@ export function ForgotPasswordPage() {
         </Field>
         <Button type="submit" className="h-11 w-full" loading={busy}>Send reset link <ArrowRight className="h-4 w-4" /></Button>
       </form>
+      <p className="mt-5 text-sm text-slate-500">This resets your FixID password. If you sign in with SSO, reset your identity provider password with that provider.</p>
       <Link to="/signin" className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700">
         <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to sign in
       </Link>
+    </AuthLayout>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Reset password (from the emailed link)                              */
+/* ------------------------------------------------------------------ */
+
+export function ResetPasswordPage() {
+  const { checkResetLink, resetPassword } = useAuth();
+  const navigate = useNavigate();
+  const token = new URLSearchParams(useLocation().search).get('token') ?? '';
+  const [link, setLink] = useState<'checking' | 'valid' | 'invalid' | 'used' | 'expired'>('checking');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [errors, setErrors] = useState<{ password?: string; confirm?: string; form?: string }>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void checkResetLink(token).then(setLink); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (link === 'checking') return <AuthLayout><p role="status" className="text-slate-500">Checking your link…</p></AuthLayout>;
+  if (link !== 'valid') {
+    const copy = { invalid: 'This reset link isn’t valid.', used: 'This reset link has already been used.', expired: 'This reset link has expired.' }[link];
+    return (
+      <AuthLayout>
+        <AuthHeading title={copy} description="Request a new link to reset your password." />
+        <div className="flex flex-col gap-3 text-sm">
+          <Link to="/forgot-password" className={linkCls}>Request a new link</Link>
+          <Link to="/signin" className={linkCls}>Back to sign in</Link>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const next: typeof errors = {};
+    if (!password) next.password = 'Create a password.';
+    else if (!passwordIsStrong(password)) next.password = "This password doesn't meet the requirements below.";
+    if (!confirm) next.confirm = 'Confirm your password.';
+    else if (password && confirm !== password) next.confirm = "Passwords don't match.";
+    setErrors(next);
+    if (Object.keys(next).length) return;
+    setBusy(true);
+    const r = await resetPassword(token, password);
+    setBusy(false);
+    if (!r.ok) return setErrors({ form: r.error });
+    navigate('/signin', { replace: true, state: { passwordReset: true } });
+  };
+
+  return (
+    <AuthLayout>
+      <AuthHeading title="Set a new password" description="Choose a new password for your FixID account. You’ll be signed out everywhere and can then sign in with it." />
+      <form onSubmit={submit} noValidate className="space-y-5">
+        {errors.form && <FormError>{errors.form}</FormError>}
+        <PasswordField label="New password" value={password} onChange={(v) => { setPassword(v); setErrors((x) => ({ ...x, password: undefined })); }}
+          error={errors.password} autoComplete="new-password" autoFocus describedBy="reset-password-rules" />
+        <PasswordRules password={password} id="reset-password-rules" />
+        <PasswordField label="Confirm password" value={confirm} onChange={(v) => { setConfirm(v); setErrors((x) => ({ ...x, confirm: undefined })); }}
+          error={errors.confirm} autoComplete="new-password" />
+        <Button type="submit" className="h-11 w-full" loading={busy}>Reset password</Button>
+      </form>
+    </AuthLayout>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Demonstration mailbox (prototype only)                              */
+/* ------------------------------------------------------------------ */
+
+export function DemoMailboxPage() {
+  const [mail] = useState(loadMailbox);
+  if (!DEMO_AUTH_ENABLED) return <Navigate to="/signin" replace />;
+  return (
+    <AuthLayout wide>
+      <AuthHeading title="Demonstration mailbox" description="Simulated email delivery. No email service is connected to this prototype, so messages FixID would email appear here. This page isn’t part of FixID." />
+      {mail.length === 0 ? <p className="text-slate-500">No messages yet.</p> : (
+        <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+          {mail.map((m) => (
+            <li key={m.id} className="space-y-1 px-4 py-3 text-sm">
+              <p className="font-semibold text-slate-900">{m.subject}</p>
+              <p className="text-slate-500">To {m.to} · {new Date(m.sentAt).toLocaleString()}</p>
+              <p className="text-slate-600">{m.body}</p>
+              <Link to={m.link} className={linkCls}>Open link</Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link to="/signin" className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to sign in</Link>
     </AuthLayout>
   );
 }

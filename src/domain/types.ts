@@ -138,6 +138,42 @@ export interface EnrollmentInvitation {
 
 export type AdministratorStatus = 'invited' | 'active' | 'deactivated';
 
+export type SsoProvider = 'fixiam' | 'custom-oidc';
+
+/** One saved OIDC configuration. Each save creates a new version; a test applies only to the version tested. */
+export interface SsoConfigVersion {
+  id: string;
+  provider: SsoProvider;
+  issuer: string;
+  clientId: string;
+  /**
+   * Whether a client secret was provided. The secret itself is never kept in the browser: production sends
+   * it to the FixID backend, which stores it encrypted. The prototype discards it after saving.
+   */
+  clientSecretSet: boolean;
+  savedAt: ISODate;
+  savedBy: string;
+  /** Set only by a completed, successful connection test of this exact version. */
+  testedAt?: ISODate;
+  /** How it was tested: against the live provider through the FixID backend, or the demonstration provider. */
+  testMode?: 'live' | 'demonstration';
+}
+
+/**
+ * An organization's single OIDC connection (R1). Status: no `current` → Not Configured; `current` and not
+ * enabled → Not Activated; enabled → Active. `pending` holds saved changes awaiting a successful test and
+ * activation while `current` keeps working.
+ */
+export interface SsoConnection {
+  organizationId: string;
+  current?: SsoConfigVersion;
+  pending?: SsoConfigVersion;
+  enabled: boolean;
+  activatedAt?: ISODate;
+  /** The latest test result, shown until the next test or save. A failure never changes the status. */
+  lastTest?: { versionId: string; at: ISODate; ok: boolean; message: string; mode: 'live' | 'demonstration' };
+}
+
 /**
  * Someone authorized to operate FixID for an organization. Separate from Member (a person whose
  * identity and credentials are managed); the same person may be both, linked via `memberId`.
@@ -169,6 +205,12 @@ export interface OrgAdministrator {
    * link stops working) and accepting clears it. Delivery is simulated: no email is sent in this prototype.
    */
   invitation?: { sentAt: ISODate; expiresAt: ISODate; sendCount: number; invitedBy: string; token?: string; acceptedAt?: ISODate };
+  /**
+   * The organization's SSO identity linked to this administrator: the provider's issuer and its stable
+   * subject identifier (never the email). `mode` says whether the link came from a real provider
+   * authentication or from the prototype's demonstration provider.
+   */
+  ssoIdentity?: { issuer: string; subject: string; linkedAt: ISODate; email?: string; mode: 'verified' | 'demonstration' };
   createdAt: ISODate;
   lastActiveAt?: ISODate;
 }
@@ -387,6 +429,14 @@ export type AuditAction =
   | 'admin.invitation-revoked'
   | 'admin.invitation-expired'
   | 'admin.joined'
+  | 'admin.sso-linked'
+  | 'admin.sso-unlinked'
+  | 'sso.saved'
+  | 'sso.tested'
+  | 'sso.test-failed'
+  | 'sso.activated'
+  | 'sso.disabled'
+  | 'sso.changes-discarded'
   | 'admin.role-assigned'
   | 'group.created'
   | 'group.updated'
@@ -429,7 +479,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others. */
   result: 'success' | 'partial' | 'failure';
