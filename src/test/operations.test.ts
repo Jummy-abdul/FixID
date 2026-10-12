@@ -28,7 +28,7 @@ function ok<T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> {
 }
 
 function withIdentifier(mode: 'manual' | 'generated' = 'generated', state = createInitialState(NOW)) {
-  return ok(applyIdentifierConfig(state, { organizationId: ORG, at: AT, id: 'idc_1', name: 'Matric Number', mode, segments: mode === 'generated' ? STU_PATTERN : [] })).state;
+  return ok(applyIdentifierConfig(state, { organizationId: ORG, at: AT, id: 'idc_1', name: 'Registration Number', mode, segments: mode === 'generated' ? STU_PATTERN : [] })).state;
 }
 
 const userInput = (over: Partial<CreateUserInput> = {}): CreateUserInput => ({
@@ -44,7 +44,7 @@ function createUser(state: AppState, over: Partial<CreateUserInput> = {}) {
 
 function withCredential(state: AppState) {
   return ok(applyCredentialConfig(state, {
-    organizationId: ORG, at: AT, id: 'ct_1', name: 'Student ID', identifierConfigId: 'idc_1', templateId: 'classic-landscape',
+    organizationId: ORG, at: AT, id: 'ct_1', name: 'Member ID', identifierConfigId: 'idc_1', templateId: 'classic-landscape',
     effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 }, renewable: true,
   })).state;
 }
@@ -100,22 +100,22 @@ describe('identifier configuration', () => {
   it('saves with a stable id, starting sequence and audit event', () => {
     const state = withIdentifier();
     const [c] = selectOrgData(state).identifierConfigs;
-    expect(c).toMatchObject({ id: 'idc_1', name: 'Matric Number', mode: 'generated', nextSequence: 1 });
+    expect(c).toMatchObject({ id: 'idc_1', name: 'Registration Number', mode: 'generated', nextSequence: 1 });
     expect(selectOrgData(state).audit[0].action).toBe('identifier.created');
   });
 
   it('rejects duplicate names in the same organization but allows them elsewhere', () => {
     const state = withIdentifier();
-    const dup = applyIdentifierConfig(state, { organizationId: ORG, at: AT, id: 'idc_2', name: 'matric number', mode: 'manual', segments: [] });
+    const dup = applyIdentifierConfig(state, { organizationId: ORG, at: AT, id: 'idc_2', name: 'registration number', mode: 'manual', segments: [] });
     expect(dup.ok).toBe(false);
-    const other = applyIdentifierConfig(state, { organizationId: SAMPLE_ORGANIZATION_ID, at: AT, id: 'idc_3', name: 'Matric Number 2', mode: 'manual', segments: [] });
+    const other = applyIdentifierConfig(state, { organizationId: SAMPLE_ORGANIZATION_ID, at: AT, id: 'idc_3', name: 'Registration Number 2', mode: 'manual', segments: [] });
     expect(other.ok).toBe(true);
   });
 
   it('editing the pattern keeps assigned identifiers and the sequence position', () => {
     const s1 = ok(createUser(withIdentifier())).state;
     const edited = ok(applyIdentifierConfig(s1, {
-      organizationId: ORG, at: AT, id: 'idc_1', name: 'Matric Number', mode: 'generated',
+      organizationId: ORG, at: AT, id: 'idc_1', name: 'Registration Number', mode: 'generated',
       segments: [{ id: 'n1', kind: 'static', value: 'NEW' }, { id: 'n2', kind: 'separator', value: '-' }, { id: 'n3', kind: 'sequence', start: 1, digits: 4, zeroPad: true }],
     })).state;
     expect(selectOrgData(edited).members[0].identifier?.value).toBe('STU/2026/00001');
@@ -160,7 +160,7 @@ describe('credential configuration and issuance', () => {
   it('requires an existing identifier and a unique name', () => {
     const state = base();
     expect(applyCredentialConfig(state, {
-      organizationId: ORG, at: AT, id: 'ct_2', name: 'student id', identifierConfigId: 'missing', templateId: 'classic-landscape',
+      organizationId: ORG, at: AT, id: 'ct_2', name: 'member id', identifierConfigId: 'missing', templateId: 'classic-landscape',
       effectiveDate: 'on-issue', validity: { kind: 'fixed-date', date: '2020-01-01T00:00:00Z' }, renewable: false,
     })).toMatchObject({ ok: false, errors: { name: expect.any(String), identifierConfigId: expect.any(String), validity: expect.any(String) } });
   });
@@ -186,7 +186,7 @@ describe('credential configuration and issuance', () => {
     const staff = ok(applyIdentifierConfig(first.state, { organizationId: ORG, at: AT, id: 'idc_2', name: 'Staff ID', mode: 'manual', segments: [] })).state;
     const withStaffUser = ok(createUser(staff, { requestId: 'r3', memberId: 'mem_3', identifierConfigId: 'idc_2', identifierValue: 'SF-1', identity: { idSwitchId: 'IDS-3', resolution: 'created-new' } })).state;
     expect(applyIssuance(withStaffUser, { requestId: 'iss_3', organizationId: ORG, at: AT, memberId: 'mem_3', credentialTypeId: 'ct_1', credentialId: 'cr_3' }))
-      .toMatchObject({ ok: false, errors: { form: expect.stringMatching(/Matric Number, which this user doesn't have/) } });
+      .toMatchObject({ ok: false, errors: { form: expect.stringMatching(/Registration Number, which this user doesn't have/) } });
   });
 
   it('keeps organizations separate', () => {

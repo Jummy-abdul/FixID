@@ -192,7 +192,7 @@ export function defaultSegment(kind: IdentifierSegment['kind']): IdentifierSegme
 export function suggestedSegments(name: string): IdentifierSegment[] {
   const code = name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'ID';
   const lower = name.toLowerCase();
-  const prefix = lower.includes('matric') ? 'STU' : lower.includes('staff') ? 'STF' : lower.includes('employee') ? 'EMP' : lower.includes('member') ? 'MEM' : code;
+  const prefix = lower.includes('registration') ? 'REG' : lower.includes('staff') ? 'STF' : lower.includes('employee') ? 'EMP' : lower.includes('member') ? 'MEM' : code;
   return [
     { id: newSegmentId(), kind: 'static', value: prefix },
     { id: newSegmentId(), kind: 'separator', value: '/' },

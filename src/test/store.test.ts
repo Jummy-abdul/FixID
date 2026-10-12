@@ -30,9 +30,9 @@ describe('reducer', () => {
     const org = s0.data.organizations[0];
     const s1 = reducer(s0, {
       type: 'organization/updateProfile', organizationId: org.id, at: NOW.toISOString(),
-      changes: { ...profileValues(org), name: 'Northbridge University of Technology' },
+      changes: { ...profileValues(org), name: 'Northbridge Group of Technology' },
     });
-    expect(s1.data.organizations[0].name).toBe('Northbridge University of Technology');
+    expect(s1.data.organizations[0].name).toBe('Northbridge Group of Technology');
     expect(s1.data.audit[0]).toMatchObject({ action: 'organization.updated', organizationId: org.id, result: 'success' });
     expect(s1.data.audit[0].summary).toContain('name');
     expect(s1.data.audit.length).toBe(s0.data.audit.length + 1);

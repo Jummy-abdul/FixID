@@ -23,7 +23,7 @@ function as(accountId: string, s = createInitialState(new Date())): AppState {
   return { ...s, data: { ...s.data, admin: { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner', organizationIds: [p.organizationId!] } }, session: { ...s.session, currentOrganizationId: p.organizationId! } };
 }
 const values = (over: Partial<SubOrganizationValues> = {}): SubOrganizationValues => ({
-  name: 'Meridian Riverside Centre', shortName: '', industry: '', contactEmail: '', phone: '', adminEmail: 'new.admin@riverside.example', memberLabel: 'Member', timezone: 'Africa/Lagos', ...over,
+  name: 'Meridian Riverside Centre', shortName: '', industry: '', contactEmail: '', phone: '', adminEmail: 'new.admin@riverside.example', memberLabel: 'Member', timezone: 'UTC', ...over,
 });
 const create = (s: AppState, parent: string, over: Partial<SubOrganizationValues> = {}, id = 'org_new') =>
   applyCreateSubOrganization(s, { parentOrganizationId: parent, ids: { organizationId: id, administratorId: `${id}_adm`, relationshipId: `rel_${id}` }, token: `tok_${id}`, values: values(over), at: AT });
@@ -41,7 +41,7 @@ function renderApp(path: string, state: AppState = createInitialState(new Date()
 /** Signs in through the normal sign-in page using a demonstration account. */
 async function signInAs(user: UserEvent, personaLabel: string) {
   await screen.findByRole('heading', { level: 1, name: 'Welcome back' });
-  await user.click(screen.getByRole('button', { name: 'Demonstration accounts (prototype only)' }));
+  await user.click(screen.getByRole('button', { name: 'View demo accounts' }));
   await user.click(screen.getByRole('button', { name: `Use ${personaLabel} account` }));
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
 }
@@ -125,27 +125,27 @@ describe('organization structure (store)', () => {
 describe('demonstration accounts and role-specific experiences', () => {
   it('Organization Admin of an organization with sub-organizations: lists them, sees details, not records', async () => {
     const { user } = renderApp('/signin');
-    await signInAs(user, 'Organization Admin — organization with sub-organizations');
-    expect(await workspace()).toHaveTextContent('Meridian Health Group');
+    await signInAs(user, 'Programme Owner — Organization Admin of the parent organization');
+    expect(await workspace()).toHaveTextContent('Meridian Group');
     expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Organization Admin');
     // A single membership: no switcher.
     expect(within(screen.getByRole('region', { name: 'Workspace' })).queryByRole('combobox')).toBeNull();
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     const table = await screen.findByRole('table');
     expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Organization Name', 'Organization ID', 'Administrator', 'Status', 'Date Created', 'Actions']);
-    expect(within(table).getByRole('row', { name: /Meridian Harbourside Hospital/ })).toHaveTextContent('Lina Ford');
+    expect(within(table).getByRole('row', { name: /Meridian Harbourside/ })).toHaveTextContent('Lina Ford');
     await user.type(screen.getByRole('searchbox', { name: 'Search organizations' }), 'eastgate');
-    expect(within(table).queryByText('Meridian Harbourside Hospital')).toBeNull();
-    await user.click(within(table).getByRole('link', { name: 'Meridian Eastgate Clinic' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Meridian Eastgate Clinic' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Relationship')).toHaveTextContent('Parent organizationMeridian Health Group');
+    expect(within(table).queryByText('Meridian Harbourside')).toBeNull();
+    await user.click(within(table).getByRole('link', { name: 'Meridian Eastgate' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Meridian Eastgate' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Relationship')).toHaveTextContent('Parent organizationMeridian Group');
     expect(screen.getByText(/Being its parent doesn’t give access to them/)).toBeInTheDocument();
   }, 20_000);
 
   it('creates a sub-organization end to end and its invited administrator activates it', async () => {
     const first = renderApp('/signin');
     await signInAs(first.user, 'Organization Admin — independent organization');
-    expect(await workspace()).toHaveTextContent('Northbridge University');
+    expect(await workspace()).toHaveTextContent('Northbridge Group');
     await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
     await first.user.click(screen.getAllByRole('button', { name: 'Create Organization' })[0]);
@@ -175,20 +175,20 @@ describe('demonstration accounts and role-specific experiences', () => {
     await second.user.type(screen.getByLabelText('Confirm password'), 'Joining2026!');
     await second.user.click(screen.getByRole('button', { name: 'Accept invitation' }));
     expect(await workspace()).toHaveTextContent('Northbridge Medical School');
-    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Sub-organization of Northbridge University');
+    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Sub-organization of Northbridge Group');
     const saved = loadState()!;
     const org = saved.data.organizations.find((o) => o.name === 'Northbridge Medical School')!;
     expect(org.onboarding).toBe('complete');
     // The new sub-organization's administrator sees its parent, and can't create nested organizations.
     await second.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
-    expect(await screen.findByLabelText('Parent relationship')).toHaveTextContent('Northbridge University');
+    expect(await screen.findByLabelText('Parent relationship')).toHaveTextContent('Northbridge Group');
     expect(screen.queryByRole('button', { name: 'Create Organization' })).toBeNull();
   }, 30_000);
 
   it('Sub-organization Admin and sibling isolation by direct URL', async () => {
     const { user } = renderApp('/signin');
     await signInAs(user, 'Sub-organization Admin (B2)');
-    expect(await workspace()).toHaveTextContent('Meridian Eastgate Clinic');
+    expect(await workspace()).toHaveTextContent('Meridian Eastgate');
     const b1Member = createInitialState(new Date()).data.members.find((m) => m.organizationId === ORG_B1)!;
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
     await screen.findByRole('heading', { level: 1, name: 'Users' });
@@ -198,7 +198,7 @@ describe('demonstration accounts and role-specific experiences', () => {
   it('Verifier: assigned activities only', async () => {
     const { user } = renderApp('/signin');
     await signInAs(user, 'Verifier');
-    expect(await workspace()).toHaveTextContent('Meridian Harbourside Hospital');
+    expect(await workspace()).toHaveTextContent('Meridian Harbourside');
     expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Verifier');
     expect(navLinks()).toEqual(['Dashboard', 'My Verification Activities', 'My Verification History']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'My Verification Activities' }));
@@ -210,7 +210,7 @@ describe('demonstration accounts and role-specific experiences', () => {
   it('Auditor: read-only, can view organizations but not create, no Security', async () => {
     const { user } = renderApp('/signin');
     await signInAs(user, 'Auditor');
-    expect(await workspace()).toHaveTextContent('Northbridge University');
+    expect(await workspace()).toHaveTextContent('Northbridge Group');
     expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
@@ -232,8 +232,8 @@ describe('demonstration accounts and role-specific experiences', () => {
     await signInAs(user, 'Platform Administrator');
     expect(await screen.findByRole('heading', { level: 1, name: 'Platform overview' }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull();
-    expect(screen.getByRole('list', { name: 'Organization relationships' })).toHaveTextContent('Meridian Harbourside Hospitalis a sub-organization ofMeridian Health Group');
-    expect(screen.getAllByRole('table')[0]).toHaveTextContent('Meridian Eastgate Clinic');
+    expect(screen.getByRole('list', { name: 'Organization relationships' })).toHaveTextContent('Meridian Harboursideis a sub-organization ofMeridian Group');
+    expect(screen.getAllByRole('table')[0]).toHaveTextContent('Meridian Eastgate');
     expect(screen.queryByText(/@harbourside\.example/)).toBeNull();
     // Workspace pages aren't available to the platform account.
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -244,18 +244,18 @@ describe('demonstration accounts and role-specific experiences', () => {
     const { user } = renderApp('/users', createInitialState(new Date()), 'demo');
     const ws = await workspace();
     const options = within(ws).getAllByRole('option').map((o) => o.textContent);
-    expect(options).toEqual(expect.arrayContaining(['Northbridge University', 'Meridian Health Group']));
+    expect(options).toEqual(expect.arrayContaining(['Northbridge Group', 'Meridian Group']));
     expect(options.some((o) => /Harbourside|Eastgate/.test(o ?? ''))).toBe(false);
     await screen.findByRole('heading', { level: 1, name: 'Users' });
     const northbridgePerson = createInitialState(new Date()).data.members.find((m) => m.organizationId === ORG_A && m.status === 'active')!;
-    await user.selectOptions(within(ws).getByRole('combobox', { name: 'Switch organization' }), 'Meridian Health Group');
-    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Workspace' })).getByRole('combobox')).toHaveDisplayValue('Meridian Health Group'));
+    await user.selectOptions(within(ws).getByRole('combobox', { name: 'Switch organization' }), 'Meridian Group');
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Workspace' })).getByRole('combobox')).toHaveDisplayValue('Meridian Group'));
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
     await screen.findByRole('heading', { level: 1, name: 'Users' });
     expect(screen.queryByText(northbridgePerson.displayName)).toBeNull();
     // Meridian's Organizations page lists its sub-organizations, but switching never offers them.
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
-    expect(await screen.findByText('Meridian Harbourside Hospital')).toBeInTheDocument();
+    expect(await screen.findByText('Meridian Harbourside')).toBeInTheDocument();
   }, 20_000);
 
   it('a parent administrator can’t open a sub-organization’s records or a non-child organization by URL', async () => {

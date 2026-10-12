@@ -21,6 +21,8 @@ export const SEEDED_SUB_ORGANIZATIONS: Record<string, string> = { [ORG_B1]: ORG_
 
 /** The custom role behind the "custom role" demonstration account (exists in Organization B2 only). */
 export const B2_RECORDS_ROLE = `${ORG_B2}_role_records`;
+/** The custom role behind the programme reviewer account (exists in Organization B only). */
+export const B_REVIEWER_ROLE = `${ORG_B}_role_programme_reviewer`;
 
 export interface DemoPersona {
   /** The account ID; also the administrator records' `userId`. */
@@ -47,8 +49,8 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     firstName: 'Esther', lastName: 'Lawal', email: 'esther.lawal@northbridge.example',
   },
   {
-    accountId: 'acct_demo_b_admin', persona: 'Organization Admin — organization with sub-organizations', organizationId: ORG_B,
-    description: 'Runs Organization B and oversees its two sub-organizations’ relationships, not their records.',
+    accountId: 'acct_demo_b_admin', persona: 'Programme Owner — Organization Admin of the parent organization', organizationId: ORG_B,
+    description: 'Runs Organization B, owns its verification programme and oversees its two sub-organizations’ programme results, not their private records.',
     firstName: 'Victor', lastName: 'Hale', email: 'victor.hale@meridian.example',
   },
   {
@@ -64,7 +66,7 @@ export const DEMO_PERSONAS: DemoPersona[] = [
   {
     accountId: `${ORG_A}_usr_2`, persona: 'Auditor', organizationId: ORG_A,
     description: 'Read-only access to Organization A’s records, history and audit log.',
-    firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@northbridge.edu.ng',
+    firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@northbridge.example',
   },
   {
     accountId: 'acct_demo_b2_records', persona: 'Custom role (Records Officer)', organizationId: ORG_B2,
@@ -75,6 +77,26 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     accountId: 'acct_demo_b2_admin', persona: 'Sub-organization Admin (B2)', organizationId: ORG_B2,
     description: 'Runs sub-organization B2. Can’t see anything in B1.',
     firstName: 'Mira', lastName: 'Santos', email: 'mira.santos@eastgate.example',
+  },
+  {
+    accountId: 'acct_demo_b_reviewer', persona: 'Custom role (Programme Reviewer)', organizationId: ORG_B,
+    description: 'Holds a custom role in Organization B: reviews programme exceptions and views programme reports. No configuration access.',
+    firstName: 'Sam', lastName: 'Rivera', email: 'sam.rivera@meridian.example',
+  },
+  {
+    accountId: 'acct_demo_c_admin', persona: 'Organization Admin — independent organization with an external identity service', organizationId: ORG_C,
+    description: 'Runs Organization C: its activities, its simulated identity service and its exception reviews.',
+    firstName: 'Jordan', lastName: 'Blake', email: 'jordan.blake@brightwater.example',
+  },
+  {
+    accountId: `${ORG_C}_usr_4`, persona: 'Verifier (Organization C)', organizationId: ORG_C,
+    description: 'Verifies people for Organization C’s local and external activities they’re assigned to.',
+    firstName: 'Halima', lastName: 'Bello', email: 'halima.bello@brightwater.example',
+  },
+  {
+    accountId: `${ORG_C}_usr_2`, persona: 'Auditor (Organization C)', organizationId: ORG_C,
+    description: 'Read-only access to Organization C’s history, exceptions, reports and audit log.',
+    firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@brightwater.example',
   },
 ];
 

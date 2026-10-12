@@ -116,6 +116,20 @@ export const DEMO_PERSONA_ACCOUNTS: Account[] = DEMO_PERSONAS.map((p) => ({
   ...(p.organizationId ? { organizationId: p.organizationId } : {}), ...(p.platform ? { platformRole: 'platform-admin' as const } : {}),
 }));
 
+/** The shared password of the demonstration accounts. Empty outside demo builds, where the accounts don't exist. */
+export const DEMO_PASSWORD = DEMO_AUTH_ENABLED ? 'FixIDDemo2026!' : '';
+
+/**
+ * Demo operators may reset demonstration data: the multi-workspace demo account and the Platform
+ * Administrator persona, in demo builds only. A prototype convenience, not a production access control.
+ */
+export function demoOperatorProblem(account: Pick<Account, 'id' | 'platformRole'> | null | undefined, enabled = DEMO_AUTH_ENABLED): string | null {
+  if (!enabled) return 'Demonstration tools aren’t available in this build.';
+  if (!account) return 'Sign in as a demo operator to reset demonstration data.';
+  if (account.id !== DEMO_ACCOUNT.id && account.platformRole !== 'platform-admin') return 'Only a demo operator (the demo account or the Platform Administrator) can reset demonstration data.';
+  return null;
+}
+
 /** Built-in demonstration accounts (none outside demo builds). */
 export const builtInAccounts = (): Account[] => (DEMO_AUTH_ENABLED ? [DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS] : []);
 

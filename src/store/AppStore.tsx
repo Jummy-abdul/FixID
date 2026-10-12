@@ -1,3 +1,4 @@
+import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
 import type { ResolutionOutcome } from '@/domain/exceptions';
 import { applyAssignException, applyCloseException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview } from './exceptionOps';
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
@@ -486,7 +487,7 @@ export function useActions() {
         return { ok: true as const };
       },
       resetDemoData: () => {
-        const denied = authorizeAction(getState(), 'demo/reset');
+        const denied = DEMO_AUTH_ENABLED ? authorizeAction(getState(), 'demo/reset') : 'Demonstration tools aren’t available in this build.';
         if (!denied) dispatch({ type: 'demo/reset', state: createInitialState() });
         return denied ? { ok: false as const, error: denied } : { ok: true as const };
       },

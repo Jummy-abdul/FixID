@@ -14,8 +14,8 @@ import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService } from '@/verification/engine';
 import { CAPTURE } from './helpers/faceVerification';
 
-const DELEGATE = `${ORG_C}_va_delegate_checkin`;
-const SPEAKER = `${ORG_C}_va_speaker_lounge`;
+const DELEGATE = `${ORG_C}_va_visitor_checkin`;
+const SPEAKER = `${ORG_C}_va_restricted_lounge`;
 const BADGE = `${ORG_C}_va_badge_collection`;
 const STAFF = `${ORG_B1}_va_staff_entry`;
 let seq = 0;
@@ -120,7 +120,7 @@ describe('Journey B: external identity verification', () => {
     const membersBefore = h.state.data.members.length;
     const a = await external(h, ORG_C, DELEGATE, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
     expect(a).toMatchObject({
-      identitySource: 'external', integrationId: 'int_c_delegates', serviceName: 'Delegate Identity Service', decision: 'allow', eligibilityStatus: 'eligible',
+      identitySource: 'external', integrationId: 'int_c_delegates', serviceName: 'Brightwater Identity Service', decision: 'allow', eligibilityStatus: 'eligible',
       lookup: { status: 'FOUND', reference: 'DEMO-10001', referenceId: 'REF-10001', attributes: { displayName: 'Sample Person A', recordStatus: 'ACTIVE' } },
       liveness: { status: 'passed', simulated: true }, match: { status: 'match', simulated: true, providerTransactionId: expect.stringMatching(/^SIM-TXN-/) }, simulated: true,
     });
@@ -186,7 +186,7 @@ describe('Journey B: external identity verification', () => {
 
   it('Scenario 7: match with eligibility failure follows the policy, keeping identity and eligibility separate', async () => {
     const h = harness(tobyson());
-    // Delegate Check-in marks failures unsuccessful; Sample Person B's record is SUSPENDED.
+    // Visitor Check-in marks failures unsuccessful; Sample Person B's record is SUSPENDED.
     const deny = await external(h, ORG_C, DELEGATE, 'DEMO-10002', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
     expect(deny).toMatchObject({ match: { status: 'match' }, eligibilityStatus: 'ineligible', decision: 'deny' });
     // The programme-linked activity requires review instead.
@@ -307,17 +307,17 @@ describe('screens', () => {
   it('runs the external journey: Identify Person, Capture Face (simulated), result with separate identity and eligibility', async () => {
     const user = renderApp(`/verify/activities/${DELEGATE}`, tobyson(), 'usr_tobyson');
     const reqs = await screen.findByLabelText('Verification requirements');
-    expect(reqs).toHaveTextContent('Identity SourceDelegate Identity Service (external)');
+    expect(reqs).toHaveTextContent('Identity SourceBrightwater Identity Service (external)');
     expect(reqs).toHaveTextContent('Eligibility RequirementExternal source eligibility');
     await user.click(screen.getByRole('button', { name: 'Start Verification' }));
     expect(await screen.findByRole('heading', { name: 'Identify Person' })).toBeInTheDocument();
     expect(screen.getByText('Enter the reference provided for this verification.')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Enter reference ID')).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/Delegate Reference/), 'DEMO-20001');
+    await user.type(screen.getByLabelText(/External Reference ID/), 'DEMO-20001');
     await user.click(screen.getByRole('button', { name: 'Find Identity' }));
     expect(await screen.findByText('No identity record was found for the reference provided.')).toBeInTheDocument();
-    await user.clear(screen.getByLabelText(/Delegate Reference/));
-    await user.type(screen.getByLabelText(/Delegate Reference/), 'DEMO-10001');
+    await user.clear(screen.getByLabelText(/External Reference ID/));
+    await user.type(screen.getByLabelText(/External Reference ID/), 'DEMO-10001');
     await user.click(screen.getByRole('button', { name: 'Find Identity' }));
     const found = await screen.findByRole('region', { name: 'Identity found' });
     expect(found).toHaveTextContent('Sample Person A');
@@ -334,7 +334,7 @@ describe('screens', () => {
     expect(outcome).toHaveTextContent('Simulated Result');
     expect(outcome).toHaveTextContent('Identity VerificationIdentity matched');
     expect(outcome).toHaveTextContent('EligibilityEligible');
-    expect(outcome).toHaveTextContent('Verification SourceDelegate Identity Service');
+    expect(outcome).toHaveTextContent('Verification SourceBrightwater Identity Service');
     expect(screen.getByRole('button', { name: 'Complete' })).toBeInTheDocument();
     expect(loadState()!.data.members.some((m) => m.displayName === 'Sample Person A')).toBe(false);
   });
@@ -358,7 +358,7 @@ describe('screens', () => {
     const user = renderApp('/verification-history', h.state, 'usr_tobyson');
     const rows = await screen.findAllByRole('row');
     const extRow = rows.find((r) => r.textContent?.includes(ext.id))!;
-    expect(extRow).toHaveTextContent('Delegate Identity Service');
+    expect(extRow).toHaveTextContent('Brightwater Identity Service');
     expect(extRow).toHaveTextContent('Allow');
     expect(rows.some((r) => r.textContent?.includes('FixID Local Records') && r.textContent.includes('Deny'))).toBe(true);
     await user.click(within(extRow).getByRole('link', { name: `View details for ${ext.id}` }));

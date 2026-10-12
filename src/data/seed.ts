@@ -36,7 +36,7 @@ import { invitationToken } from '@/lib/tokens';
 import type { VerificationException } from '@/domain/exceptions';
 import { DEFAULT_DECISION_RULES, type VerificationProgramme, type VerificationSettings } from '@/domain/programmes';
 import { CONTRACT_VERSION, SIMULATED_BASE_URL, type CustomIntegration, type IntegrationCheck } from '@/domain/integrations';
-import { B2_RECORDS_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C, ORG_D, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
+import { B2_RECORDS_ROLE, B_REVIEWER_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C, ORG_D, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -117,6 +117,8 @@ export function seedAdministrators(organizations: Pick<Organization, 'id' | 'con
     // Demonstration accounts' own Organization Admin records (Organization A and B).
     if (org.id === ORG_A) out.push(record(org.id, 'lead', 'Esther Lawal', 'esther.lawal@northbridge.example', 'acct_demo_a_admin', 'organization-admin', 330));
     if (org.id === ORG_B) out.push(record(org.id, 'lead', 'Victor Hale', 'victor.hale@meridian.example', 'acct_demo_b_admin', 'organization-admin', 330));
+    if (org.id === ORG_B) out.push(record(org.id, 'reviewer', 'Sam Rivera', 'sam.rivera@meridian.example', 'acct_demo_b_reviewer', B_REVIEWER_ROLE, 90));
+    if (org.id === ORG_C) out.push(record(org.id, 'lead', 'Jordan Blake', 'jordan.blake@brightwater.example', 'acct_demo_c_admin', 'organization-admin', 300));
     // Invitations last 72 hours: the first is pending, the second has expired. Link tokens are random.
     const invite = (sentDaysAgo: number) => ({ sentAt: ago(sentDaysAgo), expiresAt: ago(sentDaysAgo - 3), sendCount: 1, invitedBy: 'Tobyson TE', token: invitationToken() });
     out.push(
@@ -229,13 +231,13 @@ export function seedVerificationActivities(
     add('event', { name: 'Event Access Verification', description: 'Verify the person is the credential holder before entry.', purpose: 'Control access to organization events.', status: 'draft', createdDaysAgo: 6, location: 'Conference Centre, Hall B' }, [
       { requirements: { identity: 'face', credential: { credentialTypeIds: types.map((t) => t.id) }, eligibility: null }, status: 'draft', daysAgo: 5 },
     ]);
-    // Officer-led examination clearance: matric number, then a live face verified 1:1 against the enrolled
+    // Officer-led session clearance: member number, then a live face verified 1:1 against the enrolled
     // portrait, then eligibility. Nobody is assigned as a verifier; an administrator assigns them.
-    const matric = d.identifierConfigs.find((i) => i.organizationId === org.id && i.name === 'Matric number');
+    const matric = d.identifierConfigs.find((i) => i.organizationId === org.id && i.name === 'Member number');
     if (matric) {
       const candidates = d.members.filter((m) => m.organizationId === org.id && m.status === 'active' && m.identifier?.configId === matric.id).slice(0, 24).map((m) => m.id);
       add('exam', {
-        name: '2026 Examination Clearance', description: 'Confirm each candidate’s identity and eligibility before they enter the examination hall.', purpose: 'Clear registered candidates into the 2026 examinations.',
+        name: '2026 Restricted Session Clearance', description: 'Confirm each participant’s identity and eligibility before they enter the restricted session.', purpose: 'Clear registered participants into the 2026 restricted sessions.',
         status: 'active', createdDaysAgo: 3, participants: { groupIds: [], memberIds: candidates },
       }, [{ requirements: { identity: 'face', credential: null, eligibility: 'participants' }, status: 'active', daysAgo: 2, identifierConfigId: matric.id }]);
     }
@@ -263,7 +265,7 @@ type ActivityBlueprint = Omit<VerificationActivity, 'id' | 'organizationId' | 'e
   key: string;
   eligibleTypes: string[];
   relationships: string[];
-  /** Build a roster from members in these units, for activities like examinations. */
+  /** Build a roster from members in these units, for restricted sessions. */
   rosterUnit?: string;
   window?: [number, number];
   verifiers: string[];
@@ -278,7 +280,7 @@ interface OrgBlueprint {
   types: TypeBlueprint[];
   relationships: { value: string; weight: number }[];
   units: string[];
-  /** Organizational reference for each person, from a source system (e.g. matric number). */
+  /** Organizational reference for each person, from a source system (e.g. a member number). */
   externalRef?: (relationship: string, rng: Rng) => { label: string; value: string; source: string };
   activities: ActivityBlueprint[];
   registrySlice: number[];
@@ -291,15 +293,15 @@ const BLUEPRINTS: OrgBlueprint[] = [
   {
     org: {
       id: 'org_northbridge',
-      name: 'Northbridge University',
-      shortName: 'NBU',
-      industry: 'education',
-      country: 'Nigeria',
-      timezone: 'Africa/Lagos',
-      contactEmail: 'identity.office@northbridge.edu.ng',
+      name: 'Northbridge Group',
+      shortName: 'NBG',
+      industry: 'corporate',
+      country: 'Not specified',
+      timezone: 'UTC',
+      contactEmail: 'identity.office@northbridge.example',
       memberLabel: 'Member',
       integrations: {
-        idSwitch: { connected: true, tenantRef: 'ids-tenant-nbu-01' },
+        idSwitch: { connected: true, tenantRef: 'ids-tenant-nbg-01' },
         seamfixWallet: { connected: true, issuerDid: 'did:sfx:issuer:northbridge' },
         fixiam: { connected: false },
       },
@@ -314,64 +316,64 @@ const BLUEPRINTS: OrgBlueprint[] = [
     },
     types: [
       {
-        key: 'student', name: 'Student ID', description: 'Primary identity credential for enrolled students.',
-        prefix: 'NBU-STU-', digits: 6, effectiveDate: 'start-of-term', validity: { kind: 'duration', months: 12 },
+        key: 'student', name: 'Member ID', description: 'Primary identity credential for registered members.',
+        prefix: 'NBG-STU-', digits: 6, effectiveDate: 'start-of-term', validity: { kind: 'duration', months: 12 },
         renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Student'],
+        status: 'active', holders: ['Member'],
       },
       {
-        key: 'staff', name: 'Staff ID', description: 'Identity credential for academic and non-academic staff.',
-        prefix: 'NBU-STF-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 24 },
+        key: 'staff', name: 'Staff ID', description: 'Identity credential for employees.',
+        prefix: 'NBG-STF-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 24 },
         renewal: { allowed: true, windowDays: 45 }, lifecycle: { requiresApproval: true, allowSuspension: true, autoExpire: true },
         status: 'active', holders: ['Staff'],
       },
       {
-        key: 'library', name: 'Library Pass', description: 'Grants borrowing rights and access to the main library.',
-        prefix: 'NBU-LIB-', digits: 6, effectiveDate: 'on-issue', validity: { kind: 'no-expiry' },
+        key: 'library', name: 'Resource Centre Pass', description: 'Grants access to the resource centre.',
+        prefix: 'NBG-LIB-', digits: 6, effectiveDate: 'on-issue', validity: { kind: 'no-expiry' },
         renewal: { allowed: false, windowDays: 0 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: false },
-        status: 'active', holders: ['Student', 'Staff'],
+        status: 'active', holders: ['Member', 'Staff'],
       },
       {
-        key: 'alumni', name: 'Alumni Card', description: 'Lifetime membership credential for graduates. Not yet published.',
-        prefix: 'NBU-ALU-', digits: 6, effectiveDate: 'on-issue', validity: { kind: 'no-expiry' },
+        key: 'alumni', name: 'Associate Card', description: 'Long-term credential for former members. Not yet published.',
+        prefix: 'NBG-ALU-', digits: 6, effectiveDate: 'on-issue', validity: { kind: 'no-expiry' },
         renewal: { allowed: false, windowDays: 0 }, lifecycle: { requiresApproval: true, allowSuspension: true, autoExpire: false },
         status: 'draft', holders: [],
       },
     ],
-    relationships: [{ value: 'Student', weight: 0.78 }, { value: 'Staff', weight: 0.22 }],
-    units: ['Faculty of Engineering', 'Faculty of Law', 'College of Medicine', 'Faculty of Arts', 'School of Business', 'Faculty of Sciences'],
-    externalRef: (rel, rng) => rel === 'Student'
-      ? { label: 'Matric number', value: `NBU/${2021 + rng.int(0, 4)}/${rng.int(10000, 99999)}`, source: 'Student records system' }
+    relationships: [{ value: 'Member', weight: 0.78 }, { value: 'Staff', weight: 0.22 }],
+    units: ['Engineering', 'Legal', 'Operations', 'Communications', 'Finance', 'Research'],
+    externalRef: (rel, rng) => rel === 'Member'
+      ? { label: 'Member number', value: `NBG/${2021 + rng.int(0, 4)}/${rng.int(10000, 99999)}`, source: 'Member records system' }
       : { label: 'Staff number', value: `SN-${rng.int(1000, 9999)}`, source: 'HR system' },
     activities: [
       {
-        key: 'campus', name: 'Campus Entry', purpose: 'entry', description: 'Verify students and staff at campus gates.',
-        location: 'Main Gate, North entrance', eligibleTypes: ['student', 'staff'], relationships: ['Student', 'Staff'],
+        key: 'campus', name: 'Site Entry', purpose: 'entry', description: 'Verify members and staff at site entrances.',
+        location: 'Main Gate, North entrance', eligibleTypes: ['student', 'staff'], relationships: ['Member', 'Staff'],
         primaryMethod: 'qr', fallback: { permitted: true, methods: ['nfc'] }, assuranceLevel: 'low', outcome: 'Grant entry',
         status: 'active', verifiers: ['Gate A turnstile', 'Gate B turnstile', 'Security desk tablet'], volume: 5,
       },
       {
-        key: 'library', name: 'Library Access', purpose: 'entry', description: 'Admit pass holders into the Kenneth Dike Library.',
-        location: 'Kenneth Dike Library', eligibleTypes: ['library'], relationships: ['Student', 'Staff'],
+        key: 'library', name: 'Resource Centre Access', purpose: 'entry', description: 'Admit pass holders into the resource centre.',
+        location: 'Resource Centre', eligibleTypes: ['library'], relationships: ['Member', 'Staff'],
         primaryMethod: 'nfc', fallback: { permitted: true, methods: ['qr'] }, assuranceLevel: 'low', outcome: 'Grant entry',
-        status: 'active', verifiers: ['Library entry reader'], volume: 2,
+        status: 'active', verifiers: ['Resource centre reader'], volume: 2,
       },
       {
-        key: 'csc401', name: 'CSC 401 Examination', purpose: 'examination',
-        description: 'Admit only students registered for CSC 401 into the examination hall.',
-        location: 'Exam Hall A, Faculty of Sciences', eligibleTypes: ['student'], relationships: ['Student'], rosterUnit: 'Faculty of Sciences',
-        primaryMethod: 'face', fallback: { permitted: true, methods: ['nfc'] }, assuranceLevel: 'substantial', outcome: 'Admit to examination',
-        status: 'active', window: [-2, 5], verifiers: ['Invigilator tablet 1', 'Invigilator tablet 2'], volume: 4,
+        key: 'csc401', name: 'Restricted Session 401', purpose: 'attendance',
+        description: 'Admit only members registered for session 401.',
+        location: 'Session Room A', eligibleTypes: ['student'], relationships: ['Member'], rosterUnit: 'Research',
+        primaryMethod: 'face', fallback: { permitted: true, methods: ['nfc'] }, assuranceLevel: 'substantial', outcome: 'Admit to session',
+        status: 'active', window: [-2, 5], verifiers: ['Session tablet 1', 'Session tablet 2'], volume: 4,
       },
       {
         key: 'staff-attendance', name: 'Staff Attendance', purpose: 'attendance', description: 'Record daily attendance for staff.',
-        location: 'Senate Building lobby', eligibleTypes: ['staff'], relationships: ['Staff'],
+        location: 'Main building lobby', eligibleTypes: ['staff'], relationships: ['Staff'],
         primaryMethod: 'nfc', fallback: { permitted: true, methods: ['face'] }, assuranceLevel: 'substantial', outcome: 'Record attendance',
-        status: 'active', verifiers: ['Senate lobby kiosk'], volume: 1.2,
+        status: 'active', verifiers: ['Lobby kiosk'], volume: 1.2,
       },
       {
-        key: 'convocation', name: 'Convocation 2026', purpose: 'entry', description: 'Graduation ceremony entry. Configuration in progress.',
-        location: 'University Main Auditorium', eligibleTypes: ['student'], relationships: ['Student'],
+        key: 'convocation', name: 'Annual Assembly 2026', purpose: 'entry', description: 'Annual assembly entry. Configuration in progress.',
+        location: 'Main Auditorium', eligibleTypes: ['student'], relationships: ['Member'],
         primaryMethod: 'qr', fallback: { permitted: false, methods: [] }, assuranceLevel: 'low', outcome: 'Grant entry',
         status: 'draft', window: [40, 41], verifiers: [], volume: 0,
       },
@@ -382,16 +384,16 @@ const BLUEPRINTS: OrgBlueprint[] = [
   {
     org: {
       id: 'org_meridian',
-      name: 'Meridian Health Group',
+      name: 'Meridian Group',
       shortName: 'MHG',
-      industry: 'healthcare',
-      country: 'Nigeria',
-      timezone: 'Africa/Lagos',
-      contactEmail: 'security@meridianhealth.ng',
+      industry: 'corporate',
+      country: 'Not specified',
+      timezone: 'UTC',
+      contactEmail: 'security@meridian.example',
       memberLabel: 'Member',
       integrations: {
         idSwitch: { connected: true, tenantRef: 'ids-tenant-mhg-04' },
-        seamfixWallet: { connected: true, issuerDid: 'did:sfx:issuer:meridian-health' },
+        seamfixWallet: { connected: true, issuerDid: 'did:sfx:issuer:meridian' },
         fixiam: { connected: true },
       },
     },
@@ -401,48 +403,48 @@ const BLUEPRINTS: OrgBlueprint[] = [
     },
     types: [
       {
-        key: 'clinical', name: 'Clinical Staff Badge', description: 'Identity and access badge for employed clinical staff.',
+        key: 'clinical', name: 'Operations Staff Badge', description: 'Identity and access badge for operations staff.',
         prefix: 'MHG-CS-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 },
         renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: true, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Clinician', 'Nurse'],
+        status: 'active', holders: ['Specialist', 'Technician'],
       },
       {
-        key: 'admin', name: 'Administrative Staff Badge', description: 'Badge for non-clinical employees.',
+        key: 'admin', name: 'Administrative Staff Badge', description: 'Badge for administrative employees.',
         prefix: 'MHG-AS-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 },
         renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
         status: 'active', holders: ['Administrator'],
       },
       {
-        key: 'locum', name: 'Visiting Clinician Pass', description: 'Time-bound pass for locum and visiting clinicians.',
+        key: 'locum', name: 'Visiting Specialist Pass', description: 'Time-bound pass for visiting specialists.',
         prefix: 'MHG-VC-', digits: 4, effectiveDate: 'custom-date', validity: { kind: 'duration', months: 3 },
         renewal: { allowed: true, windowDays: 7 }, lifecycle: { requiresApproval: true, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Visiting Clinician'],
+        status: 'active', holders: ['Visiting Specialist'],
       },
     ],
     relationships: [
-      { value: 'Clinician', weight: 0.35 }, { value: 'Nurse', weight: 0.35 },
-      { value: 'Administrator', weight: 0.2 }, { value: 'Visiting Clinician', weight: 0.1 },
+      { value: 'Specialist', weight: 0.35 }, { value: 'Technician', weight: 0.35 },
+      { value: 'Administrator', weight: 0.2 }, { value: 'Visiting Specialist', weight: 0.1 },
     ],
-    units: ['Harbourside Hospital', 'Eastgate Clinic', 'Northfield Specialist Centre', 'Central Pharmacy'],
-    externalRef: (rel, rng) => rel === 'Visiting Clinician'
-      ? { label: 'Practice licence', value: `PL/${rng.int(30000, 89999)}`, source: 'Provided at onboarding' }
+    units: ['Harbourside Site', 'Eastgate Site', 'Northfield Site', 'Central Store'],
+    externalRef: (rel, rng) => rel === 'Visiting Specialist'
+      ? { label: 'Contractor reference', value: `PL/${rng.int(30000, 89999)}`, source: 'Provided at onboarding' }
       : { label: 'Employee ID', value: `MHG-E${rng.int(1000, 9999)}`, source: 'Fixiam' },
     activities: [
       {
-        key: 'theatre', name: 'Theatre Wing Access', purpose: 'entry', description: 'High-assurance access to operating theatres.',
-        location: 'Harbourside Hospital, Level 2', eligibleTypes: ['clinical', 'locum'], relationships: ['Clinician', 'Nurse', 'Visiting Clinician'],
+        key: 'theatre', name: 'Secure Wing Access', purpose: 'entry', description: 'High-assurance access to the secure wing.',
+        location: 'Harbourside Site, Level 2', eligibleTypes: ['clinical', 'locum'], relationships: ['Specialist', 'Technician', 'Visiting Specialist'],
         primaryMethod: 'face', fallback: { permitted: true, methods: ['fingerprint'] }, assuranceLevel: 'high', outcome: 'Grant entry',
-        status: 'active', verifiers: ['Theatre door terminal'], volume: 2,
+        status: 'active', verifiers: ['Secure wing terminal'], volume: 2,
       },
       {
-        key: 'pharmacy', name: 'Pharmacy Store Access', purpose: 'entry', description: 'Controlled drug store access. No fallback permitted.',
-        location: 'Central Pharmacy', eligibleTypes: ['clinical'], relationships: ['Clinician', 'Nurse'],
+        key: 'pharmacy', name: 'Controlled Store Access', purpose: 'entry', description: 'Controlled store access. No fallback permitted.',
+        location: 'Central Store', eligibleTypes: ['clinical'], relationships: ['Specialist', 'Technician'],
         primaryMethod: 'nfc', fallback: { permitted: false, methods: [] }, assuranceLevel: 'substantial', outcome: 'Unlock store',
-        status: 'active', verifiers: ['Pharmacy store reader'], volume: 1,
+        status: 'active', verifiers: ['Store reader'], volume: 1,
       },
       {
         key: 'attendance', name: 'Shift Attendance', purpose: 'attendance', description: 'Record clock-in for all staff shifts.',
-        location: 'All sites', eligibleTypes: ['clinical', 'admin', 'locum'], relationships: ['Clinician', 'Nurse', 'Administrator', 'Visiting Clinician'],
+        location: 'All sites', eligibleTypes: ['clinical', 'admin', 'locum'], relationships: ['Specialist', 'Technician', 'Administrator', 'Visiting Specialist'],
         primaryMethod: 'nfc', fallback: { permitted: true, methods: ['face'] }, assuranceLevel: 'substantial', outcome: 'Record attendance',
         status: 'active', verifiers: ['Harbourside staff entrance', 'Eastgate staff entrance', 'Northfield staff entrance'], volume: 3,
       },
@@ -453,12 +455,12 @@ const BLUEPRINTS: OrgBlueprint[] = [
   {
     org: {
       id: 'org_lts',
-      name: 'Brightwater Tech Summit 2026',
+      name: 'Brightwater Collective',
       shortName: 'LTS',
-      industry: 'events',
-      country: 'Nigeria',
-      timezone: 'Africa/Lagos',
-      contactEmail: 'accreditation@brightwatersummit.example',
+      industry: 'membership',
+      country: 'Not specified',
+      timezone: 'UTC',
+      contactEmail: 'admin@brightwater.example',
       memberLabel: 'Participant',
       integrations: {
         idSwitch: { connected: true, tenantRef: 'ids-tenant-lts-26' },
@@ -472,47 +474,47 @@ const BLUEPRINTS: OrgBlueprint[] = [
     },
     types: [
       {
-        key: 'attendee', name: 'Attendee Badge', description: 'General admission for all summit days.',
+        key: 'attendee', name: 'Participant Badge', description: 'General admission for registered participants.',
         prefix: 'LTS26-A-', digits: 5, effectiveDate: 'custom-date', validity: { kind: 'duration', months: 1 },
         renewal: { allowed: false, windowDays: 0 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Attendee'],
+        status: 'active', holders: ['Participant'],
       },
       {
-        key: 'speaker', name: 'Speaker Badge', description: 'Speaker access including green room and VIP lounge.',
+        key: 'guest', name: 'Guest Badge', description: 'Guest access including the restricted lounge.',
         prefix: 'LTS26-S-', digits: 4, effectiveDate: 'custom-date', validity: { kind: 'duration', months: 1 },
         renewal: { allowed: false, windowDays: 0 }, lifecycle: { requiresApproval: true, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Speaker'],
+        status: 'active', holders: ['Guest'],
       },
     ],
-    relationships: [{ value: 'Attendee', weight: 0.85 }, { value: 'Speaker', weight: 0.15 }],
-    units: ['Day pass', 'Full summit', 'Startup track', 'Investor track'],
-    externalRef: (_rel, rng) => ({ label: 'Ticket number', value: `TKT-${rng.int(100000, 999999)}`, source: 'Ticketing platform' }),
+    relationships: [{ value: 'Participant', weight: 0.85 }, { value: 'Guest', weight: 0.15 }],
+    units: ['Day access', 'Full access', 'Track A', 'Track B'],
+    externalRef: (_rel, rng) => ({ label: 'Participant number', value: `PN-${rng.int(100000, 999999)}`, source: 'Registration system' }),
     activities: [
       {
         key: 'hall', name: 'Hall 1 Entry', purpose: 'entry', description: 'Main hall admission for all badge holders.',
-        location: 'Brightwater Convention Centre', eligibleTypes: ['attendee', 'speaker'], relationships: ['Attendee', 'Speaker'],
+        location: 'Brightwater Centre', eligibleTypes: ['attendee', 'guest'], relationships: ['Participant', 'Guest'],
         primaryMethod: 'qr', fallback: { permitted: true, methods: ['manual'] }, assuranceLevel: 'low', outcome: 'Grant entry',
         status: 'active', window: [-3, 1], verifiers: ['Hall 1 scanner A', 'Hall 1 scanner B'], volume: 5,
       },
       {
-        key: 'vip', name: 'VIP Lounge', purpose: 'entry', description: 'Speakers only.',
-        location: 'Brightwater Convention Centre, Mezzanine', eligibleTypes: ['speaker'], relationships: ['Speaker'],
+        key: 'vip', name: 'Restricted Lounge', purpose: 'entry', description: 'Guests only.',
+        location: 'Brightwater Centre, Mezzanine', eligibleTypes: ['guest'], relationships: ['Guest'],
         primaryMethod: 'qr', fallback: { permitted: false, methods: [] }, assuranceLevel: 'low', outcome: 'Grant entry',
-        status: 'active', window: [-3, 1], verifiers: ['VIP host phone'], volume: 1,
+        status: 'active', window: [-3, 1], verifiers: ['Lounge host phone'], volume: 1,
       },
     ],
     registrySlice: [...range(40, 52), ...range(92, 122)],
     dailyTransactions: [20, 60],
   },
-  // Organization B1 and B2: sub-organizations of Meridian Health Group (Organization B). Fictional.
+  // Organization B1 and B2: sub-organizations of Meridian Group (Organization B). Fictional.
   {
     org: {
       id: ORG_B1,
-      name: 'Meridian Harbourside Hospital',
+      name: 'Meridian Harbourside',
       shortName: 'MHH',
-      industry: 'healthcare',
-      country: 'Nigeria',
-      timezone: 'Africa/Lagos',
+      industry: 'corporate',
+      country: 'Not specified',
+      timezone: 'UTC',
       contactEmail: 'admin@harbourside.example',
       memberLabel: 'Staff member',
       integrations: {
@@ -527,21 +529,21 @@ const BLUEPRINTS: OrgBlueprint[] = [
     },
     types: [
       {
-        key: 'staff', name: 'Hospital Staff Badge', description: 'Identity badge for hospital staff.',
+        key: 'staff', name: 'Harbourside Staff Badge', description: 'Identity badge for Harbourside staff.',
         prefix: 'MHH-S-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 },
         renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Clinician', 'Nurse'],
+        status: 'active', holders: ['Specialist', 'Technician'],
       },
     ],
-    relationships: [{ value: 'Clinician', weight: 0.5 }, { value: 'Nurse', weight: 0.5 }],
-    units: ['Emergency', 'Outpatients', 'Theatres'],
+    relationships: [{ value: 'Specialist', weight: 0.5 }, { value: 'Technician', weight: 0.5 }],
+    units: ['Front office', 'Operations', 'Secure wing'],
     externalRef: (_rel, rng) => ({ label: 'Employee ID', value: `MHH-E${rng.int(1000, 9999)}`, source: 'HR system' }),
     activities: [
       {
-        key: 'ward', name: 'Ward Access', purpose: 'entry', description: 'Access to inpatient wards.',
-        location: 'Harbourside Hospital, Wards', eligibleTypes: ['staff'], relationships: ['Clinician', 'Nurse'],
+        key: 'ward', name: 'Restricted Area Access', purpose: 'entry', description: 'Access to restricted areas.',
+        location: 'Harbourside Site, Restricted areas', eligibleTypes: ['staff'], relationships: ['Specialist', 'Technician'],
         primaryMethod: 'nfc', fallback: { permitted: true, methods: ['face'] }, assuranceLevel: 'substantial', outcome: 'Grant entry',
-        status: 'active', verifiers: ['Ward door reader'], volume: 1,
+        status: 'active', verifiers: ['Area door reader'], volume: 1,
       },
     ],
     registrySlice: range(122, 131),
@@ -551,11 +553,11 @@ const BLUEPRINTS: OrgBlueprint[] = [
   {
     org: {
       id: ORG_B2,
-      name: 'Meridian Eastgate Clinic',
+      name: 'Meridian Eastgate',
       shortName: 'MEC',
-      industry: 'healthcare',
-      country: 'Nigeria',
-      timezone: 'Africa/Lagos',
+      industry: 'corporate',
+      country: 'Not specified',
+      timezone: 'UTC',
       contactEmail: 'admin@eastgate.example',
       memberLabel: 'Staff member',
       integrations: {
@@ -570,19 +572,19 @@ const BLUEPRINTS: OrgBlueprint[] = [
     },
     types: [
       {
-        key: 'staff', name: 'Clinic Staff Badge', description: 'Identity badge for clinic staff.',
+        key: 'staff', name: 'Eastgate Staff Badge', description: 'Identity badge for Eastgate staff.',
         prefix: 'MEC-S-', digits: 5, effectiveDate: 'on-issue', validity: { kind: 'duration', months: 12 },
         renewal: { allowed: true, windowDays: 30 }, lifecycle: { requiresApproval: false, allowSuspension: true, autoExpire: true },
-        status: 'active', holders: ['Clinician', 'Administrator'],
+        status: 'active', holders: ['Specialist', 'Administrator'],
       },
     ],
-    relationships: [{ value: 'Clinician', weight: 0.6 }, { value: 'Administrator', weight: 0.4 }],
-    units: ['Reception', 'Consulting rooms'],
+    relationships: [{ value: 'Specialist', weight: 0.6 }, { value: 'Administrator', weight: 0.4 }],
+    units: ['Reception', 'Meeting rooms'],
     externalRef: (_rel, rng) => ({ label: 'Employee ID', value: `MEC-E${rng.int(1000, 9999)}`, source: 'HR system' }),
     activities: [
       {
-        key: 'records', name: 'Records Room Access', purpose: 'entry', description: 'Access to the medical records room.',
-        location: 'Eastgate Clinic, Records room', eligibleTypes: ['staff'], relationships: ['Clinician', 'Administrator'],
+        key: 'records', name: 'Records Room Access', purpose: 'entry', description: 'Access to the records room.',
+        location: 'Eastgate Site, Records room', eligibleTypes: ['staff'], relationships: ['Specialist', 'Administrator'],
         primaryMethod: 'nfc', fallback: { permitted: false, methods: [] }, assuranceLevel: 'substantial', outcome: 'Unlock door',
         status: 'active', verifiers: ['Records room reader'], volume: 1,
       },
@@ -766,7 +768,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     for (const a of bp.activities) {
       const { key, eligibleTypes, relationships, rosterUnit, window, verifiers: _v, volume: _vol, ...rest } = a;
       const roster = rosterUnit
-        ? orgMembers.filter((m) => m.unit === rosterUnit && m.relationship === 'Student' && m.status !== 'pending').map((m) => m.id)
+        ? orgMembers.filter((m) => m.unit === rosterUnit && m.relationship === 'Member' && m.status !== 'pending').map((m) => m.id)
         : undefined;
       const activity: VerificationActivity = {
         ...rest,
@@ -854,12 +856,12 @@ export function buildSeed(now: Date = new Date()): SeedData {
   // A brand-new organization: only the default digital ID design every organization receives.
   organizations.unshift({
     id: NEW_ORGANIZATION_ID,
-    name: 'Crestfield Academy',
-    shortName: 'CFA',
-    industry: 'education',
-    country: 'Nigeria',
-    timezone: 'Africa/Lagos',
-    contactEmail: 'admin@crestfield.edu.ng',
+    name: 'Crestfield Organization',
+    shortName: 'CFO',
+    industry: 'other',
+    country: 'Not specified',
+    timezone: 'UTC',
+    contactEmail: 'admin@crestfield.example',
     memberLabel: 'Member',
     defaultCardDesignId: `${NEW_ORGANIZATION_ID}_design_default`,
     integrations: {
@@ -928,6 +930,11 @@ export function buildSeed(now: Date = new Date()): SeedData {
       id: B2_RECORDS_ROLE, organizationId: ORG_B2, name: 'Records Officer', description: 'Keeps user records up to date. No access to credentials, verification or settings.',
       permissions: ['users.view', 'users.create', 'users.import', 'groups.view'], system: false,
       createdAt: iso(addDays(today, -130)), createdBy: 'Mira Santos', updatedAt: iso(addDays(today, -130)), updatedBy: 'Mira Santos',
+    }, {
+      // Demonstration only: a restricted programme reviewer in Organization B (no configuration access).
+      id: B_REVIEWER_ROLE, organizationId: ORG_B, name: 'Programme Reviewer', description: 'Reviews programme exceptions and views programme oversight and reports. Can’t configure anything.',
+      permissions: ['programmes.view', 'exceptions.view', 'exceptions.review', 'reports.view'], system: false,
+      createdAt: iso(addDays(today, -95)), createdBy: 'Victor Hale', updatedAt: iso(addDays(today, -95)), updatedBy: 'Victor Hale',
     }],
     logoAssets: [],
     ssoConnections: [],
@@ -977,8 +984,8 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
       createdAt: at(3), createdBy: 'Tobyson TE', updatedAt: at(3), updatedBy: 'Tobyson TE',
     },
     {
-      id: 'int_c_delegates', organizationId: ORG_C, name: 'Delegate Identity Service', description: 'Simulated service that looks up registered delegates and matches their faces. Used by the summit’s independent activities.',
-      capabilities: ['lookup', 'matching'], referenceLabel: 'Delegate Reference', permittedAttributes: ['displayName', 'recordStatus'],
+      id: 'int_c_delegates', organizationId: ORG_C, name: 'Brightwater Identity Service', description: 'Simulated service that looks up registered participants and matches their faces. Used by Brightwater’s independent activities.',
+      capabilities: ['lookup', 'matching'], referenceLabel: 'External Reference ID', permittedAttributes: ['displayName', 'recordStatus'],
       connection: { target: 'simulated', baseUrl: SIMULATED_BASE_URL, authMethod: 'api-key', apiKey: { headerName: 'X-API-Key' }, credential: 'simulated', timeoutSeconds: 8 },
       contractVersion: CONTRACT_VERSION, configVersion: 1, validatedConfigVersion: 1, status: 'active', lastSuccessfulTestAt: at(9),
       tests: [{
@@ -995,7 +1002,7 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
       createdAt: at(10), createdBy: 'Tobyson TE', updatedAt: at(9), updatedBy: 'Tobyson TE',
     },
     {
-      id: 'int_d_hospital', organizationId: ORG_D, name: 'Hospital Identity Service', description: 'The hospital’s own identity service for staff records and face matching.',
+      id: 'int_d_harbourside', organizationId: ORG_D, name: 'Harbourside Identity Service', description: 'Harbourside’s own identity service for staff records and face matching.',
       capabilities: ['lookup', 'matching'], referenceLabel: 'Staff Reference', permittedAttributes: ['displayName', 'recordStatus'],
       connection: { target: 'external', baseUrl: 'https://identity.harbourside.example/api', authMethod: 'oauth2-client-credentials', oauth: { tokenEndpoint: 'https://identity.harbourside.example/oauth/token', clientId: 'fixid-harbourside' }, credential: 'missing', timeoutSeconds: 15 },
       contractVersion: CONTRACT_VERSION, configVersion: 1, status: 'error', lastFailedTestAt: at(1),
@@ -1016,7 +1023,7 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
  * Brightwater people for the local verification scenarios: eligible and enrolled; enrolled but not on the
  * activity's eligible population; not enrolled.
  */
-export const DEMO_LOCAL_PEOPLE = ['TKT-100001', 'TKT-100002', 'TKT-100003'] as const;
+export const DEMO_LOCAL_PEOPLE = ['PN-100001', 'PN-100002', 'PN-100003'] as const;
 
 /** The parent-governed programme in demonstration scenario B. */
 export const DEMO_PROGRAMME_B = 'prog_meridian_staff';
@@ -1085,15 +1092,15 @@ export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 
     const verifiers = [`${ORG_C}_adm_owner`, `${ORG_C}_adm_4`];
     const external = { identitySource: { kind: 'external' as const, integrationId: 'int_c_delegates' } };
     // Prompt 4 scenarios 3, 4, 6, 7, 9 and 11: an external identity, nobody enrolled in FixID; a result may be reused for a day.
-    add(ORG_C, 'delegate_checkin', 'Tobyson TE', { name: 'Delegate Check-in', description: 'Independent activity using the summit’s own external identity service; eligibility from its lookup response.' },
+    add(ORG_C, 'visitor_checkin', 'Tobyson TE', { name: 'Visitor Check-in', description: 'Independent activity using the organization’s own external identity service; eligibility from its lookup response.' },
       settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] }, exceptions: 'unsuccessful', reverification: { mode: 'reuse-within', days: 1 } }), verifiers);
-    add(ORG_C, 'speaker_lounge', 'Tobyson TE', { name: 'Speaker Lounge Access', description: 'Eligibility from a permitted reference list. Speakers aren’t enrolled in FixID.' },
-      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'SPK-2001', 'SPK-2002', 'SPK-2003'] } }), verifiers);
+    add(ORG_C, 'restricted_lounge', 'Tobyson TE', { name: 'Restricted Lounge Access', description: 'Eligibility from a permitted reference list. Guests aren’t enrolled in FixID.' },
+      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'GST-2001', 'GST-2002', 'GST-2003'] } }), verifiers);
     // Prompt 4 scenarios 1 and 2: local identity verification with enrolled faces and an eligible population.
     add(ORG_C, 'badge_collection', 'Tobyson TE', {
-      name: 'Badge Collection', description: 'Registered delegates verified against their FixID enrollment before collecting a badge.',
+      name: 'Badge Collection', description: 'Registered participants verified against their FixID enrollment before collecting a badge.',
       participants: { groupIds: [], memberIds: [`${ORG_C}_m_001`, `${ORG_C}_m_003`] },
-    }, settings({ exceptions: 'unsuccessful' }), verifiers, `${ORG_C}_idc_ticket-number`);
+    }, settings({ exceptions: 'unsuccessful' }), verifiers, `${ORG_C}_idc_participant-number`);
   }
   return out;
 }

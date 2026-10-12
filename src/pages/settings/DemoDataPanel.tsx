@@ -1,14 +1,16 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
 import { Button, Card, CardBody, CardHeader, ConfirmDialog, DescriptionList, Field, Select, useToast } from '@/components/ui';
 import { INDUSTRY_LABEL } from '@/domain/labels';
 import { useServices } from '@/services/ServicesProvider';
 import { formatDateTime } from '@/lib/dates';
-import { useActions, useSession, useStore } from '@/store/AppStore';
+import { RESET_EXPLANATION, useDemoReset } from '@/demo/useDemoReset';
+import { useSession, useStore } from '@/store/AppStore';
 
 export function DemoDataPanel() {
   const { state } = useStore();
-  const { resetDemoData } = useActions();
+  const { canReset, problem, reset } = useDemoReset();
   const { idSwitch } = useServices();
   const { organization, organizations, switchOrganization } = useSession();
   const toast = useToast();
@@ -24,7 +26,7 @@ export function DemoDataPanel() {
           { label: 'Records', value: `${d.organizations.length} organizations · ${d.members.length} people · ${d.credentials.length} credentials · ${d.transactions.length.toLocaleString()} transactions` },
         ]} />
         <div className="mt-4 max-w-md">
-          <Field label="Demo organization" hint="Crestfield Academy is brand new. The others show organizations already using FixID.">
+          <Field label="Demo organization" hint="Crestfield Organization is brand new. The others show organizations already using FixID.">
             {(p) => (
               <Select {...p} value={organization.id} onChange={(e) => {
                 switchOrganization(e.target.value);
@@ -43,35 +45,31 @@ export function DemoDataPanel() {
         <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50/50 p-4">
           <div>
             <p className="text-sm font-medium text-slate-900">Reset demo data</p>
-            <p className="text-sm text-slate-500">Restore every organization to the original demo state. Your changes will be lost.</p>
+            <p className="text-sm text-slate-500">Restore the demonstration organizations to their original state. Organizations registered through sign-up are kept.</p>
+            {problem && <p className="mt-1 text-sm text-red-700">{problem}</p>}
+            <p className="mt-1 text-sm text-slate-500">Guided scenarios and account switching are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
           </div>
-          <Button variant="danger" icon={<RotateCcw className="h-4 w-4" />} onClick={() => setConfirming(true)}>Reset</Button>
+          <Button variant="danger" icon={<RotateCcw className="h-4 w-4" />} disabled={!canReset} onClick={() => setConfirming(true)}>Reset</Button>
         </div>
       </CardBody>
       <ConfirmDialog
         open={confirming}
         title="Reset all demo data?"
-        description="All organizations, people, credentials and transactions will be restored to the original demo state, and people added since are removed. This cannot be undone."
+        description={`Restores: ${RESET_EXPLANATION.restores.join(' ')} Keeps: ${RESET_EXPLANATION.keeps.join(' ')} This cannot be undone.`}
         confirmLabel="Reset demo data"
         tone="danger"
         onCancel={() => setConfirming(false)}
         onConfirm={async () => {
           await new Promise((r) => setTimeout(r, 400));
-          const r = resetDemoData();
+          const r = reset();
           if (!r.ok) {
             setConfirming(false);
             toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
             return;
           }
-          idSwitch.simulation.reset();
           setOutage(false);
-          try {
-            Object.keys(window.sessionStorage).filter((k) => k.startsWith('fixid.prototype.addUserDraft.')).forEach((k) => window.sessionStorage.removeItem(k));
-          } catch {
-            /* nothing to clear */
-          }
           setConfirming(false);
-          toast({ tone: 'success', title: 'Demo data reset', description: 'All organizations were restored to their original state.' });
+          toast({ tone: 'success', title: 'Demo data reset', description: 'The demonstration organizations were restored to their original state.' });
         }}
       />
     </Card>

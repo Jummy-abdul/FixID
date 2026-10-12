@@ -58,7 +58,7 @@ Deployed on Vercel from this repository. `vercel.json` rewrites all paths to `in
 
 ## Demo workspaces
 
-The app opens in **Crestfield Academy**, a brand-new organization with no users, credentials or activities, so the first-time journey runs on real data. Northbridge University, Meridian Health Group (with two sub-organizations) and Brightwater Tech Summit are established sample organizations; all names, places and identifiers in sample data are fictional. Switch under **Settings → Demo data**, or sign in with a demonstration account (see Organizations, workspaces and demo accounts).
+The app opens in **Crestfield Organization**, a brand-new organization with no users, credentials or activities, so the first-time journey runs on real data. Northbridge Group, Meridian Group (with two sub-organizations) and Brightwater Tech Summit are established sample organizations; all names, places and identifiers in sample data are fictional. Switch under **Settings → Demo data**, or sign in with a demonstration account (see Organizations, workspaces and demo accounts).
 
 ## Sign in, sign up and onboarding
 
@@ -141,7 +141,7 @@ Saving creates a **Draft** and never activates.
 **Demonstration data:**
 - **Organization A** (Northbridge): none; local verification only.
 - **Organization B** (Meridian): *Group Identity Service*, lookup and matching, tested and **Active**.
-- **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**; and *Delegate Identity Service*, simulated lookup and matching, **Active** (used by programme scenarios C and D).
+- **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**; and *Brightwater Identity Service*, simulated lookup and matching, **Active** (used by programme scenarios C and D).
 - **Organization D** (sub-organization B1, Harbourside): *Hospital Identity Service*, an external configuration whose test failed (**Error**), so it can't be activated.
 
 ## Exceptions, programme oversight, audit and reporting (Phase 5)
@@ -222,9 +222,9 @@ Verifiers can submit for review but can't resolve. Custom roles honour whichever
 
 | # | Scenario | How to see it |
 |---|---|---|
-| A | Successful verification | Brightwater (`demo@fixid.app`, switch workspace): Delegate Check-in `…-D06` → Allow; history, dashboard; Status API → COMPLETED / ALLOW |
+| A | Successful verification | Brightwater (`demo@fixid.app`, switch workspace): Visitor Check-in `…-D06` → Allow; history, dashboard; Status API → COMPLETED / ALLOW |
 | B | Mismatch requiring review | Victor Hale (`victor.hale@meridian.example`) → Exceptions → the Harbourside *Identity mismatch* (programme queue, Open) |
-| C | Reverification required | Tobyson → Exceptions → Speaker Lounge mismatch → Reverification Required → Start Reverification → `DEMO-10001`, Passed + Match → back on the exception, Verification Confirmed |
+| C | Reverification required | Tobyson → Exceptions → Restricted Lounge mismatch → Reverification Required → Start Reverification → `DEMO-10001`, Passed + Match → back on the exception, Verification Confirmed |
 | D | External service unavailable | Eastgate `…-D05` (lookup unavailable) and Brightwater `…-D09` (matching unavailable): Unable to Complete; no exception; Status API never ALLOW |
 | E | Parent programme oversight | Victor Hale → Verification Programmes → Group Staff Verification: overview, per-organization drill-down |
 | F | Auditor review | Adaora Nwosu (Northbridge Auditor), or any Auditor: Exceptions, history and Audit Log read-only, no actions |
@@ -316,18 +316,18 @@ Stages: Initiated → Capture pending / Lookup completed → Pending Review, Com
 
 | # | Scenario | Who / where | Steps |
 |---|---|---|---|
-| 1 | Successful local verification | Tobyson (`demo@fixid.app`), switch to Brightwater → *Badge Collection* | Ticket number `TKT-100001` → Use simulated capture → Liveness Passed, Match |
-| 2 | Local match, not eligible | same | `TKT-100002`, Passed + Match → Deny (activity marks failures unsuccessful) |
-| — | Enrollment required | same | `TKT-100003`: Not Enrolled; can't be matched |
-| 3, 9 | Successful external verification without local enrollment | Brightwater → *Delegate Check-in* | `DEMO-10001` → Continue → simulated capture → Passed + Match → Allow; no user record created |
+| 1 | Successful local verification | Tobyson (`demo@fixid.app`), switch to Brightwater → *Badge Collection* | Ticket number `PN-100001` → Use simulated capture → Liveness Passed, Match |
+| 2 | Local match, not eligible | same | `PN-100002`, Passed + Match → Deny (activity marks failures unsuccessful) |
+| — | Enrollment required | same | `PN-100003`: Not Enrolled; can't be matched |
+| 3, 9 | Successful external verification without local enrollment | Brightwater → *Visitor Check-in* | `DEMO-10001` → Continue → simulated capture → Passed + Match → Allow; no user record created |
 | 4 | Not found | same | `DEMO-20001` → message → End Verification |
 | 5 | Biometric mismatch → review | Tomi Okon (`tomi.okon@harbourside.example`) → *Harbourside Staff Entry* | `DEMO-10001` → Passed + No match → Pending Review (programme policy) |
-| 6 | Service unavailable | Delegate Check-in | `DEMO-50001` (lookup) or matching *Service unavailable* → Unable to Decide |
-| 7 | Match, ineligible | Delegate Check-in / Harbourside | `DEMO-10002` (record SUSPENDED) → Deny / Pending Review |
+| 6 | Service unavailable | Visitor Check-in | `DEMO-50001` (lookup) or matching *Service unavailable* → Unable to Decide |
+| 7 | Match, ineligible | Visitor Check-in / Harbourside | `DEMO-10002` (record SUSPENDED) → Deny / Pending Review |
 | 8 | Mandatory liveness failure | Harbourside Staff Entry | Liveness Failed → no matching, Pending Review |
 | 10 | Programme enforcement | Harbourside Staff Entry | Service and liveness are locked; requirements come from *Group Staff Verification* |
-| 11 | Repeat verification | Delegate Check-in | After scenario 3, verify `DEMO-10001` again → *Use previous verification* |
-| 12 | Cross-organization access | Tomi Okon | Open `/verify/activities/org_lts_va_delegate_checkin` → refused |
+| 11 | Repeat verification | Visitor Check-in | After scenario 3, verify `DEMO-10001` again → *Use previous verification* |
+| 12 | Cross-organization access | Tomi Okon | Open `/verify/activities/org_lts_va_visitor_checkin` → refused |
 
 **Limitations:**
 - **Simulated services:** the matching, liveness and lookup services are simulated (deterministic fixtures). No real face is compared, no presentation-attack detection happens, and no assurance is claimed.
@@ -366,8 +366,8 @@ Inheritance is enforced in the store, not just the UI (`activityPolicyProblems`,
 **Demonstration scenarios** (all fictional; sign in with the demonstration accounts):
 - **A — Northbridge:** *Site Access Check*, an independent activity on local records (face, liveness required, local population), with an assigned verifier.
 - **B — Meridian:** the *Group Staff Verification* programme uses *Group Identity Service* (face, liveness required, review with escalation, eligibility required: external source or reference list) for both sub-organizations. Harbourside's *Harbourside Staff Entry* (external source eligibility, Tomi Okon assigned) and Eastgate's *Eastgate Contractor Check* (reference list `DEMO-10001`, `CTR-1001`, `CTR-1002`; Mira Santos assigned).
-- **C — Brightwater:** *Delegate Check-in*, an independent activity on its own *Delegate Identity Service*, eligibility from the lookup response.
-- **D — Brightwater:** *Speaker Lounge Access*, eligibility from a reference list (`DEMO-10001`, `SPK-2001`–`SPK-2003`); speakers aren't enrolled in FixID.
+- **C — Brightwater:** *Visitor Check-in*, an independent activity on its own *Brightwater Identity Service*, eligibility from the lookup response.
+- **D — Brightwater:** *Restricted Lounge Access*, eligibility from a reference list (`DEMO-10001`, `GST-2001`–`SPK-2003`); speakers aren't enrolled in FixID.
 - **E — Liveness enforcement:** in a Meridian sub-organization, create an activity under *Group Staff Verification*: Liveness is locked at Required, and the store refuses an activity that asks for less.
 
 **Limitations:** access restrictions are enforced in the browser prototype only, not as production-grade security. Simulated identity services never compare real faces or perform liveness detection. Programme-level exception escalation is recorded as a rule; the review workflow is a later phase. Browser data saved before Phase 3 keeps its activities; use Settings → Demo data → Reset to load the Phase 3 scenarios.
@@ -388,7 +388,7 @@ Inheritance is enforced in the store, not just the UI (`activityPolicyProblems`,
 
 **Platform Administrator** (`/platform`): a separate platform context, not an organization role (it can't be assigned or created in Roles & Permissions). It shows registered organizations, statuses, relationships and counts, and **no** people, identity records, biometric data, credentials or secrets. Platform controls that need a backend (suspension, support access) aren't part of the prototype and aren't shown.
 
-**Demonstration data** (fictional; `src/data/demoPersonas.ts`): **Organization A** = Northbridge University (independent). **Organization B** = Meridian Health Group, with sub-organizations **B1** = Meridian Harbourside Hospital and **B2** = Meridian Eastgate Clinic, each with its own administrators, people and activities. B2 has one custom role, *Records Officer*, created by its administrator for the custom-role demonstration account: an intentional, documented exception to "no prepopulated custom roles". New organizations still start with none. Sample data no longer uses real place or regulator names.
+**Demonstration data** (fictional; `src/data/demoPersonas.ts`): **Organization A** = Northbridge Group (independent). **Organization B** = Meridian Group, with sub-organizations **B1** = Meridian Harbourside and **B2** = Meridian Eastgate, each with its own administrators, people and activities. B2 has one custom role, *Records Officer*, created by its administrator for the custom-role demonstration account: an intentional, documented exception to "no prepopulated custom roles". New organizations still start with none. Sample data no longer uses real place or regulator names.
 
 **Demo accounts** (demo builds only; Sign in → *Demonstration accounts (prototype only)* → Use; they sign in through the normal password check, all with `FixIDDemo2026!`; the list and credentials don't exist when `VITE_DEMO_AUTH=off`):
 
@@ -399,7 +399,7 @@ Inheritance is enforced in the store, not just the UI (`activityPolicyProblems`,
 | victor.hale@meridian.example | Organization B — Organization Admin (with sub-organizations) |
 | lina.ford@harbourside.example | B1 — Organization Admin (sub-organization) |
 | tomi.okon@harbourside.example | B1 — Verifier (assigned to two activities) |
-| adaora.nwosu@northbridge.edu.ng | Organization A — Auditor |
+| adaora.nwosu@northbridge.example | Organization A — Auditor |
 | joel.park@eastgate.example | B2 — custom role *Records Officer* |
 | mira.santos@eastgate.example | B2 — Organization Admin |
 | demo@fixid.app | Multi-workspace Organization Admin (Crestfield, A, B, Brightwater; no sub-organizations) |
@@ -502,7 +502,7 @@ Verification → **Verification Activities** (`/verification-activities`). An ac
 - **Audit:** created, details updated (including the location check, schedule, multiple-entry rule and who can verify), requirement/check/rule/provider changes, participants changed, verifier assigned/removed, activated (with version), deactivated, duplicated, draft removed, draft changes discarded — with previous and new values.
 - **Groups:** a group used by an activity's participants or group check can't be removed.
 
-Sample organizations include these activities: *Annual Staff Conference* (identity + eligibility, location and schedule, multiple entries not permitted), *Visitor Identity Check* (identity only), *Membership Verification* (credential + eligibility, on its second version), *Event Access Verification* (a draft with facial verification and a credential), an inactive credential activity and — in Northbridge University — **2026 Examination Clearance** (matric number → live face, 1:1 → eligibility, 24 individually selected students). None has verifier assignments: an administrator assigns them.
+Sample organizations include these activities: *Annual Staff Conference* (identity + eligibility, location and schedule, multiple entries not permitted), *Visitor Identity Check* (identity only), *Membership Verification* (credential + eligibility, on its second version), *Event Access Verification* (a draft with facial verification and a credential), an inactive credential activity and — in Northbridge Group — **2026 Restricted Session Clearance** (matric number → live face, 1:1 → eligibility, 24 individually selected students). None has verifier assignments: an administrator assigns them.
 
 ## Physical access verification
 

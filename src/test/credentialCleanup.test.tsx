@@ -24,9 +24,9 @@ function ok<T extends { ok: boolean }>(r: T): Extract<T, { ok: true }> {
   return r as Extract<T, { ok: true }>;
 }
 
-/** A new organization with Matric Number and two users (no credentials). */
+/** A new organization with Registration Number and two users (no credentials). */
 function baseState(): AppState {
-  let s = ok(applyIdentifierConfig(createInitialState(new Date()), { organizationId: ORG, at: AT, id: 'idc_1', name: 'Matric Number', mode: 'generated', segments: PATTERN })).state;
+  let s = ok(applyIdentifierConfig(createInitialState(new Date()), { organizationId: ORG, at: AT, id: 'idc_1', name: 'Registration Number', mode: 'generated', segments: PATTERN })).state;
   for (const [i, [given, family]] of [['Amara', 'Okonkwo'], ['Tunde', 'Bello']].entries()) {
     const p = prepareCreateUser(s, {
       requestId: `req_${i}`, organizationId: ORG, at: AT, identifierConfigId: 'idc_1', person: { givenName: given, familyName: family },
@@ -38,9 +38,9 @@ function baseState(): AppState {
   return s;
 }
 
-function withStudentId(s: AppState, over: Partial<Parameters<typeof applyCredentialConfig>[1]> = {}) {
+function withMemberId(s: AppState, over: Partial<Parameters<typeof applyCredentialConfig>[1]> = {}) {
   return ok(applyCredentialConfig(s, {
-    organizationId: ORG, at: AT, id: 'ct_1', name: 'Student ID', identifierConfigId: 'idc_1', templateId: 'classic-portrait',
+    organizationId: ORG, at: AT, id: 'ct_1', name: 'Member ID', identifierConfigId: 'idc_1', templateId: 'classic-portrait',
     effectiveDate: 'on-issue', validity: { kind: 'duration', months: 24 }, renewable: false, ...over,
   })).state;
 }
@@ -85,7 +85,7 @@ const logoUrl = (bytes = png()) => bytesToDataUrl(bytes, 'image/png');
 describe('Issue #001: user created modal', () => {
   it('asks about issuing a credential, with Issue Credential and Not now', async () => {
     const user = renderApp('/users/new/manual', baseState());
-    await user.click(screen.getByRole('radio', { name: /Matric Number/ }));
+    await user.click(screen.getByRole('radio', { name: /Registration Number/ }));
     await user.click(screen.getByRole('button', { name: /^continue/i }));
     await user.type(screen.getByLabelText(/first name/i), 'Chika');
     await user.type(screen.getByLabelText(/last name/i), 'Obi');
@@ -115,8 +115,8 @@ describe('Issue #002: Issue Credential page', () => {
   });
 
   it('still lists credentials for selection', async () => {
-    const user = renderApp('/credentials/issue?recipients=mem_0', withStudentId(baseState()));
-    expect(screen.getByRole('radio', { name: /Student ID/ })).toHaveAttribute('aria-checked', 'true');
+    const user = renderApp('/credentials/issue?recipients=mem_0', withMemberId(baseState()));
+    expect(screen.getByRole('radio', { name: /Member ID/ })).toHaveAttribute('aria-checked', 'true');
     await user.click(screen.getByRole('button', { name: /^Continue/ }));
     expect(await screen.findByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
   });
@@ -124,7 +124,7 @@ describe('Issue #002: Issue Credential page', () => {
 
 describe('Issue #005: Review and Issue', () => {
   it('uses credential wording, drops the wallet note, and issues directly with one record', async () => {
-    const s = withStudentId(baseState(), { effectiveDate: 'custom-date' });
+    const s = withMemberId(baseState(), { effectiveDate: 'custom-date' });
     const user = renderApp('/credentials/issue?recipients=mem_0&credential=ct_1&step=review&from=user', s);
     expect(await screen.findByRole('heading', { name: 'Review and issue' })).toBeInTheDocument();
     expect(screen.getByText('When this credential becomes valid.')).toBeInTheDocument();
@@ -133,7 +133,7 @@ describe('Issue #005: Review and Issue', () => {
     const button = screen.getByRole('button', { name: 'Issue Credential' });
     await user.tripleClick(button);
     const done = await screen.findByRole('dialog', { name: 'Credential issued successfully' }, { timeout: 3000 });
-    expect(done).toHaveTextContent('Student ID has been issued to Amara Okonkwo.');
+    expect(done).toHaveTextContent('Member ID has been issued to Amara Okonkwo.');
     expect(screen.getByRole('button', { name: 'Issue Credential' })).toBeDisabled();
     expect(org().credentials).toHaveLength(1);
     await user.click(within(done).getByRole('button', { name: 'Close' }));
@@ -143,7 +143,7 @@ describe('Issue #005: Review and Issue', () => {
 
   it('stays on Review and Issue with a clear error when issuance fails, and allows a retry', async () => {
     const past = new Date(Date.now() - 86_400_000).toISOString();
-    const base = withStudentId(baseState());
+    const base = withMemberId(baseState());
     const s: AppState = { ...base, data: { ...base.data, credentialTypes: base.data.credentialTypes.map((t) => (t.id === 'ct_1' ? { ...t, validity: { kind: 'fixed-date', date: past } } : t)) } };
     const user = renderApp('/credentials/issue?recipients=mem_0&credential=ct_1&step=review&from=user', s);
     await user.click(await screen.findByRole('button', { name: 'Issue Credential' }));
@@ -177,7 +177,7 @@ describe('Issue #004: credential logo', () => {
     // The same image again is reused, not duplicated; tampered contents are refused.
     expect(applyUploadLogo(s, { organizationId: ORG, at: AT, id: 'logo_2', name: 'again.png', dataUrl: logoUrl() })).toMatchObject({ ok: true, logoAssetId: 'logo_1' });
     expect(applyUploadLogo(s, { organizationId: ORG, at: AT, id: 'logo_3', name: 'x.png', dataUrl: 'data:image/png;base64,' + btoa('hello') })).toMatchObject({ ok: false });
-    s = withStudentId(s, { logoAssetId: 'logo_1' });
+    s = withMemberId(s, { logoAssetId: 'logo_1' });
     expect(s.data.credentialTypes.find((t) => t.id === 'ct_1')!.logoAssetId).toBe('logo_1');
     s = ok(applyIssuance(s, { requestId: 'r1', organizationId: ORG, at: AT, memberId: 'mem_0', credentialTypeId: 'ct_1', credentialId: 'cr_1' })).state;
     expect(s.data.credentials.find((c) => c.id === 'cr_1')!.snapshot).toMatchObject({ logoAssetId: 'logo_1' });

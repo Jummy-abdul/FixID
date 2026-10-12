@@ -45,6 +45,8 @@ import { PersonDetailPage } from './pages/PersonDetailPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VerificationHistoryPage, VerificationRecordPage } from './pages/verification/VerificationHistoryPage';
+import { DEMO_AUTH_ENABLED } from './auth/authCore';
+import { DemoControlCentrePage } from './pages/demo/DemoControlCentrePage';
 
 /** Redirect a renamed route, keeping the `:id` param and query string (e.g. dashboard filters). */
 /** Issuing from a user's page continues in Credential Management with that user preselected. */
@@ -97,6 +99,7 @@ export function AppRoutes() {
       <Route path="sso/demo-provider" element={<DemoProviderPage />} />
       <Route path="sso/callback" element={<SsoCallbackPage />} />
       <Route path="demo-mailbox" element={<DemoMailboxPage />} />
+      {DEMO_AUTH_ENABLED && <Route path="demo" element={<DemoControlCentrePage />} />}
       {/* The Platform Administrator's separate experience: no organization workspace. */}
       <Route path="platform" element={<PlatformPage />} />
       <Route element={<RequireOnboarding />}>

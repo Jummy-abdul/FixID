@@ -81,10 +81,10 @@ describe('system roles and permissions', () => {
 
   it('starts every organization with only the three system roles; custom roles come from administrators', () => {
     const fresh = createInitialState(new Date());
-    // The only custom role in demo data backs the custom-role demonstration account in sub-organization B2.
-    expect(fresh.data.customRoles.map((r) => [r.organizationId, r.name])).toEqual([[ORG_B2, 'Records Officer']]);
-    for (const o of fresh.data.organizations.filter((x) => x.id !== ORG_B2)) expect(rolesFor(fresh.data.customRoles, o.id).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
-    expect(fresh.data.administrators.filter((a) => a.organizationId !== ORG_B2).every((a) => findRole(fresh.data.customRoles, a.organizationId, a.roleIds[0]!)?.system)).toBe(true);
+    // The only custom roles in demo data back the custom-role demonstration accounts (B2 and B).
+    expect(fresh.data.customRoles.map((r) => [r.organizationId, r.name])).toEqual([[ORG_B2, 'Records Officer'], ['org_meridian', 'Programme Reviewer']]);
+    for (const o of fresh.data.organizations.filter((x) => x.id !== ORG_B2 && x.id !== 'org_meridian')) expect(rolesFor(fresh.data.customRoles, o.id).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
+    expect(fresh.data.administrators.filter((a) => a.organizationId !== ORG_B2 && a.userId !== 'acct_demo_b_reviewer').every((a) => findRole(fresh.data.customRoles, a.organizationId, a.roleIds[0]!)?.system)).toBe(true);
     // A created role belongs only to the organization that created it.
     const created = ok(applySaveRole(base(), officer())).state;
     expect(findRole(created.data.customRoles, ORG, 'role_records')!.name).toBe('Student Records Officer');
@@ -190,7 +190,7 @@ describe('server-side checks (store) refuse unauthorized requests', () => {
     const s = base();
     const viewer = ok(applySetRoles(s, { organizationId: ORG, adminId: kwame(s).id, roleIds: ['auditor'], at: AT })).state;
     const v = as(viewer, kwame(viewer).id);
-    const user: CreateUserInput = { requestId: 'r', organizationId: ORG, at: AT, identifierConfigId: `${ORG}_idc_matric-number`, identifierValue: 'RB/1', person: { givenName: 'Ada', familyName: 'Eze' }, identity: { idSwitchId: 'IDS-R1', resolution: 'created-new' }, memberId: 'm_r' };
+    const user: CreateUserInput = { requestId: 'r', organizationId: ORG, at: AT, identifierConfigId: `${ORG}_idc_member-number`, identifierValue: 'RB/1', person: { givenName: 'Ada', familyName: 'Eze' }, identity: { idSwitchId: 'IDS-R1', resolution: 'created-new' }, memberId: 'm_r' };
     expect(authorizeAction(v, 'users/create')).toMatch(/permission/);
     expect(prepareCreateUser(v, user)).toMatchObject({ ok: false });
     expect(applyCreateGroup(v, { organizationId: ORG, id: 'g', name: 'G', description: '', at: AT })).toMatchObject({ ok: false });

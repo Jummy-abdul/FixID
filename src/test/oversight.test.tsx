@@ -19,8 +19,8 @@ import { createVerificationService } from '@/verification/engine';
 
 const AT = new Date().toISOString();
 const STAFF = `${ORG_B1}_va_staff_entry`;
-const DELEGATE = `${ORG_C}_va_delegate_checkin`;
-const SPEAKER = `${ORG_C}_va_speaker_lounge`;
+const DELEGATE = `${ORG_C}_va_visitor_checkin`;
+const SPEAKER = `${ORG_C}_va_restricted_lounge`;
 const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error((r as unknown as { error: string }).error); return r as Extract<T, { ok: true }>; };
 
 function as(accountId: string, orgId: string, s = createInitialState(new Date())): AppState {
@@ -284,12 +284,12 @@ describe('screens', () => {
     const foreign = s.data.verificationAttempts.find((a) => a.organizationId === ORG_C)!;
     renderApp(`/verification-history/${foreign.id}`, s, 'acct_demo_a_admin');
     await waitFor(() => expect(loadState()?.data.audit.some((a) => a.action === 'access.denied' && a.resourceId === foreign.id && a.organizationId === ORG_A)).toBe(true));
-    expect(document.body.textContent).not.toContain('Delegate Check-in');
+    expect(document.body.textContent).not.toContain('Visitor Check-in');
   });
 
   it('programme oversight drill-down shows programme scope only and is refused to non-owners', async () => {
     renderApp(`/programmes/${DEMO_PROGRAMME_B}/organizations/${ORG_B1}`, victor(), 'acct_demo_b_admin');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Meridian Harbourside Hospital' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Meridian Harbourside' })).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveTextContent('Harbourside Staff Entry');
     // No people, references or other activities.
     expect(screen.getByRole('main')).not.toHaveTextContent(/DEMO-1000|Sample Person|Visitor Identity Check|Annual Staff Conference/);

@@ -54,8 +54,8 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
     { label: 'Credentials awaiting approval', count: m.pendingCreds, to: '/credentials/issued?status=pending', icon: Clock3, needs: 'credentials.view' },
     { label: 'Credentials expiring in 30 days', count: m.expiring, to: '/credentials/issued?expiring=30', icon: CalendarClock, needs: 'credentials.view' },
     { label: 'Wallet deliveries failed', count: m.walletFailed, to: '/credentials/issued?wallet=failed', icon: Wallet, needs: 'credentials.view' },
-    { label: 'Denied or indeterminate today', count: m.deniedToday, to: '/transactions?decision=not-allowed&range=today', icon: XCircle, needs: 'verification.results.view' },
-    { label: 'People with pending onboarding', count: m.pendingMembers, to: '/people?status=pending', icon: Users, needs: 'users.view' },
+    { label: 'Denied or indeterminate today', count: m.deniedToday, to: '/verification-history?range=today', icon: XCircle, needs: 'verification.results.view' },
+    { label: 'People with pending onboarding', count: m.pendingMembers, to: '/users?status=pending', icon: Users, needs: 'users.view' },
   ] as { label: string; count: number; to: string; icon: typeof Users; needs: Permission }[]).filter((a) => a.count > 0 && can(a.needs));
   const showResults = can('verification.results.view');
   const showActivities = can('verification.activities.view');
@@ -77,11 +77,11 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {can('users.view') && <StatCard label="People" value={members.length.toLocaleString()} icon={<Users className="h-4 w-4" />} to="/people"
+        {can('users.view') && <StatCard label="People" value={members.length.toLocaleString()} icon={<Users className="h-4 w-4" />} to="/users"
           hint={`${m.activeMembers} active`} />}
         {showCredentials && <StatCard label="Active credentials" value={m.activeCreds.toLocaleString()} icon={<BadgeCheck className="h-4 w-4" />} to="/credentials/issued?status=active" tone="emerald"
           hint={`${m.expiring} expiring in the next 30 days`} />}
-        {showResults && <StatCard label="Verifications today" value={m.todayTx.length.toLocaleString()} icon={<ShieldCheck className="h-4 w-4" />} to="/transactions?range=today" tone="violet"
+        {showResults && <StatCard label="Verifications today" value={m.todayTx.length.toLocaleString()} icon={<ShieldCheck className="h-4 w-4" />} to="/verification-history?range=today" tone="violet"
           hint={`${formatPercent(allowRate(m.weekTx))} allowed over 7 days`} />}
         {showCredentials && <StatCard label="Wallet delivery" value={walletConnected ? formatPercent(m.deliveryRate) : 'Not connected'} icon={<Wallet className="h-4 w-4" />} tone="amber"
           to={walletConnected ? '/credentials/issued?wallet=failed' : undefined}
@@ -91,7 +91,7 @@ export function ActiveDashboard({ headerActions, data }: { headerActions?: React
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
         {showResults && <Card className="xl:col-span-2">
           <CardHeader title="Verification decisions" description="All activities, last 14 days"
-            action={<Link to="/transactions?range=30d" className="text-sm font-medium text-brand-600 hover:text-brand-700">View transactions</Link>} />
+            action={<Link to="/verification-history?range=30d" className="text-sm font-medium text-brand-600 hover:text-brand-700">View transactions</Link>} />
           <CardBody>
             {transactions.length === 0
               ? <EmptyState title="No verifications yet" description="Decisions will appear here once people present credentials at a verification activity." />

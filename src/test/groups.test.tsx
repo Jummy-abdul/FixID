@@ -70,10 +70,10 @@ describe('group rules', () => {
     const other = groupsOf(s.data, ORG).find((x) => x.id !== g.id)!;
     expect(applyUpdateGroup(s, { organizationId: ORG, groupId: g.id, name: other.name, description: '', at: AT })).toMatchObject({ ok: false });
     expect(ok(applyUpdateGroup(s, { organizationId: ORG, groupId: g.id, name: g.name, description: g.description, at: AT })).state).toBe(s);
-    const r = ok(applyUpdateGroup(s, { organizationId: ORG, groupId: g.id, name: 'Engineering', description: 'Renamed.', at: AT }));
-    expect(findGroup(r.state.data, ORG, g.id)).toMatchObject({ name: 'Engineering', updatedAt: AT });
+    const r = ok(applyUpdateGroup(s, { organizationId: ORG, groupId: g.id, name: 'Platform Team', description: 'Renamed.', at: AT }));
+    expect(findGroup(r.state.data, ORG, g.id)).toMatchObject({ name: 'Platform Team', updatedAt: AT });
     expect(membershipsOfGroup(r.state.data, ORG, g.id)).toEqual(before);
-    expect(r.state.data.audit[0]).toMatchObject({ action: 'group.updated', summary: `Tobyson TE renamed the ${g.name} group to Engineering.`, changes: expect.arrayContaining([{ field: 'Name', from: g.name, to: 'Engineering' }]) });
+    expect(r.state.data.audit[0]).toMatchObject({ action: 'group.updated', summary: `Tobyson TE renamed the ${g.name} group to Platform Team.`, changes: expect.arrayContaining([{ field: 'Name', from: g.name, to: 'Platform Team' }]) });
   });
 
   it('adds existing users only, never duplicating memberships or creating anything else', () => {
@@ -99,11 +99,11 @@ describe('group rules', () => {
   it('lets a user belong to several groups and answers membership by ID within the organization', () => {
     let s = sampleState();
     const user = membersOf(s)[3];
-    for (const [id, name] of [['grp_x', 'Engineering'], ['grp_y', 'Lagos Office'], ['grp_z', 'Project Alpha']]) {
+    for (const [id, name] of [['grp_x', 'Platform Team'], ['grp_y', 'Lagos Office'], ['grp_z', 'Project Alpha']]) {
       s = ok(applyCreateGroup(s, { organizationId: ORG, id, name, description: '', at: AT })).state;
       s = ok(applyAddMembers(s, { organizationId: ORG, groupId: id, memberIds: [user.id], at: AT })).state;
     }
-    expect(groupsForMember(s.data, ORG, user.id).map((x) => x.group.name)).toEqual(expect.arrayContaining(['Engineering', 'Lagos Office', 'Project Alpha']));
+    expect(groupsForMember(s.data, ORG, user.id).map((x) => x.group.name)).toEqual(expect.arrayContaining(['Platform Team', 'Lagos Office', 'Project Alpha']));
     expect(isGroupMember(s.data, ORG, 'grp_y', user.id)).toBe(true);
     expect(isGroupMember(s.data, 'org_meridian', 'grp_y', user.id)).toBe(false);
     s = ok(applyRemoveMembers(s, { organizationId: ORG, groupId: 'grp_y', memberIds: [user.id], at: AT })).state;

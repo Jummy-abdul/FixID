@@ -80,13 +80,13 @@ describe('demonstration scenarios (fictional data)', () => {
 
   it('C and D: Brightwater’s independent activities use its own external service, without enrolling anyone locally', () => {
     const s = createInitialState(new Date());
-    const c = activityPolicy(s, activity(s, `${ORG_C}_va_delegate_checkin`));
-    const d = activityPolicy(s, activity(s, `${ORG_C}_va_speaker_lounge`));
+    const c = activityPolicy(s, activity(s, `${ORG_C}_va_visitor_checkin`));
+    const d = activityPolicy(s, activity(s, `${ORG_C}_va_restricted_lounge`));
     expect(c.programme).toBeUndefined();
     expect(c.effective).toMatchObject({ identitySource: { kind: 'external', integrationId: 'int_c_delegates' }, eligibility: { approach: 'external-source' } });
-    expect(d.effective.eligibility).toEqual({ approach: 'reference-list', referenceList: ['DEMO-10001', 'SPK-2001', 'SPK-2002', 'SPK-2003'] });
+    expect(d.effective.eligibility).toEqual({ approach: 'reference-list', referenceList: ['DEMO-10001', 'GST-2001', 'GST-2002', 'GST-2003'] });
     // No local participant list or eligibility check is needed for either.
-    for (const id of [`${ORG_C}_va_delegate_checkin`, `${ORG_C}_va_speaker_lounge`]) {
+    for (const id of [`${ORG_C}_va_visitor_checkin`, `${ORG_C}_va_restricted_lounge`]) {
       const v = s.data.activityVersions.find((x) => x.id === activity(s, id).activeVersionId)!;
       expect(v.requirements?.eligibility).toBeNull();
       expect(v.checks.some((ch) => ch.params.useParticipants)).toBe(false);
@@ -133,7 +133,7 @@ describe('programme management (store)', () => {
     const s = as('acct_demo_b_admin');
     const base = { organizationId: ORG_B, name: 'X', scope: 'own' as const, participantIds: [] };
     // B1's integration belongs to B1, and Brightwater's to Brightwater, not to Meridian.
-    for (const integrationId of ['int_d_hospital', 'int_c_delegates']) {
+    for (const integrationId of ['int_d_harbourside', 'int_c_delegates']) {
       const problems = programmeProblems(s, { ...base, requirements: { ...defaultProgrammeRequirements(), identitySource: { kind: 'external', integrationId } } });
       expect(problems).toContain('The identity service isn’t available to this organization.');
       const saved = ok(applySaveProgramme(s, { ...base, id: `prog_${integrationId}`, description: '', purpose: '', at: AT, requirements: { ...defaultProgrammeRequirements(), identitySource: { kind: 'external', integrationId } } })).state;

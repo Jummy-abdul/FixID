@@ -128,7 +128,7 @@ export interface Member {
   /** Optional descriptive role from a source system, e.g. "Student". Not a configuration entity. */
   relationship: string;
   unit: string;
-  /** The organizational identifier assigned to this person, e.g. a matric number. */
+  /** The organizational identifier assigned to this person, e.g. a member number. */
   identifier?: { configId: string; value: string; source?: string };
   status: MemberStatus;
   /** How the ID Switch identity was obtained when the person was onboarded (PRD §15.4). */
@@ -287,7 +287,7 @@ export interface CredentialType {
   description: string;
   /**
    * Identifier rules. `generated`: prefix + zero-padded sequence (e.g. NBU-STU-000123).
-   * `manual`: supplied per person (e.g. an existing matric number). Unique per credential type either way.
+   * `manual`: supplied per person (e.g. an existing member number). Unique per credential type either way.
    */
   identifier: { label: string; mode: 'generated' | 'manual'; prefix: string; digits: number; nextSequence: number };
   /**

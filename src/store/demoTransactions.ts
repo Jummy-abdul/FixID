@@ -34,14 +34,14 @@ const STEPS: Step[] = [
   { key: 'D04', org: ORG_B2, userId: 'acct_demo_b2_admin', activityId: `${ORG_B2}_va_contractor_check`, daysAgo: 5, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
   { key: 'D05', org: ORG_B2, userId: 'acct_demo_b2_admin', activityId: `${ORG_B2}_va_contractor_check`, daysAgo: 1, reference: 'DEMO-50001', end: true },
   // Brightwater (Tobyson): a success, a definitive denial (no exception), a mismatch for local review, an outage.
-  { key: 'D06', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_delegate_checkin`, daysAgo: 4, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
-  { key: 'D07', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_delegate_checkin`, daysAgo: 4, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
-  { key: 'D08', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_speaker_lounge`, daysAgo: 2, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
-  { key: 'D09', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_delegate_checkin`, daysAgo: 1, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-UNAVAILABLE' },
+  { key: 'D06', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 4, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D07', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 4, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D08', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_restricted_lounge`, daysAgo: 2, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
+  { key: 'D09', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 1, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-UNAVAILABLE' },
 ];
 
 export function seedDemoTransactions(initial: AppState, now: Date): AppState {
-  if (!initial.data.activityConfigs.some((a) => a.id === `${ORG_C}_va_delegate_checkin`)) return initial;
+  if (!initial.data.activityConfigs.some((a) => a.id === `${ORG_C}_va_visitor_checkin`)) return initial;
   let s = initial;
   const as = (userId: string, org: string) => {
     s = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: userId } }, session: { ...s.session, currentOrganizationId: org } };

@@ -55,7 +55,7 @@ function fromType(t: CredentialType): CredentialForm {
 
 function suggestName(identifierName: string) {
   const n = identifierName.toLowerCase();
-  if (n.includes('matric') || n.includes('student')) return 'Student ID';
+  if (n.includes('registration')) return 'Member ID';
   if (n.includes('staff')) return 'Staff ID';
   if (n.includes('employee')) return 'Employee ID';
   if (n.includes('member')) return 'Membership Card';

@@ -40,15 +40,15 @@ async function fillPerson(user: UserEvent, p: { first: string; last: string; ema
   if (idLabel) await fill(user, idLabel, p.id);
 }
 
-/** Matric Number with the default generated pattern STU/YYYY/#####. */
+/** Registration Number with the default generated pattern REG/YYYY/#####. */
 async function configureMatricNumber(user: UserEvent) {
-  await user.click(button('Matric Number'));
+  await user.click(button('Registration Number'));
   const drawer = await screen.findByRole('dialog', { name: 'Configure identifier' });
-  expect(within(drawer).getByLabelText(/identifier name/i)).toHaveValue('Matric Number');
-  expect(within(drawer).getByTestId('identifier-preview')).toHaveTextContent(`STU/${YEAR}/00001`);
+  expect(within(drawer).getByLabelText(/identifier name/i)).toHaveValue('Registration Number');
+  expect(within(drawer).getByTestId('identifier-preview')).toHaveTextContent(`REG/${YEAR}/00001`);
   await user.click(within(drawer).getByRole('button', { name: 'Save identifier' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  expect(screen.getByRole('radio', { name: /Matric Number/ })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByRole('radio', { name: /Registration Number/ })).toHaveAttribute('aria-checked', 'true');
 }
 
 async function createFirstUser(user: UserEvent, person = { first: 'Amara', last: 'Okonkwo', email: 'amara@crestfield.example' }) {
@@ -84,17 +84,17 @@ async function startAnotherUser(user: UserEvent) {
   await user.click(await screen.findByRole('link', { name: /add manually/i }));
 }
 
-/** From Credential Management with a recipient selected: create Student ID, assign now, review, issue. */
+/** From Credential Management with a recipient selected: create Member ID, assign now, review, issue. */
 async function createStudentIdAndAssign(user: UserEvent) {
   expect(screen.getByRole('heading', { name: 'No credentials configured yet' })).toBeInTheDocument();
   await user.click(button('Create credential'));
   await chooseDefaultTemplate(user);
   const drawer = await screen.findByRole('dialog', { name: 'Configure credential' });
-  expect(within(drawer).getByLabelText(/credential name/i)).toHaveValue('Student ID');
-  expect(within(drawer).getByRole('radio', { name: /Matric Number/ })).toHaveAttribute('aria-checked', 'true');
+  expect(within(drawer).getByLabelText(/credential name/i)).toHaveValue('Member ID');
+  expect(within(drawer).getByRole('radio', { name: /Registration Number/ })).toHaveAttribute('aria-checked', 'true');
   await user.click(within(drawer).getByRole('button', { name: 'Save credential' }));
   const created = await screen.findByRole('dialog', { name: 'Credential created successfully' });
-  expect(within(created).getByText('Student ID is ready to be assigned to users.')).toBeInTheDocument();
+  expect(within(created).getByText('Member ID is ready to be assigned to users.')).toBeInTheDocument();
   expect(org().credentialTypes).toHaveLength(1);
   expect(org().credentials).toHaveLength(0);
   await user.click(within(created).getByRole('button', { name: 'Assign now' }));
@@ -164,13 +164,13 @@ describe('manual user creation', () => {
     await user.click(button('Create user'));
     const modal = await userCreatedModal();
     expect(within(modal).getByText('Amara Okonkwo has been added to your organization.')).toBeInTheDocument();
-    expect(within(modal).getByText('Matric Number')).toBeInTheDocument();
-    expect(within(modal).getByText(`STU/${YEAR}/00001`)).toBeInTheDocument();
+    expect(within(modal).getByText('Registration Number')).toBeInTheDocument();
+    expect(within(modal).getByText(`REG/${YEAR}/00001`)).toBeInTheDocument();
     // Saved before the continuation is offered.
     expect(org().members).toHaveLength(1);
 
     await notNow(user);
-    const row = (await screen.findByText(`STU/${YEAR}/00001`)).closest('tr')!;
+    const row = (await screen.findByText(`REG/${YEAR}/00001`)).closest('tr')!;
     expect(row).toHaveTextContent('Amara Okonkwo');
     expect(row).toHaveTextContent('Active');
     expect(row).toHaveTextContent('Not Enrolled');
@@ -193,18 +193,18 @@ describe('manual user creation', () => {
     const { user } = renderApp('/users/new/manual');
     await createFirstUser(user);
     await yesIssueId(user);
-    expect(screen.getByLabelText('Recipient')).toHaveTextContent(`STU/${YEAR}/00001`);
+    expect(screen.getByLabelText('Recipient')).toHaveTextContent(`REG/${YEAR}/00001`);
     expect(screen.getByText('Select or create a credential to issue to this user.')).toBeInTheDocument();
 
     await createStudentIdAndAssign(user);
     await waitFor(() => expect(org().credentials[0]?.wallet.status).toBe('delivered'));
     const o = org();
     expect(o.credentials).toHaveLength(1);
-    expect(o.credentials[0]).toMatchObject({ identifier: `STU/${YEAR}/00001`, memberId: o.members[0].id, credentialTypeId: o.credentialTypes[0].id });
-    expect(o.members[0].identifier?.value).toBe(`STU/${YEAR}/00001`);
+    expect(o.credentials[0]).toMatchObject({ identifier: `REG/${YEAR}/00001`, memberId: o.members[0].id, credentialTypeId: o.credentialTypes[0].id });
+    expect(o.members[0].identifier?.value).toBe(`REG/${YEAR}/00001`);
 
     await openUser(user, 'Amara Okonkwo');
-    expect(await previewCredential(user, `STU/${YEAR}/00001`)).toHaveTextContent(`STU/${YEAR}/00001`);
+    expect(await previewCredential(user, `REG/${YEAR}/00001`)).toHaveTextContent(`REG/${YEAR}/00001`);
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     await user.click(within(nav).getByRole('link', { name: 'Credentials' }));
     expect(await screen.findByText('1 issued')).toBeInTheDocument();
@@ -222,23 +222,23 @@ describe('manual user creation', () => {
     await startAnotherUser(user);
 
     expect(title()).toHaveTextContent('Select identifier');
-    expect(screen.getByRole('radio', { name: /Matric Number/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /Registration Number/ })).toHaveAttribute('aria-checked', 'true');
     await user.click(button(/^continue/i));
     await fillPerson(user, { first: 'Tunde', last: 'Bello', email: 'tunde@crestfield.example', phone: '0803 555 0101' });
     await user.click(button('Create user'));
     const modal = await userCreatedModal();
-    expect(within(modal).getByText(`STU/${YEAR}/00002`)).toBeInTheDocument();
+    expect(within(modal).getByText(`REG/${YEAR}/00002`)).toBeInTheDocument();
 
     await yesIssueId(user, 'Tunde Bello');
     expect(screen.queryByRole('heading', { name: 'No credentials configured yet' })).toBeNull();
-    expect(screen.getByRole('radio', { name: /Student ID/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /Member ID/ })).toHaveAttribute('aria-checked', 'true');
     await user.click(button(/^continue/i));
     await reviewAndIssue(user);
 
     const o = org();
     expect(o.identifierConfigs).toHaveLength(1);
     expect(o.credentialTypes).toHaveLength(1);
-    expect(o.credentials.map((c) => c.identifier).sort()).toEqual([`STU/${YEAR}/00001`, `STU/${YEAR}/00002`]);
+    expect(o.credentials.map((c) => c.identifier).sort()).toEqual([`REG/${YEAR}/00001`, `REG/${YEAR}/00002`]);
   });
 
   it('Scenario D: a credential configured without assignment is saved and available later', async () => {
@@ -258,12 +258,12 @@ describe('manual user creation', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(org().credentialTypes).toHaveLength(1);
     expect(org().credentials).toHaveLength(0);
-    const row = screen.getByRole('link', { name: 'Student ID' }).closest('tr')!;
-    expect(row).toHaveTextContent('Matric Number');
+    const row = screen.getByRole('link', { name: 'Member ID' }).closest('tr')!;
+    expect(row).toHaveTextContent('Registration Number');
     expect(row).toHaveTextContent('0 issued');
 
     // Available for future assignment: Issued To → Issue credential → choose a user → review → issue.
-    await user.click(screen.getByRole('link', { name: 'Student ID' }));
+    await user.click(screen.getByRole('link', { name: 'Member ID' }));
     await user.click(await screen.findByRole('tab', { name: /Issued To/ }));
     expect(screen.getByText('This credential is ready to be issued to users.')).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Issue credential' }));
@@ -301,7 +301,7 @@ describe('manual user creation', () => {
     await user.click(button(/^continue/i));
     await reviewAndIssue(user);
     await openUser(user, 'Tunde Bello');
-    expect(await previewCredential(user, `STU/${YEAR}/00002`)).toHaveTextContent(`STU/${YEAR}/00002`);
+    expect(await previewCredential(user, `REG/${YEAR}/00002`)).toHaveTextContent(`REG/${YEAR}/00002`);
     expect(org().credentialTypes).toHaveLength(1);
   });
 
@@ -407,13 +407,13 @@ describe('identity resolution and duplicates', () => {
 
   it('an ID Switch outage shows an error and saves nothing', async () => {
     const configured = applyIdentifierConfig(createInitialState(new Date()), {
-      organizationId: NEW_ORGANIZATION_ID, at: new Date().toISOString(), id: 'idc_1', name: 'Matric Number', mode: 'manual', segments: [],
+      organizationId: NEW_ORGANIZATION_ID, at: new Date().toISOString(), id: 'idc_1', name: 'Registration Number', mode: 'manual', segments: [],
     });
     if (!configured.ok) throw new Error('setup failed');
     localStorage.setItem(ID_SWITCH_STORAGE_KEY, JSON.stringify({ created: [], outage: true }));
     const { user } = renderApp('/users/new/manual', configured.state);
     await user.click(button(/^continue/i));
-    await fillPerson(user, { first: 'Amara', last: 'Okonkwo', email: 'amara@crestfield.example', id: 'MAT/1' }, /^matric number/i);
+    await fillPerson(user, { first: 'Amara', last: 'Okonkwo', email: 'amara@crestfield.example', id: 'MAT/1' }, /^registration number/i);
     await user.click(button('Create user'));
     expect(await screen.findByText(/couldn't check for existing records/)).toBeInTheDocument();
     expect(title()).toHaveTextContent('User information');
@@ -435,19 +435,19 @@ describe('persistence and cross-module visibility', () => {
     mid.unmount();
 
     const { user } = renderApp('/users', loadState()!);
-    expect(await screen.findByText(`STU/${YEAR}/00001`)).toBeInTheDocument();
+    expect(await screen.findByText(`REG/${YEAR}/00001`)).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Amara Okonkwo' }));
-    expect(await previewCredential(user, `STU/${YEAR}/00001`)).toHaveTextContent(`STU/${YEAR}/00001`);
+    expect(await previewCredential(user, `REG/${YEAR}/00001`)).toHaveTextContent(`REG/${YEAR}/00001`);
 
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     await user.click(within(nav).getByRole('link', { name: 'Credentials' }));
     expect(await screen.findByText('1 issued')).toBeInTheDocument();
-    await user.click(screen.getByRole('link', { name: 'Student ID' }));
+    await user.click(screen.getByRole('link', { name: 'Member ID' }));
     expect(await screen.findByText('Classic Landscape (Landscape)')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Issued To/ }));
     await user.click(screen.getByRole('button', { name: /View Details for Amara Okonkwo/ }));
-    expect(await screen.findByRole('region', { name: 'Digital ID preview' })).toHaveTextContent(`STU/${YEAR}/00001`);
-    expect(screen.getByRole('link', { name: 'Back to Student ID' })).toHaveAttribute('href', `/credentials/configurations/${org().credentialTypes[0].id}?tab=issued`);
+    expect(await screen.findByRole('region', { name: 'Digital ID preview' })).toHaveTextContent(`REG/${YEAR}/00001`);
+    expect(screen.getByRole('link', { name: 'Back to Member ID' })).toHaveAttribute('href', `/credentials/configurations/${org().credentialTypes[0].id}?tab=issued`);
 
     await user.click(within(nav).getByRole('link', { name: 'Dashboard' }));
     expect(await screen.findByText('1 of 2 complete')).toBeInTheDocument();
@@ -455,7 +455,7 @@ describe('persistence and cross-module visibility', () => {
     expect(within(overview).getByText('Active credentials').nextSibling).toHaveTextContent('1');
 
     await user.click(within(nav).getByRole('link', { name: 'Audit Log' }));
-    for (const text of [/Created identifier "Matric Number"/, /Added Amara Okonkwo/, /Created credential "Student ID"/, /Issued Student ID/]) {
+    for (const text of [/Created identifier "Registration Number"/, /Added Amara Okonkwo/, /Created credential "Member ID"/, /Issued Member ID/]) {
       expect(await screen.findByText(text)).toBeInTheDocument();
     }
     const o = org();

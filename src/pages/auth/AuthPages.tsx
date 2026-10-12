@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, KeyRound, MailCheck } from 'lucide-react';
-import { Button, Field, Input, useToast } from '@/components/ui';
+import { Button, Field, Input, Modal, useToast } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
 import { PortalBlocked, useAuthorization } from '@/auth/authorization';
-import { DEMO_AUTH_ENABLED, RESET_LINK_MINUTES, SESSION_EXPIRED_FLAG, SIGNED_OUT_FLAG, checkCode, emailError, issueCode, loadSignup, normalizeEmail, passwordIsStrong, saveSignup } from '@/auth/authCore';
+import { DEMO_AUTH_ENABLED, DEMO_PASSWORD, RESET_LINK_MINUTES, SESSION_EXPIRED_FLAG, SIGNED_OUT_FLAG, checkCode, emailError, issueCode, loadSignup, normalizeEmail, passwordIsStrong, saveSignup } from '@/auth/authCore';
 import { DEMO_ADMIN } from '@/data/seed';
 import { useStore } from '@/store/AppStore';
 import { loadMailbox } from '@/auth/demoMailbox';
@@ -295,12 +295,11 @@ export function SignInPage() {
   );
 }
 
-/** The shared password of the demonstration accounts (demo builds only). */
-const DEMO_PASSWORD = 'FixIDDemo2026!';
 
 /**
- * Demo builds only: fictional accounts for each kind of user. Choosing one fills in the form; signing in
- * still goes through the normal password check. Not rendered when demo mode is off (VITE_DEMO_AUTH=off).
+ * Demo builds only: fictional accounts for each kind of user, in a dialog opened from a secondary link so
+ * the sign-in form stays uncluttered. Choosing one fills in the form; signing in still goes through the
+ * normal password check. Not rendered when demo mode is off (VITE_DEMO_AUTH=off).
  */
 function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
   const accounts = [
@@ -309,26 +308,33 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
   ];
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-6 rounded-xl border border-dashed border-amber-300 bg-amber-50/60 text-sm">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((x) => !x)} className="w-full px-4 py-3 text-left font-semibold text-amber-900">
-        Demonstration accounts (prototype only)
+    <div className="mt-4 text-center">
+      <button type="button" aria-haspopup="dialog" onClick={() => setOpen(true)} className="text-sm font-medium text-slate-500 underline-offset-2 hover:text-brand-700 hover:underline">
+        View demo accounts
       </button>
-      {/* Credentials are only shown once someone asks for them. */}
-      {open && <div className="space-y-2 border-t border-amber-200 px-4 py-3">
-        <p className="text-amber-900">Fictional accounts for testing each kind of user. They all use the password <span className="font-mono">{DEMO_PASSWORD}</span>. Not available in production builds.</p>
-        <ul className="space-y-1.5" aria-label="Demonstration accounts">
-          {accounts.map((a) => (
-            <li key={a.email} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 ring-1 ring-amber-200">
-              <span className="min-w-0">
-                <span className="block font-medium text-slate-900">{a.persona}</span>
-                <span className="block text-xs text-slate-500">{a.name} · {a.email}</span>
-                <span className="block text-xs text-slate-500">{a.description}</span>
-              </span>
-              <button type="button" onClick={() => onUse(a.email)} aria-label={`Use ${a.persona} account`} className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-700">Use</button>
-            </li>
-          ))}
-        </ul>
-      </div>}
+      <Modal open={open} onClose={() => setOpen(false)} size="lg" title="Demo accounts"
+        description="Fictional accounts for exploring FixID’s different roles and workspaces.">
+        <div className="space-y-3 text-sm">
+          {/* The shared password is shown only here, with a prototype-only warning. */}
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900 ring-1 ring-inset ring-amber-200">
+            Prototype only, not available in production builds. All demo accounts use the password <span className="font-mono">{DEMO_PASSWORD}</span>. Choose <span className="font-semibold">Use</span> to fill in the sign-in form.
+          </p>
+          <ul className="space-y-1.5" aria-label="Demonstration accounts">
+            {accounts.map((a) => (
+              <li key={a.email} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
+                <span className="min-w-0">
+                  <span className="block font-medium text-slate-900">{a.persona}</span>
+                  <span className="block text-xs text-slate-500 [overflow-wrap:anywhere]">{a.name} · {a.email}</span>
+                  <span className="block text-xs text-slate-500">{a.description}</span>
+                </span>
+                <button type="button" onClick={() => { onUse(a.email); setOpen(false); }} aria-label={`Use ${a.persona} account`}
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 hover:text-brand-700">Use</button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-slate-500">Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
+        </div>
+      </Modal>
     </div>
   );
 }

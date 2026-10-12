@@ -25,7 +25,7 @@ import {
   applyCreateUser, applyImportSummary, applyCredentialConfig, applyEnrollmentInvite, applyIdentifierConfig, applyIssuance, applyMemberStatus, applyWalletUpdate, applyUploadLogo,
   type CredentialConfigInput, type LogoUploadInput, type EnrollmentInviteInput, type IdentifierConfigInput, type IssuanceInput, type MemberStatusInput, type PreparedUser, type ImportSummaryInput,
 } from './operations';
-import { ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
+import { DEMO_AUTH_ENABLED, ROLE_PREVIEW_ENABLED } from '@/auth/authCore';
 import { findRole, permissionsFor, rolesFor, type Permission, type RoleId } from '@/domain/roles';
 import {
   actorPermissions, actorRecord, applyAcceptInvite, applyExpireInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, applySaveRole, applyDeleteRole, ownerRecord, type InviteInput, type RoleInput,
@@ -400,6 +400,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'wallet/update':
       return applyWalletUpdate(state, action.credentialId, action.status, action.at);
     case 'demo/reset': {
+      // Demonstration data only exists in demo builds; there's nothing to reset elsewhere.
+      if (!DEMO_AUTH_ENABLED) return state;
       // Demo data is restored; organizations created through sign-up (and their records) are kept.
       const owned = new Set(state.data.organizations.filter((o) => o.ownerAccountId).map((o) => o.id));
       if (owned.size === 0) return action.state;

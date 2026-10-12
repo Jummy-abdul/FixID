@@ -26,7 +26,7 @@ const AT = new Date().toISOString();
 let seq = 0;
 
 const base = () => { const s = createInitialState(new Date()); s.session.currentOrganizationId = ORG; return s; };
-const exam = (s: AppState) => s.data.activityConfigs.find((a) => a.organizationId === ORG && a.name === '2026 Examination Clearance')!;
+const exam = (s: AppState) => s.data.activityConfigs.find((a) => a.organizationId === ORG && a.name === '2026 Restricted Session Clearance')!;
 const halima = (s: AppState) => adminsOf(s, ORG).find((a) => a.roleIds.includes('verifier') && a.status === 'active')!;
 const signInAs = (s: AppState, userId: string): AppState => ({ ...s, data: { ...s.data, admin: { ...s.data.admin, id: userId } } });
 /** Signed in as Halima (a Verifier) and assigned to the examination clearance. */
@@ -85,7 +85,7 @@ describe('the examination clearance activity', () => {
     const started = h.service.startAttempt(ORG, exam(s).id);
     if (!started.ok) throw new Error(started.error);
     const steps = h.service.requiredSteps(started.attempt.id)!;
-    expect(steps.identifier).toEqual({ label: 'Matric number' });
+    expect(steps.identifier).toEqual({ label: 'Member number' });
     expect(steps.biometric).toMatchObject({ checks: ['liveness', 'face-match'], available: false });
     expect(steps.attributes).toEqual([]);
     expect(steps.credential).toBeNull();
@@ -95,7 +95,7 @@ describe('the examination clearance activity', () => {
 describe('access to activities and verification', () => {
   it('shows an assigned verifier their active activities, and nothing to an unassigned one', () => {
     const s = asHalima(base());
-    expect(harness(s).service.listAuthorizedActivities(ORG).map((x) => x.activity.name)).toEqual(['2026 Examination Clearance']);
+    expect(harness(s).service.listAuthorizedActivities(ORG).map((x) => x.activity.name)).toEqual(['2026 Restricted Session Clearance']);
     const unassigned = signInAs(base(), halima(base()).userId!);
     const h = harness(unassigned);
     expect(h.service.listAuthorizedActivities(ORG)).toEqual([]);
@@ -152,7 +152,7 @@ describe('Find Participant', () => {
     const started = h.service.startAttempt(ORG, exam(s).id);
     if (!started.ok) throw new Error(started.error);
     const found = await h.service.lookupParticipant(started.attempt.id, ` ${enrolled.identifier!.value.toLowerCase()} `);
-    expect(found).toMatchObject({ ok: true, participant: { memberId: enrolled.id, name: enrolled.displayName, identifierLabel: 'Matric number' }, eligibility: 'eligible', portrait: 'enrolled', faceRequired: true });
+    expect(found).toMatchObject({ ok: true, participant: { memberId: enrolled.id, name: enrolled.displayName, identifierLabel: 'Member number' }, eligibility: 'eligible', portrait: 'enrolled', faceRequired: true });
     expect(await h.service.lookupParticipant(started.attempt.id, noPortrait.identifier!.value)).toMatchObject({ ok: true, eligibility: 'eligible', portrait: 'missing' });
     expect(await h.service.lookupParticipant(started.attempt.id, outsider.identifier!.value)).toMatchObject({ ok: true, eligibility: 'not-eligible' });
     // Another kind of identifier (a staff number) isn't a matric number.
@@ -354,15 +354,15 @@ describe('screens', () => {
     const cam = mockCamera(async () => cam.stream);
     const user = renderApp('/verify', s, services(face));
     const list = await screen.findByRole('list', { name: 'Your verification activities' });
-    const card = within(list).getByRole('heading', { name: '2026 Examination Clearance' }).closest('li')!;
+    const card = within(list).getByRole('heading', { name: '2026 Restricted Session Clearance' }).closest('li')!;
     expect(card).toHaveTextContent(`0 of ${exam(s).participants!.memberIds.length} verified`);
-    await user.click(within(card).getByRole('link', { name: 'View details: 2026 Examination Clearance' }));
-    expect(await screen.findByRole('heading', { level: 1, name: '2026 Examination Clearance' })).toBeInTheDocument();
+    await user.click(within(card).getByRole('link', { name: 'View details: 2026 Restricted Session Clearance' }));
+    expect(await screen.findByRole('heading', { level: 1, name: '2026 Restricted Session Clearance' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Verification progress' })).toHaveTextContent(`Eligible participants${exam(s).participants!.memberIds.length}`);
     await user.click(screen.getByRole('button', { name: 'Start Verification' }));
 
     // 1. Find Participant: the label is the activity's identifier.
-    expect(await screen.findByLabelText(/Matric number/)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Member number/)).toBeInTheDocument();
     await findParticipant(user, enrolled.identifier!.value);
     const found = await screen.findByRole('region', { name: 'Participant found' });
     expect(found).toHaveTextContent(enrolled.displayName);
@@ -395,7 +395,7 @@ describe('screens', () => {
 
     // Verify Next Participant starts clean.
     await user.click(screen.getByRole('button', { name: 'Verify Next Participant' }));
-    expect(await screen.findByLabelText(/Matric number/)).toHaveValue('');
+    expect(await screen.findByLabelText(/Member number/)).toHaveValue('');
     expect(screen.queryByRole('region', { name: 'Participant found' })).toBeNull();
     // The same person again: warned, and no second entry.
     await findParticipant(user, enrolled.identifier!.value);
@@ -496,7 +496,7 @@ describe('screens', () => {
     expect(screen.queryByRole('button', { name: 'Start Verification' })).toBeNull();
     unmount();
     renderApp(`/verification-activities/${exam(s).id}`, s);
-    expect(screen.getByRole('heading', { level: 1, name: /2026 Examination Clearance/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /2026 Restricted Session Clearance/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open Verifier Workspace' })).toBeNull();
     expect(screen.queryByText(/Verifier Workspace/)).toBeNull();
   });

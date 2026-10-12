@@ -8,7 +8,6 @@ import { DECISION_LABEL, ELIGIBILITY_STATUS_LABEL, MATCH_LABEL, STAGE_LABEL, sta
 import { currentDecision, exceptionFor } from '@/store/exceptionOps';
 import type { ActivityDecision } from '@/domain/programmes';
 import { Badge, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice, type Column } from '@/components/ui';
-import { PLANNED, PlannedButton } from '@/components/domain/PlannedFeature';
 import { ResultBadge } from '@/components/domain/StatusBadges';
 import { AccessAndEntry, AccessBadge, EligibilityBadge, EntryBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
 import { rangeStart, type TimeRange } from '@/domain/metrics';
@@ -109,6 +108,7 @@ function HistoryTable({ rows, hide = [], empty }: { rows: HistoryRow[]; hide?: s
 }
 
 export function VerificationHistoryPage() {
+  const { can } = useAuthorization();
   const { state } = useStore();
   const { organization, transactions, activities, memberById, credentialById } = useOrgData();
   const [q, setQ] = useQueryState('q');
@@ -179,7 +179,7 @@ export function VerificationHistoryPage() {
         actions={(
           <div className="flex flex-wrap gap-2">
             {DEMO_AUTH_ENABLED && <Link to="/developer/status-api" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-amber-800 ring-1 ring-inset ring-amber-300 hover:bg-amber-50"><FlaskConical className="h-4 w-4" aria-hidden="true" />Status API (simulated)</Link>}
-            <PlannedButton icon={<Download className="h-4 w-4" />} info={PLANNED.export}>Export CSV</PlannedButton>
+            {can('reports.view') && <Link to="/reports" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50"><Download className="h-4 w-4" aria-hidden="true" />Reports &amp; export</Link>}
           </div>
         )}
       />

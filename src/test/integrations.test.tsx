@@ -94,7 +94,7 @@ describe('connection tests', () => {
     expect((await runConnectionTest(integ(), 'matching-invalid')).summary).toBe('Matching contract validation failed.');
     expect((await runConnectionTest(integ(), 'unavailable')).summary).toBe('Service unavailable.');
     expect((await runConnectionTest(integ(), 'timeout')).summary).toBe('Request timed out.');
-    const external = integrationFor(createInitialState(new Date()), ORG_B1, 'int_d_hospital')!;
+    const external = integrationFor(createInitialState(new Date()), ORG_B1, 'int_d_harbourside')!;
     const r = await runConnectionTest(external);
     expect(r).toMatchObject({ ok: false, summary: 'Authentication failed.', simulated: false });
     expect(r.checks.find((c) => c.id === 'authentication')!.detail).toMatch(/real external requests are disabled/);
@@ -140,11 +140,11 @@ describe('integration lifecycle and access (store)', () => {
     const s = createInitialState(new Date());
     expect(integrationsOf(s, ORG_A)).toEqual([]);
     expect(integrationsOf(s, ORG_B).map((i) => [i.name, i.status])).toEqual([['Group Identity Service', 'active']]);
-    // Brightwater: the draft Attendee Records Service, plus the active Delegate Identity Service used by programme scenarios C and D.
-    expect(integrationsOf(s, ORG_C).map((i) => [i.name, i.status])).toEqual([['Attendee Records Service', 'draft'], ['Delegate Identity Service', 'active']]);
+    // Brightwater: the draft Attendee Records Service, plus the active Brightwater Identity Service used by programme scenarios C and D.
+    expect(integrationsOf(s, ORG_C).map((i) => [i.name, i.status])).toEqual([['Attendee Records Service', 'draft'], ['Brightwater Identity Service', 'active']]);
     expect(integrationsOf(s, ORG_B1).map((i) => i.status)).toEqual(['error']);
     // Parent and sub-organization never see each other's integrations.
-    expect(integrationFor(s, ORG_B, 'int_d_hospital')).toBeUndefined();
+    expect(integrationFor(s, ORG_B, 'int_d_harbourside')).toBeUndefined();
     expect(integrationFor(s, ORG_B1, 'int_b_identity')).toBeUndefined();
     expect(usableIntegration(s, ORG_B1, 'int_b_identity', 'lookup')).toMatchObject({ ok: false });
     // Verifier and Auditor.
@@ -155,8 +155,8 @@ describe('integration lifecycle and access (store)', () => {
     expect(applySaveIntegration(auditor, { organizationId: ORG_A, id: 'x', values: form(), at: AT })).toMatchObject({ ok: false });
     // A change aimed at another organization's integration is refused, even by its parent's Organization Admin.
     const parent = as('acct_demo_b_admin', s);
-    expect(reducer(parent, { type: 'integrations/deactivate', organizationId: ORG_B1, integrationId: 'int_d_hospital', at: AT })).toBe(parent);
-    expect(applyDeactivateIntegration(parent, { organizationId: ORG_B, integrationId: 'int_d_hospital', at: AT })).toMatchObject({ ok: false });
+    expect(reducer(parent, { type: 'integrations/deactivate', organizationId: ORG_B1, integrationId: 'int_d_harbourside', at: AT })).toBe(parent);
+    expect(applyDeactivateIntegration(parent, { organizationId: ORG_B, integrationId: 'int_d_harbourside', at: AT })).toMatchObject({ ok: false });
   });
 
   it('keeps no secrets in workspace data', () => {
@@ -228,15 +228,15 @@ describe('Settings → Integrations (screens)', () => {
     expect(row).toHaveTextContent('Active');
     expect(row).toHaveTextContent('Identity Record Lookup');
     expect(row).toHaveTextContent('Biometric Matching');
-    expect(screen.queryByText('Hospital Identity Service')).toBeNull();
+    expect(screen.queryByText('Harbourside Identity Service')).toBeNull();
     a.unmount();
-    renderApp('/settings/integrations/int_d_hospital', createInitialState(new Date()), 'acct_demo_b_admin');
+    renderApp('/settings/integrations/int_d_harbourside', createInitialState(new Date()), 'acct_demo_b_admin');
     expect(await screen.findByRole('heading', { name: 'Integration not available' }, { timeout: 4000 })).toBeInTheDocument();
   });
 
   it('the sub-organization sees its own failed integration, can’t activate it, and can’t reach the parent’s', async () => {
-    const a = renderApp('/settings/integrations/int_d_hospital', createInitialState(new Date()), 'acct_demo_b1_admin');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Hospital Identity Service' }, { timeout: 4000 })).toBeInTheDocument();
+    const a = renderApp('/settings/integrations/int_d_harbourside', createInitialState(new Date()), 'acct_demo_b1_admin');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Harbourside Identity Service' }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByLabelText('Integration details')).toHaveTextContent('Connection statusError');
     expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
     expect(screen.getByLabelText('Connection configuration')).toHaveTextContent('Not stored: the secret manager isn’t available in this prototype');
@@ -258,7 +258,7 @@ describe('Settings → Integrations (screens)', () => {
     const b = renderApp('/settings?tab=integrations', createInitialState(new Date()), 'acct_demo_b1_verifier');
     expect(await screen.findByRole('heading', { name: "You don't have access to this page" }, { timeout: 4000 })).toBeInTheDocument();
     b.unmount();
-    renderApp('/settings/integrations/int_d_hospital', createInitialState(new Date()), 'acct_demo_b1_verifier');
+    renderApp('/settings/integrations/int_d_harbourside', createInitialState(new Date()), 'acct_demo_b1_verifier');
     expect(await screen.findByRole('heading', { name: "You don't have access to this page" }, { timeout: 4000 })).toBeInTheDocument();
   });
 
@@ -266,7 +266,7 @@ describe('Settings → Integrations (screens)', () => {
     renderApp('/platform', createInitialState(new Date()), 'acct_demo_platform');
     expect(await screen.findByRole('heading', { level: 1, name: 'Platform overview' }, { timeout: 4000 })).toBeInTheDocument();
     const table = screen.getAllByRole('table')[1];
-    expect(within(table).getByRole('row', { name: /Hospital Identity Service/ })).toHaveTextContent('Authentication failed.');
+    expect(within(table).getByRole('row', { name: /Harbourside Identity Service/ })).toHaveTextContent('Authentication failed.');
     expect(document.body.textContent).not.toMatch(/identity\.harbourside\.example|fixid-harbourside/);
   });
 });

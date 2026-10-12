@@ -39,7 +39,7 @@ export interface IdentifierConfigErrors { name?: string; segments?: PatternError
 export function validateIdentifierConfig(state: AppState, input: Omit<IdentifierConfigInput, 'at'>): IdentifierConfigErrors {
   const errors: IdentifierConfigErrors = {};
   const name = input.name.trim();
-  if (name.length < 2) errors.name = 'Enter a name of at least 2 characters, e.g. Matric Number.';
+  if (name.length < 2) errors.name = 'Enter a name of at least 2 characters, e.g. Member Number.';
   else if (name.length > 40) errors.name = 'Keep the name under 40 characters.';
   else if (!/[A-Za-z]/.test(name)) errors.name = 'Use a meaningful name that includes letters.';
   else if (state.data.identifierConfigs.some((c) => c.organizationId === input.organizationId && c.id !== input.id && ci(c.name) === ci(name))) {
@@ -383,7 +383,7 @@ export function validateCredentialConfig(state: AppState, c: Omit<CredentialConf
   if (c.editing && !state.data.credentialTypes.some((t) => t.id === c.id && t.organizationId === c.organizationId)) {
     errors.form = 'This credential no longer exists.';
   }
-  if (c.name.trim().length < 2) errors.name = 'Enter a name for this credential, e.g. Student ID.';
+  if (c.name.trim().length < 2) errors.name = 'Enter a name for this credential, e.g. Member ID.';
   else if (c.name.trim().length > 60) errors.name = 'Keep the name under 60 characters.';
   else if (types.some((t) => ci(t.name) === ci(c.name))) errors.name = `A credential called "${c.name.trim()}" already exists. Use a different name.`;
   if (!state.data.identifierConfigs.some((i) => i.id === c.identifierConfigId && i.organizationId === c.organizationId)) {

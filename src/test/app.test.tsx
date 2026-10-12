@@ -59,7 +59,7 @@ describe('navigation', () => {
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).queryByRole('link', { name: 'Templates' })).toBeNull();
     expect(within(nav).getByRole('link', { name: 'Credentials' })).toHaveClass('bg-white/10');
-    expect(await screen.findByText('Student ID')).toBeInTheDocument();
+    expect(await screen.findByText('Member ID')).toBeInTheDocument();
   });
 
   it.each([
@@ -107,7 +107,7 @@ describe('top bar', () => {
     const header = screen.getByRole('banner');
     // The current organization and role; a switcher only because this account has several explicit memberships.
     const workspace = within(header).getByRole('region', { name: 'Workspace' });
-    expect(within(workspace).getByRole('combobox', { name: 'Switch organization' })).toHaveDisplayValue('Northbridge University');
+    expect(within(workspace).getByRole('combobox', { name: 'Switch organization' })).toHaveDisplayValue('Northbridge Group');
     expect(workspace).toHaveTextContent('Organization Admin');
     // Only explicit memberships: no sub-organization of Meridian is offered to this account.
     expect(within(workspace).queryByRole('option', { name: /Harbourside|Eastgate/ })).toBeNull();
@@ -206,7 +206,7 @@ describe('dashboard', () => {
   it('active preview shows the sample organization for a new organization', async () => {
     const { user } = renderApp('/', NEW_ORGANIZATION_ID);
     await user.selectOptions(previewSelect(), 'active');
-    expect(screen.getByText(/across Northbridge University today/)).toBeInTheDocument();
+    expect(screen.getByText(/across Northbridge Group today/)).toBeInTheDocument();
   });
 
   it('links metrics to pre-filtered lists', async () => {
@@ -246,10 +246,10 @@ describe('users', () => {
 
 describe('planned features', () => {
   it('are clearly labelled and do not change data', async () => {
-    const { user } = renderApp('/verification-history');
+    const { user } = renderApp('/profile');
     await waitFor(() => expect(localStorage.getItem('fixid.prototype.state')).not.toBeNull());
     const before = localStorage.getItem('fixid.prototype.state');
-    await user.click(screen.getByRole('button', { name: /export csv/i }));
+    await user.click(screen.getByRole('button', { name: /edit profile/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Planned')).toBeInTheDocument();
     expect(within(dialog).getByText(/Nothing has been changed/)).toBeInTheDocument();
@@ -303,17 +303,17 @@ describe('settings', () => {
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     const name = screen.getByLabelText(/Organization Name/);
     await user.clear(name);
-    await user.type(name, 'Northbridge University of Technology');
+    await user.type(name, 'Northbridge Group of Technology');
     await user.type(screen.getByLabelText(/Organization Phone Number/), '+234 801 234 5678');
     await user.type(screen.getByLabelText(/Organization Address/), '12 Marina Road, Lagos');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Organization profile saved')).toBeInTheDocument();
     const view = screen.getByLabelText('Organization profile');
-    expect(view).toHaveTextContent('Organization NameNorthbridge University of Technology');
+    expect(view).toHaveTextContent('Organization NameNorthbridge Group of Technology');
     expect(view).toHaveTextContent('Organization Phone Number+234 801 234 5678');
     expect(view).toHaveTextContent('Organization Address12 Marina Road, Lagos');
-    expect(screen.getByText(/Configuration for Northbridge University of Technology/)).toBeInTheDocument();
-    await waitFor(() => expect(loadState()?.data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)).toMatchObject({ name: 'Northbridge University of Technology', phone: '+234 801 234 5678', address: '12 Marina Road, Lagos' }));
+    expect(screen.getByText(/Configuration for Northbridge Group of Technology/)).toBeInTheDocument();
+    await waitFor(() => expect(loadState()?.data.organizations.find((o) => o.id === SAMPLE_ORGANIZATION_ID)).toMatchObject({ name: 'Northbridge Group of Technology', phone: '+234 801 234 5678', address: '12 Marina Road, Lagos' }));
     // Other organizations are untouched.
     const other = createInitialState().data.organizations.find((o) => o.id !== SAMPLE_ORGANIZATION_ID)!;
     expect(loadState()!.data.organizations.find((o) => o.id === other.id)).toEqual(other);

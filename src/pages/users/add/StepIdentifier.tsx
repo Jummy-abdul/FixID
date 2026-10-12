@@ -8,7 +8,7 @@ import type { Draft } from './draft';
 import { RadioCard, StepShell } from './parts';
 
 /** Suggestions only: none of these exist until the administrator configures and saves them. */
-const SUGGESTIONS = ['Matric Number', 'Staff ID', 'Employee Number', 'Membership Number'];
+const SUGGESTIONS = ['Registration Number', 'Staff ID', 'Employee Number', 'Membership Number'];
 
 export function StepIdentifier({ org, draft, update, footerStart }: {
   org: OrgData; draft: Draft; update: (patch: Partial<Draft>) => void; footerStart: React.ReactNode;

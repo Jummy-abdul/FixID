@@ -48,18 +48,18 @@ beforeEach(() => {
 describe('identifier selection', () => {
   it('shows saved identifiers as cards, hides them from suggestions, and offers + Other only', async () => {
     const user = renderApp('/users/new/manual', withIdentifiers([
-      { name: 'Staff ID', mode: 'manual' }, { name: 'Employee Number', mode: 'generated' }, { name: 'Matric Number', mode: 'manual' },
+      { name: 'Staff ID', mode: 'manual' }, { name: 'Employee Number', mode: 'generated' }, { name: 'Registration Number', mode: 'manual' },
     ]));
     const cards = within(screen.getByRole('radiogroup', { name: 'Your identifiers' })).getAllByRole('radio');
     expect(cards.map((c) => c.textContent)).toEqual([
-      expect.stringContaining('Staff ID'), expect.stringContaining('Employee Number'), expect.stringContaining('Matric Number'),
+      expect.stringContaining('Staff ID'), expect.stringContaining('Employee Number'), expect.stringContaining('Registration Number'),
     ]);
     expect(cards[0]).toHaveTextContent('Manual');
     expect(cards[0]).toHaveTextContent('Entered for each user.');
     expect(cards[1]).toHaveTextContent('Generated');
     expect(cards[1]).toHaveTextContent('Next likely value: EMP-0001');
     expect(screen.queryByRole('button', { name: /create new identifier/i })).toBeNull();
-    for (const configured of ['Staff ID', 'Employee Number', 'Matric Number']) {
+    for (const configured of ['Staff ID', 'Employee Number', 'Registration Number']) {
       expect(screen.queryByRole('button', { name: configured })).toBeNull();
     }
     expect(screen.getByRole('button', { name: 'Membership Number' })).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe('identifier selection', () => {
 });
 
 describe('Personal Information', () => {
-  const state = () => withIdentifiers([{ name: 'Matric Number', mode: 'generated' }]);
+  const state = () => withIdentifiers([{ name: 'Registration Number', mode: 'generated' }]);
 
   it('requires first name, last name and email; phone, country, region and gender are optional', async () => {
     const user = renderApp('/users/new/manual', state());
