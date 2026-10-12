@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { AcceptInvitationPage } from './pages/auth/AcceptInvitationPage';
 import { OrganizationDetailPage, OrganizationsPage } from './pages/organizations/OrganizationsPage';
 import { PlatformPage } from './pages/platform/PlatformPage';
+import { IntegrationDetailPage } from './pages/settings/IntegrationDetailPage';
 import { DemoProviderPage, SsoCallbackPage, SsoSignInPage } from './pages/auth/SsoPages';
 import { AppLayout } from './layout/AppLayout';
 import { RequirePermission } from './auth/authorization';
@@ -130,8 +131,9 @@ export function AppRoutes() {
         <Route path="verification-history/:recordId" element={<RequirePermission permission="verification.results.view"><VerificationRecordPage /></RequirePermission>} />
         <Route path="organizations" element={<RequirePermission permission="organizations.view"><OrganizationsPage /></RequirePermission>} />
         <Route path="organizations/:orgId" element={<RequirePermission permission="organizations.view"><OrganizationDetailPage /></RequirePermission>} />
+        <Route path="settings/integrations/:integrationId" element={<RequirePermission permission="integrations.view"><IntegrationDetailPage /></RequirePermission>} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
-        <Route path="settings" element={<RequirePermission permission={['settings.manage', 'organization.view', 'administrators.view', 'sso.manage']}><SettingsPage /></RequirePermission>} />
+        <Route path="settings" element={<RequirePermission permission={['settings.manage', 'organization.view', 'administrators.view', 'sso.manage', 'integrations.view']}><SettingsPage /></RequirePermission>} />
         <Route path="profile" element={<ProfilePage />} />
         {RENAMED.flatMap(([from, to]) => [
           <Route key={from} path={from} element={<RenamedRoute to={to} />} />,

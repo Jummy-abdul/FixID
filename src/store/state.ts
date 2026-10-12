@@ -1,4 +1,8 @@
 import type { SeedData } from '@/data/seed';
+import {
+  applyActivateIntegration, applyDeactivateIntegration, applyIntegrationTestResult, applyIntegrationTestStarted, applySaveIntegration, type SaveIntegrationInput,
+} from './integrationOps';
+import type { IntegrationTestRun } from '@/domain/integrations';
 import { applyCreateSubOrganization, applyResendSubOrganizationInvite, type CreateSubOrganizationInput } from './orgOps';
 import {
   applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity, type SsoSaveInput,
@@ -76,6 +80,11 @@ export type Action =
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string; token?: string }
   | { type: 'organizations/createSub'; organizationId: string; input: CreateSubOrganizationInput }
   | { type: 'organizations/resendSubInvite'; organizationId: string; childOrganizationId: string; token: string; at: string }
+  | { type: 'integrations/save'; input: SaveIntegrationInput }
+  | { type: 'integrations/testStarted'; organizationId: string; integrationId: string; at: string }
+  | { type: 'integrations/testResult'; organizationId: string; integrationId: string; run: IntegrationTestRun; at: string }
+  | { type: 'integrations/activate'; organizationId: string; integrationId: string; at: string }
+  | { type: 'integrations/deactivate'; organizationId: string; integrationId: string; at: string }
   | { type: 'sso/save'; input: SsoSaveInput }
   | { type: 'sso/testResult'; organizationId: string; versionId: string; ok: boolean; message: string; mode: 'live' | 'demonstration'; at: string }
   | { type: 'sso/activate'; organizationId: string; at: string }
@@ -138,6 +147,11 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'admins/status': ['administrators.manage'],
   'organizations/createSub': ['organizations.manage'],
   'organizations/resendSubInvite': ['organizations.manage'],
+  'integrations/save': ['integrations.manage'],
+  'integrations/testStarted': ['integrations.manage'],
+  'integrations/testResult': ['integrations.manage'],
+  'integrations/activate': ['integrations.manage'],
+  'integrations/deactivate': ['integrations.manage'],
   'sso/save': ['sso.manage'],
   'sso/testResult': ['sso.manage'],
   'sso/activate': ['sso.manage'],
@@ -372,6 +386,7 @@ export function reducer(state: AppState, action: Action): AppState {
           customRoles: keep(n.customRoles, d.customRoles),
           logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
           ssoConnections: keep(n.ssoConnections, d.ssoConnections ?? []),
+          customIntegrations: keep(n.customIntegrations, d.customIntegrations ?? []),
           // Relationships of kept organizations; never both sides from different data sets.
           organizationRelationships: [...(n.organizationRelationships ?? []), ...(d.organizationRelationships ?? []).filter((r) => owned.has(r.parentOrganizationId) && owned.has(r.childOrganizationId))],
         },
@@ -435,6 +450,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
     case 'organizations/createSub': return action.input.parentOrganizationId === action.organizationId ? orKeep(state, applyCreateSubOrganization(state, action.input)) : state;
     case 'organizations/resendSubInvite': return orKeep(state, applyResendSubOrganizationInvite(state, action));
+    case 'integrations/save': return orKeep(state, applySaveIntegration(state, action.input));
+    case 'integrations/testStarted': return orKeep(state, applyIntegrationTestStarted(state, action));
+    case 'integrations/testResult': return orKeep(state, applyIntegrationTestResult(state, action));
+    case 'integrations/activate': return orKeep(state, applyActivateIntegration(state, action));
+    case 'integrations/deactivate': return orKeep(state, applyDeactivateIntegration(state, action));
     case 'sso/save': return orKeep(state, applySaveSso(state, action.input));
     case 'sso/testResult': return orKeep(state, applySsoTestResult(state, action));
     case 'sso/activate': return orKeep(state, applyActivateSso(state, action));

@@ -18,6 +18,11 @@ import {
 } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
+import {
+  applyActivateIntegration, applyDeactivateIntegration, applyIntegrationTestResult, applyIntegrationTestStarted, applySaveIntegration, integrationFor,
+} from './integrationOps';
+import type { IntegrationFormValues, IntegrationTestRun } from '@/domain/integrations';
+import { runConnectionTest, type TestScenario } from '@/services/integrations/integrationService';
 import { applyCreateSubOrganization, applyResendSubOrganizationInvite, type CreateSubOrganizationInput, type SubOrganizationValues } from './orgOps';
 import { newId } from '@/lib/identifiers';
 import {
@@ -261,6 +266,32 @@ export function useActions() {
         const token = invitationToken();
         const r = run(() => applyResendSubOrganizationInvite(getState(), { organizationId, childOrganizationId, token, at }), { type: 'organizations/resendSubInvite', organizationId, childOrganizationId, token, at });
         return r.ok ? { ...r, token } : r;
+      },
+      /** Custom identity services. Each re-checks integrations.manage in the organization that owns it. */
+      saveIntegration: (organizationId: string, values: IntegrationFormValues, id?: string) => {
+        const input = { organizationId, id: id ?? newId('int'), values, at: new Date().toISOString() };
+        const r = run(() => applySaveIntegration(getState(), input), { type: 'integrations/save', input });
+        return r.ok ? { ...r, integrationId: input.id } : r;
+      },
+      /** Runs a connection test against the configured service and records the result. */
+      testIntegration: async (organizationId: string, integrationId: string, scenario: TestScenario = 'healthy') => {
+        const startedAt = new Date().toISOString();
+        const started = run(() => applyIntegrationTestStarted(getState(), { organizationId, integrationId, at: startedAt }), { type: 'integrations/testStarted', organizationId, integrationId, at: startedAt });
+        if (!started.ok) return started;
+        const integration = integrationFor(getState(), organizationId, integrationId)!;
+        const result = await runConnectionTest(integration, scenario);
+        const at = new Date().toISOString();
+        const testRun: IntegrationTestRun = { ...result, id: newId('test'), at, by: getState().data.admin.name };
+        const r = run(() => applyIntegrationTestResult(getState(), { organizationId, integrationId, run: testRun, at }), { type: 'integrations/testResult', organizationId, integrationId, run: testRun, at });
+        return r.ok ? { ...r, run: testRun } : r;
+      },
+      activateIntegration: (organizationId: string, integrationId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyActivateIntegration(getState(), { organizationId, integrationId, at }), { type: 'integrations/activate', organizationId, integrationId, at });
+      },
+      deactivateIntegration: (organizationId: string, integrationId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyDeactivateIntegration(getState(), { organizationId, integrationId, at }), { type: 'integrations/deactivate', organizationId, integrationId, at });
       },
       /** Single sign-on. Each re-checks sso.manage (linking needs only the administrator's own active account). */
       saveSso: (organizationId: string, values: SsoFormValues) => {

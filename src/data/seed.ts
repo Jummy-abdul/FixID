@@ -33,7 +33,8 @@ import { templateForDesign } from '@/domain/templates';
 import { buildChecks } from '@/domain/verification';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { invitationToken } from '@/lib/tokens';
-import { B2_RECORDS_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
+import { CONTRACT_VERSION, SIMULATED_BASE_URL, type CustomIntegration, type IntegrationCheck } from '@/domain/integrations';
+import { B2_RECORDS_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C, ORG_D, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
 import { createRng, type Rng } from './random';
 
@@ -69,6 +70,8 @@ export interface SeedData {
   ssoConnections: SsoConnection[];
   /** Parent and sub-organization relationships. */
   organizationRelationships: OrganizationRelationship[];
+  /** Custom identity services, each owned by one organization. */
+  customIntegrations: CustomIntegration[];
 }
 
 const DAY = 86_400_000;
@@ -907,11 +910,64 @@ export function buildSeed(now: Date = new Date()): SeedData {
     }],
     logoAssets: [],
     ssoConnections: [],
+    customIntegrations: seedIntegrations(today),
     organizationRelationships: Object.entries(SEEDED_SUB_ORGANIZATIONS).map(([child, parent]) => ({
       id: `rel_${child}`, parentOrganizationId: parent, childOrganizationId: child, type: 'sub-organization' as const, origin: 'created-by-parent' as const,
       status: 'active' as const, initialAdministratorId: `${child}_adm_owner`, createdAt: iso(addMonths(today, -14)), createdBy: 'Victor Hale',
     })),
   };
+}
+
+/**
+ * Fictional custom identity services. Organization A has none (local verification only); B's is tested and
+ * active; C's is a Draft; D's points at an external service, so its test fails (external requests are
+ * disabled in the prototype) and it can't be activated.
+ */
+export function seedIntegrations(today: Date): CustomIntegration[] {
+  const at = (days: number) => new Date(today.getTime() - days * DAY).toISOString();
+  const passed = (id: IntegrationCheck['id'], label: string, detail: string): IntegrationCheck => ({ id, label, outcome: 'passed', detail });
+  return [
+    {
+      id: 'int_b_identity', organizationId: ORG_B, name: 'Group Identity Service', description: 'Looks up staff identity records and matches faces against the group’s reference images.',
+      capabilities: ['lookup', 'matching'], referenceLabel: 'External Reference ID', permittedAttributes: ['displayName', 'recordStatus'],
+      connection: { target: 'simulated', baseUrl: SIMULATED_BASE_URL, authMethod: 'oauth2-client-credentials', oauth: { tokenEndpoint: `${SIMULATED_BASE_URL}/oauth/token`, clientId: 'simulated-client' }, credential: 'simulated', timeoutSeconds: 10 },
+      contractVersion: CONTRACT_VERSION, configVersion: 1, validatedConfigVersion: 1, status: 'active', lastSuccessfulTestAt: at(20),
+      tests: [{
+        id: 'test_b_1', at: at(20), by: 'Victor Hale', configVersion: 1, ok: true, summary: 'Connection successful.', simulated: true, scenario: 'healthy',
+        checks: [
+          passed('configuration', 'Connection configuration', 'Contract 1.0, oauth2-client-credentials authentication, 10s timeout.'),
+          passed('authentication', 'Authentication', 'Simulated credential accepted (no real secret is used).'),
+          passed('lookup', 'Lookup endpoint compatibility', 'FOUND and NOT_FOUND responses follow contract 1.0.'),
+          passed('matching', 'Matching endpoint compatibility', 'MATCH response follows contract 1.0 (score 0.96 on scale 0_TO_1, provider threshold 0.85). Simulated: no faces were compared.'),
+          passed('schema', 'Response schema validity', 'All responses validated against contract 1.0.'),
+          passed('errors', 'Error handling', 'An invalid request returned a well-formed ERROR.'),
+        ],
+      }],
+      createdAt: at(22), createdBy: 'Victor Hale', updatedAt: at(20), updatedBy: 'Victor Hale',
+    },
+    {
+      id: 'int_c_records', organizationId: ORG_C, name: 'Attendee Records Service', description: 'Looks up registered attendees by their booking reference.',
+      capabilities: ['lookup'], referenceLabel: 'Booking Reference', permittedAttributes: ['displayName', 'recordStatus'],
+      connection: { target: 'simulated', baseUrl: SIMULATED_BASE_URL, authMethod: 'api-key', apiKey: { headerName: 'X-API-Key' }, credential: 'simulated', timeoutSeconds: 8 },
+      contractVersion: CONTRACT_VERSION, configVersion: 1, status: 'draft', tests: [],
+      createdAt: at(3), createdBy: 'Tobyson TE', updatedAt: at(3), updatedBy: 'Tobyson TE',
+    },
+    {
+      id: 'int_d_hospital', organizationId: ORG_D, name: 'Hospital Identity Service', description: 'The hospital’s own identity service for staff records and face matching.',
+      capabilities: ['lookup', 'matching'], referenceLabel: 'Staff Reference', permittedAttributes: ['displayName', 'recordStatus'],
+      connection: { target: 'external', baseUrl: 'https://identity.harbourside.example/api', authMethod: 'oauth2-client-credentials', oauth: { tokenEndpoint: 'https://identity.harbourside.example/oauth/token', clientId: 'fixid-harbourside' }, credential: 'missing', timeoutSeconds: 15 },
+      contractVersion: CONTRACT_VERSION, configVersion: 1, status: 'error', lastFailedTestAt: at(1),
+      tests: [{
+        id: 'test_d_1', at: at(1), by: 'Lina Ford', configVersion: 1, ok: false, summary: 'Authentication failed.', simulated: false,
+        checks: [
+          passed('configuration', 'Connection configuration', 'Contract 1.0, oauth2-client-credentials authentication, 15s timeout.'),
+          { id: 'authentication', label: 'Authentication', outcome: 'failed', detail: 'No credential is held by the FixID secret manager. The secure integration backend isn’t available in this prototype, so real external requests are disabled.' },
+          ...(['lookup', 'matching', 'schema', 'errors'] as const).map((id) => ({ id, label: { lookup: 'Lookup endpoint compatibility', matching: 'Matching endpoint compatibility', schema: 'Response schema validity', errors: 'Error handling' }[id], outcome: 'skipped' as const, detail: 'Not run.' })),
+        ],
+      }],
+      createdAt: at(4), createdBy: 'Lina Ford', updatedAt: at(1), updatedBy: 'Lina Ford',
+    },
+  ];
 }
 
 /**

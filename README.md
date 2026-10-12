@@ -96,6 +96,54 @@ Each signed-up organization has its own records (`ownerAccountId` on the organiz
 
 **Prototype limits.** All of this runs in the browser: route checks, permissions, lockout, session expiry and token checks can be bypassed by someone editing local storage. Production needs a FixID backend for OIDC (secret storage, discovery, PKCE, ID-token validation), server-side sessions and revocation, rate limiting, email delivery, and server-side authorization and tenant isolation for every request.
 
+## Custom identity integrations (Phase 2)
+
+**Settings → Integrations** (`/settings?tab=integrations`; reuses the formerly hidden Integrations tab). Two areas:
+- **Built-in Verification:** *FixID Local Verification*, the existing local model (people and enrollments managed in Users). Always available; nothing to configure.
+- **Custom Identity Services:** the organization's own external services (Integration Name, Capabilities, Status, Last Tested, Last Updated, Actions), with **Add Custom Integration** and the empty state *No custom identity services have been configured.*
+
+**Permissions:** `integrations.manage` (Organization Admin) creates, edits, tests, activates and deactivates. `integrations.view` (Organization Admin, Auditor) shows read-only metadata; connection details are shown only to managers, and secrets never exist in the browser. Verifiers have neither; their verification activities will use integrations indirectly in a later phase. Every operation is checked in the owning organization only. A parent and its sub-organizations never see each other's integrations, other IDs show *Integration not available*, and there's no global catalogue. Platform Administrators see status and test summaries on `/platform`, not configuration.
+
+**Add Custom Integration wizard (4 steps):**
+1. Integration Name, Description, Capabilities (Identity Record Lookup, Biometric Matching, or both), Reference Identifier Label.
+2. Service (*Simulated Identity Service*, or *External identity service*), Base API URL (https, no credentials in the URL), Authentication Method (OAuth 2.0 Client Credentials: token endpoint, client ID, scope; API Key: header name, with reserved headers refused; Mutual TLS: managed certificate reference), Timeout (2–30 s). No custom headers.
+3. API contract 1.0 (request and response examples, outcomes, score and capture notes) and the **permitted lookup attributes**.
+4. Review.
+
+Saving creates a **Draft** and never activates.
+
+**No secrets are collected.** Production keeps client secrets, API keys and private keys in FixID's server-side secret manager, and the configuration only records whether one is held (`credential`). This prototype has no secret manager: the simulated service uses a simulated credential, and external configurations are saved without one.
+
+**Lifecycle:** Draft → Testing → Active ⇄ Inactive; Error when a test fails.
+- **Activate** needs a successful test of the current configuration version, covering only the enabled capabilities: lookup-only doesn't need matching.
+- **Security-sensitive changes** (connection, authentication, capabilities) increase the configuration version, invalidate the earlier test and return an Active integration to Draft. A name or description change doesn't.
+- **Deactivate** (with confirmation) blocks new use (`usableIntegration`), keeps configuration, tests and audit records, and warns if the integration is referenced (none yet; verification programmes will add references).
+- **Audit:** every change and test is audited (Audit Log → *Integrations*).
+
+**Connection test** (`runConnectionTest`) runs the contract against the configured service and validates every response: configuration, authentication, lookup compatibility (FOUND and NOT_FOUND test references), matching compatibility (when enabled), schema validity and error handling. It reports *Connection successful.*, *Authentication failed.*, *Lookup / Matching contract validation failed.*, *Service unavailable.* or *Request timed out.*, with a timestamp and per-check details. The last 10 tests are kept, never with secrets.
+
+**FixID external identity verification contract 1.0** (`src/services/integrations/contract.ts`):
+- **Identity Record Lookup:** `{referenceType, referenceValue, requestId, purpose}` → `{requestId, status: FOUND | NOT_FOUND | MULTIPLE_MATCHES | UNAVAILABLE | ERROR, record?}`.
+- **Biometric Matching:** `{requestId, referenceId, modality: FACE, captureReference, livenessEvidenceReference?}` → `{requestId, status: MATCH | NO_MATCH | INCONCLUSIVE | UNAVAILABLE | ERROR, providerTransactionId?, result?: {score, scoreScale, threshold}}`.
+- **Responses are validated** before use; anything non-conforming is an ERROR.
+- **Lookup results are minimized** to the permitted attributes.
+- **Scores keep the provider's own scale and threshold.** They aren't normalized or treated as comparable across engines.
+- **Capture and liveness references are conceptual.** A real integration must also define a secure transfer of the capture.
+- **Other APIs need a compatible adapter.** Field mapping isn't configurable.
+
+**Integration service** (`src/services/integrations/integrationService.ts`): `lookupIdentity` and `matchBiometric` return validated, minimized results and never write anything: no Person records, no enrollment, no stored lookup attributes or biometrics (Model B, externally referenced identity). The local model (Model A) is unchanged. Transports are separate: the Simulated Identity Service, or an external service that would only be called through a secure FixID backend (secret manager, destination allow-listing, SSRF and private-network protection, no redirects). That backend doesn't exist, so **real external requests are disabled** (the browser never calls customer URLs) and external configurations fail their test at Authentication.
+
+**Simulated Identity Service** (`src/services/integrations/simulatedIdentityService.ts`): fictional records, deterministic outcomes, every response marked `simulated`, and no real biometric comparison.
+- **Lookup references:** `DEMO-10001` (found), `DEMO-10002` (found, suspended), `DEMO-20001` (not found), `DEMO-30001` (multiple), `DEMO-50001` (unavailable), `DEMO-40001` (invalid request).
+- **Matching fixtures** (with `REF-10001`): `SIM-CAPTURE-MATCH`, `SIM-CAPTURE-NO-MATCH`, `SIM-CAPTURE-INCONCLUSIVE`, `SIM-CAPTURE-UNAVAILABLE`, `SIM-CAPTURE-UNSUPPORTED`.
+- **Dev-only test scenarios** (Test Connection → *Demo tools — simulation only*, demo builds only): healthy, authentication fails, lookup or matching response breaks the contract, unavailable, timeout.
+
+**Demonstration data:**
+- **Organization A** (Northbridge): none; local verification only.
+- **Organization B** (Meridian): *Group Identity Service*, lookup and matching, tested and **Active**.
+- **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**.
+- **Organization D** (sub-organization B1, Harbourside): *Hospital Identity Service*, an external configuration whose test failed (**Error**), so it can't be activated.
+
 ## Organizations, workspaces and demo accounts (Phase 1)
 
 **Organization model.** Every organization registers the same way (no organization-type choice). An organization becomes a parent only by creating sub-organizations. Relationships are separate records (`data.organizationRelationships`: parent, child, type `sub-organization`, origin, status, initial administrator), so later phases can add other origins, such as inviting an existing organization (`pending` until accepted), without changing organizations. Phase 1 rules, enforced in the store (`src/store/orgOps.ts`): one level only (a sub-organization can't create sub-organizations), one parent per organization, and an existing organization is never reassigned.

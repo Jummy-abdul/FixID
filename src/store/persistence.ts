@@ -1,6 +1,7 @@
 import { seedAdministrators, seedCustomRoles, seedGroups, seedVerificationActivities } from '@/data/seed';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { ensurePrimaryAdmins, normalizeAdministrators } from './adminOps';
+import { settleInterruptedTests } from './integrationOps';
 import { STATE_VERSION, STORAGE_KEY, type AppState } from './state';
 
 /** Returns persisted state if present and compatible, otherwise null. Never throws. */
@@ -77,6 +78,7 @@ function withoutSampleCustomRoles(state: AppState): AppState {
 function withLogoAssets(state: AppState): AppState {
   if (!Array.isArray(state.data.ssoConnections)) state = { ...state, data: { ...state.data, ssoConnections: [] } };
   if (!Array.isArray(state.data.organizationRelationships)) state = { ...state, data: { ...state.data, organizationRelationships: [] } };
+  state = Array.isArray(state.data.customIntegrations) ? settleInterruptedTests(state) : { ...state, data: { ...state.data, customIntegrations: [] } };
   return Array.isArray(state.data.logoAssets) ? state : { ...state, data: { ...state.data, logoAssets: [] } };
 }
 

@@ -6,6 +6,7 @@ import { formatDate } from '@/lib/dates';
 import { parentRelationship, organizationStatus, subRelationships } from '@/store/orgOps';
 import { useStore } from '@/store/AppStore';
 import { OrgStatusBadge } from '../organizations/OrganizationsPage';
+import { IntegrationStatusBadge } from '../settings/IntegrationsPanel';
 
 /**
  * Platform Administrator overview: FixID-level operations, separate from every organization workspace.
@@ -22,6 +23,7 @@ export function PlatformPage() {
 
   const orgs = [...state.data.organizations].sort((a, b) => a.name.localeCompare(b.name));
   const relationships = (state.data.organizationRelationships ?? []).filter((r) => r.status !== 'ended');
+  const integrations = [...(state.data.customIntegrations ?? [])].sort((a, b) => a.organizationId.localeCompare(b.organizationId));
   const nameOf = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
   const activeAdmins = (id: string) => state.data.administrators.filter((a) => a.organizationId === id && a.status === 'active').length;
   const stats = [
@@ -87,6 +89,21 @@ export function PlatformPage() {
               </ul>
             )}
           </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title="Custom identity services" description="Operational status only. Configuration, endpoints and credentials stay with each organization." />
+          {integrations.length === 0 ? <CardBody><p className="text-sm text-slate-500">No custom identity services are configured.</p></CardBody> : (
+            <DataTable
+              rows={integrations}
+              rowKey={(i) => i.id}
+              columns={[
+                { key: 'org', header: 'Organization', cell: (i) => nameOf(i.organizationId) },
+                { key: 'name', header: 'Integration', cell: (i) => <span className="font-medium text-slate-900">{i.name}</span> },
+                { key: 'status', header: 'Status', cell: (i) => <IntegrationStatusBadge status={i.status} /> },
+                { key: 'last', header: 'Last test', cell: (i) => i.tests[0] ? <span className={i.tests[0].ok ? 'text-emerald-700' : 'text-red-700'}>{i.tests[0].summary} <span className="text-xs text-slate-400">{formatDate(i.tests[0].at)}</span></span> : <span className="text-slate-400">Never</span> },
+              ]}
+            />
+          )}
         </Card>
         <p className="flex gap-2 text-sm text-slate-500">
           <ServerCog className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

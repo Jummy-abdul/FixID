@@ -12,6 +12,10 @@ export const ORG_B = 'org_meridian';
 export const ORG_B1 = 'org_meridian_harbourside';
 export const ORG_B2 = 'org_meridian_eastgate';
 
+/** Organization C: has a custom identity service in Draft. Organization D (sub-organization B1): its service failed its connection test. */
+export const ORG_C = 'org_lts';
+export const ORG_D = ORG_B1;
+
 /** Seeded sub-organizations and their parent. */
 export const SEEDED_SUB_ORGANIZATIONS: Record<string, string> = { [ORG_B1]: ORG_B, [ORG_B2]: ORG_B };
 

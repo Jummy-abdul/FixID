@@ -1,107 +1,114 @@
-import { useState } from 'react';
-import { Activity, CheckCircle2, Fingerprint, FlaskConical, Wallet, XCircle } from 'lucide-react';
-import { Badge, Button, Card, CardBody, CardHeader } from '@/components/ui';
-import type { Organization } from '@/domain/types';
-import type { ServiceHealth } from '@/services/types';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Eye, FlaskConical, Pencil, PlugZap, Plus, ScanFace } from 'lucide-react';
+import { Badge, Button, Card, CardBody, DataTable, EmptyState, OverflowMenu, Skeleton, type OverflowMenuItem } from '@/components/ui';
+import { NoAccess, useAuthorization } from '@/auth/authorization';
+import { CAPABILITY_LABEL, STATUS_LABEL, type CustomIntegration, type IntegrationStatus } from '@/domain/integrations';
 import { formatDateTime } from '@/lib/dates';
-import { useServices } from '@/services/ServicesProvider';
-import { useStore } from '@/store/AppStore';
-import { useAuthorization } from '@/auth/authorization';
-import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
+import { integrationsOf } from '@/store/integrationOps';
+import { useSession, useStore } from '@/store/AppStore';
+import { IntegrationWizard } from './IntegrationWizard';
 
-function HealthResult({ health }: { health: ServiceHealth }) {
+/**
+ * Settings → Integrations. Built-in FixID Local Verification (no configuration) and the organization's own
+ * custom identity services. Only the current organization's integrations are ever listed: there is no
+ * catalogue of other organizations' services.
+ */
+
+const TONE: Record<IntegrationStatus, 'neutral' | 'info' | 'success' | 'warning' | 'danger'> = { draft: 'neutral', testing: 'info', active: 'success', inactive: 'neutral', error: 'danger' };
+export function IntegrationStatusBadge({ status }: { status: IntegrationStatus }) {
+  return <Badge tone={TONE[status]} dot>{STATUS_LABEL[status]}</Badge>;
+}
+
+export function CapabilityBadges({ integration }: { integration: Pick<CustomIntegration, 'capabilities'> }) {
+  return <span className="flex flex-wrap gap-1">{integration.capabilities.map((c) => <Badge key={c} tone="brand">{CAPABILITY_LABEL[c]}</Badge>)}</span>;
+}
+
+export function SimulatedBadge() {
+  return <Badge tone="warning"><FlaskConical className="h-3 w-3" aria-hidden="true" />Simulated Identity Service</Badge>;
+}
+
+export function IntegrationsPanel() {
+  const { can } = useAuthorization();
+  if (!can('integrations.view')) return <NoAccess />;
   return (
-    <div role="status" className={`mt-3 flex items-start gap-2 rounded-lg p-3 text-sm ${health.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-      {health.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0" />}
-      <span>{health.message} <span className="opacity-70">({health.latencyMs} ms · {formatDateTime(health.checkedAt)})</span></span>
+    <div className="space-y-8">
+      <section aria-labelledby="builtin-verification" className="space-y-3">
+        <h2 id="builtin-verification" className="text-sm font-semibold text-slate-900">Built-in Verification</h2>
+        <Card>
+          <CardBody className="flex flex-wrap items-start gap-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600"><ScanFace className="h-5 w-5" aria-hidden="true" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="flex flex-wrap items-center gap-2 font-semibold text-slate-900">FixID Local Verification <Badge tone="success" dot>Available</Badge><Badge tone="neutral">Built in</Badge></p>
+              <p className="mt-0.5 text-sm text-slate-500">Verify people against identity references enrolled and managed within your organization.</p>
+              <p className="mt-2 text-xs text-slate-500">Uses the people and enrollments you manage in Users. Nothing to configure here.</p>
+            </div>
+          </CardBody>
+        </Card>
+      </section>
+      <CustomServices />
     </div>
   );
 }
 
-export function IntegrationsPanel({ organization }: { organization: Organization }) {
-  const { idSwitch, wallet } = useServices();
-  const [checking, setChecking] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, ServiceHealth>>({});
+function CustomServices() {
+  const { organization } = useSession();
+  const { state } = useStore();
+  const { can } = useAuthorization();
+  const navigate = useNavigate();
+  const canManage = can('integrations.manage');
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<CustomIntegration | 'new' | null>(null);
+  useEffect(() => { const t = setTimeout(() => setLoading(false), 250); return () => clearTimeout(t); }, []);
+  const rows = integrationsOf(state, organization.id).sort((a, b) => a.name.localeCompare(b.name));
+  const last = (i: CustomIntegration) => i.tests[0];
 
-  const check = async (key: 'idSwitch' | 'wallet') => {
-    setChecking(key);
-    const res = key === 'idSwitch' ? await idSwitch.checkHealth(organization) : await wallet.checkHealth(organization);
-    setResults((r) => ({ ...r, [key]: res }));
-    setChecking(null);
-  };
-
-  const { idSwitch: ids, seamfixWallet: sw, fixiam } = organization.integrations;
-  const items = [
-    {
-      key: 'idSwitch' as const, icon: Fingerprint, name: 'Identity service', connected: ids.connected, required: true,
-      body: "Keeps each person's identity record, so the same person isn't added twice.",
-      meta: ids.connected ? `Tenant ${ids.tenantRef}` : 'Not linked',
-    },
-    {
-      key: 'wallet' as const, icon: Wallet, name: 'Seamfix Wallet', connected: sw.connected, required: false,
-      body: 'Provides the credential holder experience. FixID delivers issued credentials and tracks delivery status.',
-      meta: sw.connected ? `Issuer ${sw.issuerDid}` : 'Not registered as an issuer',
-    },
+  const menu = (i: CustomIntegration): OverflowMenuItem[] => [
+    { key: 'view', label: 'View details', icon: <Eye className="h-4 w-4" />, onSelect: () => navigate(`/settings/integrations/${i.id}`) },
+    ...(canManage && i.status !== 'testing' ? [{ key: 'edit', label: 'Edit configuration', icon: <Pencil className="h-4 w-4" />, onSelect: () => setEditing(i) }] : []),
   ];
 
   return (
-    <div className="space-y-4">
-      {items.map((it) => (
-        <Card key={it.key}>
-          <CardHeader
-            title={<span className="flex items-center gap-2"><it.icon className="h-4 w-4 text-slate-500" />{it.name}{it.required && <Badge>Required</Badge>}</span>}
-            description={it.body}
-            action={<span className="flex gap-1.5"><Badge tone={it.connected ? 'success' : 'warning'} dot>{it.connected ? 'Connected' : 'Not connected'}</Badge></span>}
-          />
-          <CardBody>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="font-mono text-xs text-slate-500">{it.meta}</span>
-              <Button variant="secondary" size="sm" icon={<Activity className="h-4 w-4" />} loading={checking === it.key} disabled={checking !== null && checking !== it.key} onClick={() => check(it.key)}>
-                {checking === it.key ? 'Checking…' : 'Check connection'}
-              </Button>
-            </div>
-            {results[it.key] && <HealthResult health={results[it.key]} />}
-          </CardBody>
-        </Card>
-      ))}
-      <DemoProvidersCard organization={organization} />
-      <Card>
-        <CardHeader
-          title="Fixiam"
-          description="Independent workforce IAM product. Optional: FixID works without it. When connected, permitted workforce attributes (e.g. employee ID) can be referenced with their source."
-          action={<Badge tone={fixiam.connected ? 'success' : 'neutral'} dot>{fixiam.connected ? 'Connected' : 'Not used'}</Badge>}
-        />
-      </Card>
-    </div>
-  );
-}
-
-/**
- * Demonstration verification providers (demo builds only). Labelled simulated stand-ins so the
- * verification flow can be exercised end to end; they never produce real verification results.
- */
-function DemoProvidersCard({ organization }: { organization: Organization }) {
-  const { dispatch } = useStore();
-  const { can } = useAuthorization();
-  const on = !!organization.integrations.verificationDemo?.enabled;
-  if (!DEMO_AUTH_ENABLED) return null;
-  return (
-    <Card>
-      <CardHeader
-        title={<span className="flex items-center gap-2"><FlaskConical className="h-4 w-4 text-slate-500" />Demonstration verification providers</span>}
-        description="Demonstration stand-ins for holder binding and wallet credential presentation (facial verification has none: it needs a real provider), for trying the verification flow. Their results are labelled as demonstration results and are never real identity or credential assurance."
-        action={<Badge tone={on ? 'warning' : 'neutral'} dot>{on ? 'On (demonstration)' : 'Off'}</Badge>}
-      />
-      <CardBody>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm text-slate-500">No external biometric, wallet or presentation service is connected.</span>
-          {can('settings.manage') && (
-            <Button variant="secondary" size="sm" onClick={() => dispatch({ type: 'organization/verificationDemo', organizationId: organization.id, enabled: !on, at: new Date().toISOString() })}>
-              {on ? 'Turn off' : 'Turn on'}
-            </Button>
-          )}
+    <section aria-labelledby="custom-services" className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 id="custom-services" className="text-sm font-semibold text-slate-900">Custom Identity Services</h2>
+          <p className="text-sm text-slate-500">External identity services {organization.name} connects for identity record lookup and biometric matching. Private to {organization.name}.</p>
         </div>
-      </CardBody>
-    </Card>
+        {canManage && <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Add Custom Integration</Button>}
+      </div>
+      <Card>
+        {loading ? (
+          <div className="space-y-3 p-5" aria-label="Loading integrations">{Array.from({ length: 2 }, (_, i) => <Skeleton key={i} className="h-8 w-full" />)}</div>
+        ) : (
+          <DataTable
+            rows={rows}
+            rowKey={(i) => i.id}
+            empty={<EmptyState icon={<PlugZap className="h-5 w-5" />} title="No custom identity services have been configured."
+              description="Connect an authorized identity service to look up identity records and perform verification."
+              action={canManage ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Add Custom Integration</Button> : undefined} />}
+            columns={[
+              {
+                key: 'name', header: 'Integration Name', cell: (i) => (
+                  <span className="block">
+                    <Link to={`/settings/integrations/${i.id}`} className="font-medium text-slate-900 hover:text-brand-700">{i.name}</Link>
+                    {i.connection.target === 'simulated' && <span className="block text-xs text-amber-700">Simulated Identity Service</span>}
+                  </span>
+                ),
+              },
+              { key: 'caps', header: 'Capabilities', cell: (i) => <CapabilityBadges integration={i} /> },
+              { key: 'status', header: 'Status', cell: (i) => <IntegrationStatusBadge status={i.status} /> },
+              { key: 'tested', header: 'Last Tested', cell: (i) => last(i) ? <span className="text-slate-600">{formatDateTime(last(i)!.at)}<span className={`block text-xs ${last(i)!.ok ? 'text-emerald-700' : 'text-red-700'}`}>{last(i)!.summary}</span></span> : <span className="text-slate-400">Never</span> },
+              { key: 'updated', header: 'Last Updated', cell: (i) => <span className="text-slate-600">{formatDateTime(i.updatedAt)}</span> },
+              { key: 'actions', header: 'Actions', className: 'w-24 text-right', cell: (i) => <OverflowMenu label={`Actions for ${i.name}`} items={menu(i)} /> },
+            ]}
+          />
+        )}
+      </Card>
+      {editing && (
+        <IntegrationWizard integration={editing === 'new' ? null : editing} onClose={() => setEditing(null)}
+          onSaved={(id) => { setEditing(null); navigate(`/settings/integrations/${id}`); }} />
+      )}
+    </section>
   );
 }

@@ -216,7 +216,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create Organization' })).toBeNull();
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Settings' }));
-    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles']);
+    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles', 'Integrations']);
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
   }, 20_000);
 
@@ -233,7 +233,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Platform overview' }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull();
     expect(screen.getByRole('list', { name: 'Organization relationships' })).toHaveTextContent('Meridian Harbourside Hospitalis a sub-organization ofMeridian Health Group');
-    expect(screen.getByRole('table')).toHaveTextContent('Meridian Eastgate Clinic');
+    expect(screen.getAllByRole('table')[0]).toHaveTextContent('Meridian Eastgate Clinic');
     expect(screen.queryByText(/@harbourside\.example/)).toBeNull();
     // Workspace pages aren't available to the platform account.
     await user.click(screen.getByRole('button', { name: 'Sign out' }));

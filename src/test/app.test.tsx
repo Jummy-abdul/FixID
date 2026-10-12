@@ -321,15 +321,17 @@ describe('settings', () => {
     expect(await screen.findByText(/Updated organization profile \(name, phone, address\)/)).toBeInTheDocument();
   });
 
-  it('shows Organization, Administrators & Roles and Security, and old Integrations links fall back to Organization', async () => {
+  it('shows Organization, Administrators & Roles, Integrations and Security; Integrations has built-in and custom services', async () => {
     const before = createInitialState().data.organizations.map((o) => o.integrations);
     const { user } = renderApp('/settings?tab=integrations');
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).not.toContain('Integrations');
-    expect(tabs).toEqual(['Organization', 'Administrators & Roles', 'Security']);
-    expect(screen.getByRole('tab', { name: 'Organization' })).toHaveAttribute('aria-selected', 'true');
-    for (const gone of [/Identity service/, /Demonstration verification providers/, /Fixiam/, /check connection/i]) expect(screen.queryByText(gone)).toBeNull();
+    expect(tabs).toEqual(['Organization', 'Administrators & Roles', 'Integrations', 'Security']);
+    expect(screen.getByRole('tab', { name: 'Integrations' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('FixID Local Verification')).toBeInTheDocument();
+    // The earlier hidden panel's built-in service health and demo provider switches are gone; no real provider names.
+    for (const gone of [/Identity service$/, /Demonstration verification providers/, /Fixiam/, /check connection/i]) expect(screen.queryByText(gone)).toBeNull();
     // Organization and Administrators & Roles still work; organization configurations are untouched.
+    await user.click(screen.getByRole('tab', { name: 'Organization' }));
     expect(screen.getByLabelText('Organization profile')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Administrators & Roles' }));
     expect(await screen.findByRole('button', { name: 'Invite Administrator' })).toBeInTheDocument();

@@ -7,20 +7,22 @@ import { AdministratorsPanel } from './settings/AdministratorsPanel';
 import { useSession } from '@/store/AppStore';
 import { OrganizationForm } from './settings/OrganizationForm';
 import { SecurityPanel } from './settings/SecurityPanel';
+import { IntegrationsPanel } from './settings/IntegrationsPanel';
 
-type Tab = 'organization' | 'admins' | 'security';
+type Tab = 'organization' | 'admins' | 'integrations' | 'security';
 
 export function SettingsPage() {
   const { organization } = useSession();
   const { can } = useAuthorization();
   const [tab, setTab] = useQueryState('tab', 'organization');
   // Each tab needs its own permission; a tab the role can't use isn't shown, and its link falls back to one it can.
-  // Only Organization and Administrators & Roles are part of the MVP. Integrations and Demo data are hidden
-  // (their panels and data are kept): ?tab=integrations falls back to Organization. The demo account keeps
-  // its internal prototype tools at ?tab=demo, which isn't in the navigation; for anyone else it falls back too.
+  // Integrations shows built-in verification and the organization's own custom identity services. Demo data
+  // is hidden: the demo account keeps its internal prototype tools at ?tab=demo, which isn't in the
+  // navigation; for anyone else it falls back to the first tab.
   const tabs = [
     ...(can('settings.manage') || can('organization.view') ? [{ value: 'organization' as const, label: 'Organization' }] : []),
     ...(can('administrators.view') ? [{ value: 'admins' as const, label: 'Administrators & Roles' }] : []),
+    ...(can('integrations.view') ? [{ value: 'integrations' as const, label: 'Integrations' }] : []),
     ...(can('sso.manage') ? [{ value: 'security' as const, label: 'Security' }] : []),
   ];
   const { isDemo } = useAuth();
@@ -43,6 +45,7 @@ export function SettingsPage() {
       </div>
       {current === 'organization' && <OrganizationForm key={organization.id} organization={organization} />}
       {current === 'admins' && <AdministratorsPanel />}
+      {current === 'integrations' && <IntegrationsPanel />}
       {current === 'security' && <SecurityPanel />}
     </>
   );

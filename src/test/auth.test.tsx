@@ -213,7 +213,7 @@ describe('sign in, demo account, recovery and sign out', () => {
     expect(screen.getByLabelText('Dashboard preview')).toBeInTheDocument();
     await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Settings' }));
     // Settings shows Organization, Administrators & Roles and Security; the demo tools aren't in the navigation.
-    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles', 'Security']);
+    expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles', 'Integrations', 'Security']);
     first.unmount();
     // The demo account still reaches its internal prototype tools by their address.
     const { user } = renderApp('/settings?tab=demo');

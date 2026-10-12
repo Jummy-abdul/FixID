@@ -456,6 +456,12 @@ export type AuditAction =
   | 'admin.joined'
   | 'admin.sso-linked'
   | 'admin.sso-unlinked'
+  | 'integration.created'
+  | 'integration.updated'
+  | 'integration.tested'
+  | 'integration.test-failed'
+  | 'integration.activated'
+  | 'integration.deactivated'
   | 'organization.sub-created'
   | 'organization.sub-invitation-resent'
   | 'sso.saved'
@@ -506,7 +512,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others. */
   result: 'success' | 'partial' | 'failure';
