@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MapPin, Play, ScanFace, XCircle } from 'lucide-react';
+import { ArrowLeft, Lock, MapPin, Play, ScanFace, XCircle } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { ActivityStatusBadge } from '@/components/verification/parts';
@@ -8,7 +8,8 @@ import { AccessBadge, AttemptBadge, EntryBadge } from '@/components/verification
 import { formatCoordinate, formatRadius } from '@/domain/location';
 import { participantProgress, participantStatuses } from '@/domain/participantStatus';
 import type { ActivityConfig } from '@/domain/types';
-import { describeRequirements, eligibleParticipants } from '@/domain/verification';
+import { activeAssignments, describeRequirements, eligibleParticipants } from '@/domain/verification';
+import { ELIGIBILITY_LABEL, LIVENESS_LABEL, METHOD_LABEL } from '@/domain/programmes';
 import { formatDateTime } from '@/lib/dates';
 import { useOrgData, useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
@@ -64,6 +65,7 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
   const usesFace = !!version?.checks.some((c) => c.type === 'face-match');
   const policy = activityPolicy(state, activity);
   const unavailable = executionUnavailable(state, activity);
+  const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
   const mine = state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.verifierId === record?.id && a.status !== 'in-progress').slice(0, 5);
 
   const start = () => {
@@ -101,7 +103,13 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
           {readOnly && <p className="mt-2 text-sm text-amber-800">Role preview is read-only. Exit the preview to verify.</p>}
         </div>
       )}
-      {usesFace && !service.faceVerificationAvailable && (
+      {usesFace && policy.effective.identitySource.kind === 'local' && service.faceMode(organization.id) === 'simulated' && (
+        <p className="mt-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+          <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span><span className="font-semibold">Simulated facial verification.</span> No facial verification provider is configured, so this demonstration organization uses a labelled simulation. Results are marked Simulated and aren’t real biometric verification.</span>
+        </p>
+      )}
+      {usesFace && policy.effective.identitySource.kind === 'local' && service.faceMode(organization.id) === 'unavailable' && (
         <p className="mt-4 flex gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
           <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span><span className="font-semibold">Biometric verification unavailable.</span> Identity can’t be verified right now. You can find participants and capture a selfie, but every verification records Unable to Verify.</span>
@@ -119,11 +127,17 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
 
       {version && (
         <Card className="mt-6 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">How people are verified</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Identity source: {policy.effective.identitySource.kind === 'local' ? 'FixID Local Records' : `${policy.integration?.name ?? 'External identity service'} (external)`}
-            {policy.programme && <> · Programme: {policy.programme.name}</>}
-          </p>
+          <h2 className="text-sm font-semibold text-slate-900">Verification requirements</h2>
+          <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2" aria-label="Verification requirements">
+            <div><dt className="text-slate-500">Owning Organization</dt><dd className="text-slate-900">{organization.name}</dd></div>
+            <div><dt className="text-slate-500">Programme</dt><dd className="text-slate-900">{policy.programme ? policy.programme.name : 'None — independent activity'}</dd></div>
+            <div><dt className="text-slate-500">Identity Source</dt><dd className="text-slate-900">{policy.effective.identitySource.kind === 'local' ? 'FixID Local Records' : `${policy.integration?.name ?? 'External identity service'} (external)`}</dd></div>
+            <div><dt className="text-slate-500">Verification Method</dt><dd className="text-slate-900">{METHOD_LABEL[policy.effective.method]}{policy.effective.method === 'face' ? ` · Liveness ${LIVENESS_LABEL[policy.effective.liveness].toLowerCase()}` : ''}</dd></div>
+            <div><dt className="text-slate-500">Eligibility Requirement</dt><dd className="text-slate-900">{ELIGIBILITY_LABEL[policy.effective.eligibility.approach]}</dd></div>
+            <div><dt className="text-slate-500">Assigned Verifiers</dt><dd className="text-slate-900">{verifiers.join(', ') || 'None'}</dd></div>
+          </dl>
+          {policy.programme && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Requirements set by the programme are enforced and can’t be changed while verifying.</p>}
+          <p className="mt-3 text-xs font-medium text-slate-500">Checks</p>
           <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-600">
             {describeRequirements(version, (id) => credentialTypeById.get(id)?.name ?? '').map((l) => <li key={l}>{l}</li>)}
           </ul>

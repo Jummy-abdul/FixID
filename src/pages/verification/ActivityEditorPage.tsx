@@ -10,6 +10,7 @@ import { RequirementsStep } from '@/components/verification/RequirementsStep';
 import { ActivitySettingsSummary } from '@/components/verification/RequirementsSummary';
 import { formatCoordinate, formatRadius, locationConfigProblem, type LocationCheckConfig } from '@/domain/location';
 import type { ActivityConfig, ActivityVersion } from '@/domain/types';
+import { DEFAULT_ELIGIBILITY_ATTRIBUTE, DEFAULT_ELIGIBLE_VALUES } from '@/domain/transactions';
 import {
   ELIGIBILITY_DESCRIPTION, ELIGIBILITY_LABEL, defaultSettings, effectiveSettings, type EligibilityApproach, type VerificationSettings,
 } from '@/domain/programmes';
@@ -134,7 +135,10 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const derive = (x: FormState) => {
     const { id: pid, p: programme } = programmeOf(x);
     const own: VerificationSettings = x.settings.eligibility.approach === 'reference-list'
-      ? { ...x.settings, eligibility: { approach: 'reference-list', referenceList: parseReferences(x.referenceText) } } : { ...x.settings, eligibility: { approach: x.settings.eligibility.approach } };
+      ? { ...x.settings, eligibility: { approach: 'reference-list', referenceList: parseReferences(x.referenceText) } }
+      : x.settings.eligibility.approach === 'external-source'
+        ? { ...x.settings, eligibility: { approach: 'external-source', attribute: x.settings.eligibility.attribute ?? DEFAULT_ELIGIBILITY_ATTRIBUTE, allowedValues: x.settings.eligibility.allowedValues?.length ? x.settings.eligibility.allowedValues : DEFAULT_ELIGIBLE_VALUES } }
+        : { ...x.settings, eligibility: { approach: x.settings.eligibility.approach } };
     const eff = effectiveSettings(own, programme?.requirements);
     // The configuration follows the settings for a new activity or when they change; otherwise it's kept.
     const changed = editable && (isNew || JSON.stringify(own) !== JSON.stringify(activity?.verification ?? settingsFromVersion(version)));
@@ -427,7 +431,20 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
                     {(p) => <Textarea {...p} rows={5} disabled={!canDetails} value={f.referenceText} onChange={(e) => set('referenceText', e.target.value)} placeholder={'REF-1001\nREF-1002'} />}
                   </Field>
                 ) : editable && effective.eligibility.approach === 'external-source' ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">Eligibility comes from the authorized lookup response of {integration?.name ?? 'the external identity service'}. Nobody is copied into FixID.</p>
+                  <div className="space-y-3 rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-inset ring-slate-200">
+                    <p className="text-sm text-slate-600">Eligibility comes from the authorized lookup response of {integration?.name ?? 'the external identity service'}: a permitted attribute and the values that make someone eligible. Unrelated attributes are never used, and nobody is copied into FixID.</p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field label="Eligibility attribute">{(p) => (
+                        <Select {...p} disabled={!canDetails} value={settings.eligibility.attribute} onChange={(e) => set('settings', { ...f.settings, eligibility: { ...settings.eligibility, attribute: e.target.value } })}>
+                          {[...new Set([settings.eligibility.attribute!, ...(integration?.permittedAttributes ?? []).filter((k) => k !== 'displayName')])].map((k) => <option key={k} value={k}>{k}</option>)}
+                        </Select>
+                      )}</Field>
+                      <Field label="Eligible values" hint="Comma-separated, for example ACTIVE.">{(p) => (
+                        <Input {...p} disabled={!canDetails} value={(settings.eligibility.allowedValues ?? []).join(', ')}
+                          onChange={(e) => set('settings', { ...f.settings, eligibility: { ...settings.eligibility, allowedValues: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) } })} />
+                      )}</Field>
+                    </div>
+                  </div>
                 ) : config?.requirements?.eligibility === 'external' ? (
                   <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">Eligibility for this activity comes from an external eligibility source, which isn’t connected yet.</p>
                 ) : (

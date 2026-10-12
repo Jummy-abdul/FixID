@@ -50,7 +50,7 @@ export function ActivitySettingsSummary({ settings: s, inherited, integration, o
       { label: 'Liveness', value: LIVENESS_LABEL[s.liveness], locked: inherited },
       { label: 'Reverification', value: reverificationLabel(s.reverification), locked: inherited },
       { label: 'Exception handling', value: EXCEPTION_LABEL[s.exceptions], locked: inherited },
-      { label: 'Eligibility', value: `${ELIGIBILITY_LABEL[s.eligibility.approach]}${s.eligibility.approach === 'reference-list' ? ` (${s.eligibility.referenceList?.length ?? 0} references)` : ''}` },
+      { label: 'Eligibility', value: `${ELIGIBILITY_LABEL[s.eligibility.approach]}${s.eligibility.approach === 'reference-list' ? ` (${s.eligibility.referenceList?.length ?? 0} references)` : ''}${s.eligibility.approach === 'external-source' ? ` (${s.eligibility.attribute ?? 'recordStatus'} is ${(s.eligibility.allowedValues?.length ? s.eligibility.allowedValues : ['ACTIVE']).join(' or ')})` : ''}` },
       { label: 'Local enrollment', value: s.identitySource.kind === 'local' ? 'Required: people must be registered and enrolled in FixID' : 'Not required: externally referenced identities are supported' },
       { label: 'Assurance', value: ASSURANCE_NOT_DEFINED },
     ]} />

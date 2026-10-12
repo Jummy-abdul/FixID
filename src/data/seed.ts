@@ -878,6 +878,15 @@ export function buildSeed(now: Date = new Date()): SeedData {
   audit.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
   audit.forEach((a, i) => { a.id = `AUD-${String(audit.length - i).padStart(5, '0')}`; });
 
+  // Prompt 4 demonstration people in Brightwater, pinned so the scenarios are reproducible (all fictional).
+  for (const [i, face] of (['enrolled', 'enrolled', 'not-enrolled'] as const).entries()) {
+    const m = members.find((x) => x.id === `${ORG_C}_m_00${i + 1}`);
+    if (m?.identifier) {
+      m.identifier = { ...m.identifier, value: DEMO_LOCAL_PEOPLE[i] };
+      m.status = 'active';
+      m.faceEnrollment = face === 'enrolled' ? { ...m.faceEnrollment, status: 'enrolled', updatedAt: iso(addDays(today, -30)) } : { status: 'not-enrolled' };
+    }
+  }
   const administrators = seedAdministrators(organizations, today);
   const seededGroups = seedGroups(organizations, members, today);
   const activitiesSeed = seedVerificationActivities(organizations, { credentialTypes, identifierConfigs, groups: seededGroups.groups, administrators, members }, today);
@@ -887,6 +896,9 @@ export function buildSeed(now: Date = new Date()): SeedData {
       activitiesSeed.verifierAssignments.push({ organizationId: ORG_B1, activityId: `${ORG_B1}_va_${key}`, administratorId: `${ORG_B1}_adm_verifier`, status: 'active', assignedAt: iso(addDays(today, -10)), assignedBy: 'Lina Ford' });
     }
   }
+  // Brightwater demonstrates local face verification with the labelled simulated provider (no real provider is configured).
+  const demoOrg = organizations.find((o) => o.id === ORG_C);
+  if (demoOrg) demoOrg.integrations = { ...demoOrg.integrations, simulatedBiometrics: { enabled: true } };
   const scenarios = seedProgrammeScenarios(organizations, today);
   activitiesSeed.activityConfigs.push(...scenarios.activityConfigs);
   activitiesSeed.activityVersions.push(...scenarios.activityVersions);
@@ -997,6 +1009,12 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
   ];
 }
 
+/**
+ * Brightwater people for the local verification scenarios: eligible and enrolled; enrolled but not on the
+ * activity's eligible population; not enrolled.
+ */
+export const DEMO_LOCAL_PEOPLE = ['TKT-100001', 'TKT-100002', 'TKT-100003'] as const;
+
 /** The parent-governed programme in demonstration scenario B. */
 export const DEMO_PROGRAMME_B = 'prog_meridian_staff';
 
@@ -1018,14 +1036,14 @@ export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 
     identitySource: { kind: 'local' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' }, exceptions: 'review',
     eligibility: { approach: 'local-population' }, decisionRules: DEFAULT_DECISION_RULES, ...x,
   });
-  const add = (orgId: string, key: string, by: string, a: Pick<ActivityConfig, 'name' | 'description'> & Partial<ActivityConfig>, v: VerificationSettings, verifierId?: string) => {
+  const add = (orgId: string, key: string, by: string, a: Pick<ActivityConfig, 'name' | 'description'> & Partial<ActivityConfig>, v: VerificationSettings, verifierIds: string | string[] = [], identifierConfigId?: string) => {
     const org = organizations.find((o) => o.id === orgId) as Organization;
     const id = `${orgId}_va_${key}`;
     const vid = `${id}_v1`;
     // Matches configFromSettings: external eligibility is decided by the external flow, not local checks.
     const requirements: StandardRequirements = { identity: v.method, credential: null, eligibility: v.identitySource.kind === 'local' && v.eligibility.approach === 'local-population' ? 'participants' : null };
     let n = 0;
-    const built = buildChecks(requirements, org, () => `${vid}_chk_${++n}`);
+    const built = buildChecks(requirements, org, () => `${vid}_chk_${++n}`, identifierConfigId);
     const review = v.exceptions !== 'unsuccessful';
     out.activityVersions.push({
       id: vid, organizationId: orgId, activityId: id, number: 1, type: built.type, checks: built.checks, requirements, customized: false,
@@ -1036,7 +1054,7 @@ export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 
       id, organizationId: orgId, entryPolicy: 'off', participants: { groupIds: [], memberIds: [] }, restrictVerifiers: false, purpose: a.description,
       status: 'active', activeVersionId: vid, createdAt: at(9), createdBy: by, updatedAt: at(8), updatedBy: by, verification: v, ...a,
     });
-    if (verifierId) out.verifierAssignments.push({ organizationId: orgId, activityId: id, administratorId: verifierId, status: 'active', assignedAt: at(8), assignedBy: by });
+    for (const administratorId of [verifierIds].flat()) out.verifierAssignments.push({ organizationId: orgId, activityId: id, administratorId, status: 'active', assignedAt: at(8), assignedBy: by });
   };
 
   if (has(ORG_A)) {
@@ -1056,16 +1074,23 @@ export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 
     });
     const external = { identitySource: { kind: 'external' as const, integrationId: 'int_b_identity' } };
     add(ORG_B1, 'staff_entry', 'Lina Ford', { name: 'Harbourside Staff Entry', description: 'Programme-linked: staff verified through the group identity service; eligibility from its lookup response.', programmeId: DEMO_PROGRAMME_B },
-      settings({ ...external, eligibility: { approach: 'external-source' } }), `${ORG_B1}_adm_verifier`);
+      settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] } }), `${ORG_B1}_adm_verifier`);
     add(ORG_B2, 'contractor_check', 'Mira Santos', { name: 'Eastgate Contractor Check', description: 'Programme-linked: contractors on the permitted reference list, verified through the group identity service.', programmeId: DEMO_PROGRAMME_B },
-      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['CTR-1001', 'CTR-1002', 'CTR-1003'] } }), `${ORG_B2}_adm_owner`);
+      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'CTR-1001', 'CTR-1002'] } }), `${ORG_B2}_adm_owner`);
   }
   if (has(ORG_C)) {
+    const verifiers = [`${ORG_C}_adm_owner`, `${ORG_C}_adm_4`];
     const external = { identitySource: { kind: 'external' as const, integrationId: 'int_c_delegates' } };
+    // Prompt 4 scenarios 3, 4, 6, 7, 9 and 11: an external identity, nobody enrolled in FixID; a result may be reused for a day.
     add(ORG_C, 'delegate_checkin', 'Tobyson TE', { name: 'Delegate Check-in', description: 'Independent activity using the summit’s own external identity service; eligibility from its lookup response.' },
-      settings({ ...external, eligibility: { approach: 'external-source' }, exceptions: 'unsuccessful' }), `${ORG_C}_adm_4`);
+      settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] }, exceptions: 'unsuccessful', reverification: { mode: 'reuse-within', days: 1 } }), verifiers);
     add(ORG_C, 'speaker_lounge', 'Tobyson TE', { name: 'Speaker Lounge Access', description: 'Eligibility from a permitted reference list. Speakers aren’t enrolled in FixID.' },
-      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['SPK-2001', 'SPK-2002', 'SPK-2003', 'SPK-2004'] } }), `${ORG_C}_adm_4`);
+      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'SPK-2001', 'SPK-2002', 'SPK-2003'] } }), verifiers);
+    // Prompt 4 scenarios 1 and 2: local identity verification with enrolled faces and an eligible population.
+    add(ORG_C, 'badge_collection', 'Tobyson TE', {
+      name: 'Badge Collection', description: 'Registered delegates verified against their FixID enrollment before collecting a badge.',
+      participants: { groupIds: [], memberIds: [`${ORG_C}_m_001`, `${ORG_C}_m_003`] },
+    }, settings({ exceptions: 'unsuccessful' }), verifiers, `${ORG_C}_idc_ticket-number`);
   }
   return out;
 }

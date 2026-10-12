@@ -2,6 +2,8 @@ import type { AuditEvent, CheckRun, VerificationAttempt, VerificationClientRef }
 import { authorizeVerifier, checkById, evaluateOutcome, splitResults } from '@/domain/verification';
 import { actorPermissions as actorPermissionsFor, actorRecord } from './adminOps';
 import type { AppState } from './state';
+import { activityPolicy } from './programmeOps';
+import { localTransactionFields } from './transactionOps';
 import { LOCATION_LABEL, evaluateLocation, formatCoordinate } from '@/domain/location';
 import type { DeviceLocation } from '@/services/location';
 import { formatDateTime } from '@/lib/dates';
@@ -39,7 +41,7 @@ export function authorizeExecution(state: AppState, organizationId: string, acti
 
 const findAttempt = (state: AppState, id: string) => state.data.verificationAttempts.find((a) => a.id === id);
 
-function replace(state: AppState, attempt: VerificationAttempt, audit?: AuditEvent[]): AppState {
+export function replaceAttempt(state: AppState, attempt: VerificationAttempt, audit?: AuditEvent[]): AppState {
   const exists = state.data.verificationAttempts.some((a) => a.id === attempt.id);
   return {
     ...state,
@@ -51,7 +53,7 @@ function replace(state: AppState, attempt: VerificationAttempt, audit?: AuditEve
   };
 }
 
-export function applyStartAttempt(state: AppState, input: { organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef }): Result {
+export function applyStartAttempt(state: AppState, input: { organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef; retryOf?: string }): Result {
   const prior = findAttempt(state, input.attemptId);
   if (prior) return { ok: true, state, attempt: prior };
   const auth = authorizeExecution(state, input.organizationId, input.activityId, input.client);
@@ -60,19 +62,28 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
   const version = state.data.activityVersions.find((v) => v.id === activity.activeVersionId);
   if (!version || version.checks.length === 0) return { ok: false, error: 'This activity’s configuration can’t be used right now. Ask an administrator to review it.', code: 'invalid-configuration' };
   const admin = state.data.administrators.find((a) => a.id === auth.adminId)!;
+  // The identity source, integration and programme come from the authoritative configuration, never the verifier.
+  const policy = activityPolicy(state, activity);
+  const external = policy.effective.identitySource.kind === 'external';
   const attempt: VerificationAttempt = {
     id: input.attemptId, organizationId: input.organizationId, activityId: activity.id, activityName: activity.name,
     versionId: version.id, versionNumber: version.number, type: version.type,
     verifierId: admin.id, verifierName: admin.name ?? admin.email, client: input.client,
     status: 'in-progress', startedAt: input.at, expiresAt: new Date(new Date(input.at).getTime() + ATTEMPT_TTL_MS).toISOString(),
-    checks: version.checks.map((c) => ({ checkId: c.id, type: c.type, requirement: c.requirement, status: 'pending', explanation: 'Not run yet.', providerId: c.providerId })),
+    // External transactions record their own steps (lookup, liveness, matching, eligibility) as they happen.
+    checks: external ? [] : version.checks.map((c) => ({ checkId: c.id, type: c.type, requirement: c.requirement, status: 'pending', explanation: 'Not run yet.', providerId: c.providerId })),
     reasons: [], simulated: false,
+    identitySource: external ? 'external' : 'local', stage: 'initiated',
+    ...(policy.programme ? { programmeId: policy.programme.id } : {}),
+    ...(external && policy.integration ? { integrationId: policy.integration.id, serviceName: policy.integration.name } : {}),
+    // A retry links to the transaction it follows; that result is never changed.
+    ...(input.retryOf && state.data.verificationAttempts.some((p) => p.id === input.retryOf && p.activityId === activity.id && p.status !== 'in-progress') ? { retryOf: input.retryOf } : {}),
   };
-  return { ok: true, state: replace(state, attempt), attempt };
+  return { ok: true, state: replaceAttempt(state, attempt), attempt };
 }
 
 /** Only the verifier who started an in-progress, unexpired attempt can change it, and only while still authorized. */
-function guardInProgress(state: AppState, attemptId: string, at: string): { ok: true; attempt: VerificationAttempt } | { ok: false; error: string; code: AttemptError } {
+export function guardInProgress(state: AppState, attemptId: string, at: string): { ok: true; attempt: VerificationAttempt } | { ok: false; error: string; code: AttemptError } {
   const attempt = findAttempt(state, attemptId);
   if (!attempt) return { ok: false, error: 'This verification wasn’t found.', code: 'not-found' };
   const rec = actorRecord(state, attempt.organizationId);
@@ -100,6 +111,7 @@ export function applyCompleteAttempt(state: AppState, input: CompleteInput): Res
   if (done && done.status === 'completed' && done.submissionId === input.submissionId) return { ok: true, state, attempt: done };
   const g = guardInProgress(state, input.attemptId, input.at);
   if (!g.ok) return g;
+  if (g.attempt.identitySource === 'external') return { ok: false, error: 'This verification uses an external identity service.', code: 'invalid-results' };
   const auth = authorizeExecution(state, g.attempt.organizationId, g.attempt.activityId, input.client);
   if (!auth.ok) return auth;
   // Evaluate against the version the attempt started with, even if the activity has changed since.
@@ -122,9 +134,10 @@ export function applyCompleteAttempt(state: AppState, input: CompleteInput): Res
   const attempt: VerificationAttempt = {
     ...g.attempt, status: 'completed', completedAt: input.at, checks, outcome, reasons, simulated, ...split, ...access, location,
     subject: input.subject, inputs: input.inputs, submissionId: input.submissionId,
+    ...localTransactionFields(state, g.attempt, checks, split, input.at),
     review: outcome === 'pending-review' ? { status: 'pending', referredAt: input.at, referredBy: 'Activity policy', reason: reasons[0] ?? 'Required by the activity’s review policy.' } : undefined,
   };
-  return { ok: true, state: replace(state, attempt), attempt };
+  return { ok: true, state: replaceAttempt(state, attempt), attempt };
 }
 
 export function applyCancelAttempt(state: AppState, input: { attemptId: string; at: string }): Result {
@@ -134,7 +147,7 @@ export function applyCancelAttempt(state: AppState, input: { attemptId: string; 
     ...g.attempt, status: 'cancelled', completedAt: input.at, reasons: ['Cancelled by the verifier before it finished.'],
     checks: g.attempt.checks.map((c) => (c.status === 'pending' || c.status === 'in-progress' ? { ...c, status: 'skipped', skipReason: 'not-run', explanation: 'Not run: the verification was cancelled.' } : c)),
   };
-  return { ok: true, state: replace(state, attempt), attempt };
+  return { ok: true, state: replaceAttempt(state, attempt), attempt };
 }
 
 /** Marks unfinished attempts past their expiry as interrupted. Results already recorded are untouched. */
@@ -157,7 +170,7 @@ export function applyFailAttempt(state: AppState, input: { attemptId: string; at
   const g = guardInProgress(state, input.attemptId, input.at);
   if (!g.ok) return g;
   const attempt: VerificationAttempt = { ...g.attempt, status: 'error', completedAt: input.at, reasons: [input.reason] };
-  return { ok: true, state: replace(state, attempt), attempt };
+  return { ok: true, state: replaceAttempt(state, attempt), attempt };
 }
 
 /**
@@ -177,7 +190,7 @@ export function applyReferAttempt(state: AppState, input: { attemptId: string; a
   }
   const reason = input.reason.trim() || 'Referred by the verifier.';
   const next: VerificationAttempt = { ...attempt, review: { status: 'pending', referredAt: input.at, referredBy: attempt.verifierName, reason } };
-  return { ok: true, state: replace(state, next), attempt: next };
+  return { ok: true, state: replaceAttempt(state, next), attempt: next };
 }
 
 /** A refused execution request is a security event, so it goes to the Audit Log (not to verification records). */
@@ -249,7 +262,7 @@ export function applyRecordEntry(state: AppState, input: { attemptId: string; at
     summary: `${by} allowed entry for ${a.subject?.label ?? 'a person'} at ${a.activityName} (verification ${a.id}).`,
     changes: entryChanges(a, 'Allowed'),
   };
-  return { ok: true, state: replace(state, next, [event]), attempt: next };
+  return { ok: true, state: replaceAttempt(state, next, [event]), attempt: next };
 }
 
 /** Audit details for an entry decision, including the location check it was made alongside. */
@@ -294,5 +307,5 @@ export function applyDenyEntry(state: AppState, input: { attemptId: string; at: 
     summary: `${by} denied entry for ${a.subject?.label ?? 'a person'} at ${a.activityName} (verification ${a.id})${reason ? `: ${reason}` : ''}.`,
     changes: entryChanges(a, 'Denied'),
   };
-  return { ok: true, state: replace(state, next, [event]), attempt: next };
+  return { ok: true, state: replaceAttempt(state, next, [event]), attempt: next };
 }

@@ -146,7 +146,7 @@ export function activityGovernanceBlockers(state: AppState, activity: ActivityCo
 
 /**
  * Why a verification can't be started for an activity now, beyond verifier authorization. Programme-linked
- * activities need an active programme and participation; external verification is executed in a later phase.
+ * activities need an active programme and participation; an external identity source needs its service usable.
  */
 export function executionUnavailable(state: AppState, activity: ActivityConfig): string | null {
   const policy = activityPolicy(state, activity);
@@ -154,7 +154,12 @@ export function executionUnavailable(state: AppState, activity: ActivityConfig):
     const p = canRunUnder(policy.programme, activity.organizationId);
     if (p) return p;
   }
-  if (policy.effective.identitySource.kind === 'external') return 'Verification through an external identity service isn’t available in this prototype yet. The activity is configured and ready for it.';
+  if (policy.effective.identitySource.kind === 'external') {
+    const problem = sourceProblem(policy.integration, policy.effective.method);
+    if (problem) return `The required identity service can’t be used right now: ${problem}`;
+    // Real external services are only reachable through a secure FixID backend, which this prototype doesn't have.
+    if (policy.integration!.connection.target !== 'simulated') return `${policy.integration!.name} can’t be reached from this prototype: real external requests are disabled. Verification can’t start.`;
+  }
   return null;
 }
 

@@ -1,3 +1,5 @@
+import type { IdentityLookupResult } from '@/services/integrations/contract';
+import { applyEndExternal, applyExternalComplete, applyExternalLookup, applyReuseResult } from './transactionOps';
 import type { SeedData } from '@/data/seed';
 import { applyParticipantStatus, applyProgrammeTransition, applySaveProgramme, type ProgrammeInput } from './programmeOps';
 import {
@@ -108,7 +110,11 @@ export type Action =
   | { type: 'vactivities/discardDraft'; organizationId: string; activityId: string; at: string }
   | { type: 'vactivities/duplicate'; organizationId: string; activityId: string; ids: { activityId: string; versionId: string }; at: string }
   | { type: 'vactivities/remove'; organizationId: string; activityId: string; at: string }
-  | { type: 'verify/start'; organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef }
+  | { type: 'verify/start'; organizationId: string; activityId: string; attemptId: string; at: string; client: VerificationClientRef; retryOf?: string }
+  | { type: 'verify/lookup'; attemptId: string; at: string; reference: string; requestId: string; result: IdentityLookupResult }
+  | { type: 'verify/externalComplete'; input: Parameters<typeof applyExternalComplete>[1] }
+  | { type: 'verify/end'; attemptId: string; at: string }
+  | { type: 'verify/reuse'; attemptId: string; fromId: string; submissionId: string; at: string }
   | { type: 'verify/complete'; input: CompleteInput }
   | { type: 'verify/cancel'; attemptId: string; at: string }
   | { type: 'verify/fail'; attemptId: string; at: string; reason: string }
@@ -173,6 +179,10 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'issuance/group': ['credentials.issue'],
   'verify/start': ['verification.execute'],
   'verify/complete': ['verification.execute'],
+  'verify/lookup': ['verification.execute'],
+  'verify/externalComplete': ['verification.execute'],
+  'verify/end': ['verification.execute'],
+  'verify/reuse': ['verification.execute'],
   'verify/cancel': ['verification.execute'],
   'verify/fail': ['verification.execute'],
   'verify/refer': ['verification.execute'],
@@ -475,6 +485,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'sso/unlink': return orKeep(state, applyUnlinkSsoIdentity(state, action));
     case 'verify/start': return orKeep(state, applyStartAttempt(state, action));
     case 'verify/complete': return orKeep(state, applyCompleteAttempt(state, action.input));
+    case 'verify/lookup': return orKeep(state, applyExternalLookup(state, action));
+    case 'verify/externalComplete': return orKeep(state, applyExternalComplete(state, action.input));
+    case 'verify/end': return orKeep(state, applyEndExternal(state, action));
+    case 'verify/reuse': return orKeep(state, applyReuseResult(state, action));
     case 'verify/cancel': return orKeep(state, applyCancelAttempt(state, action));
     case 'verify/fail': return orKeep(state, applyFailAttempt(state, action));
     case 'verify/refer': return orKeep(state, applyReferAttempt(state, action));

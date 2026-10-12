@@ -111,6 +111,14 @@ export function ProgrammeDetailPage() {
                 { key: 'org', header: 'Organization', cell: (x) => <span className="font-medium text-slate-900">{orgName(x.organizationId)}</span> },
                 { key: 'status', header: 'Enrollment', cell: (x) => <ParticipationBadge status={x.status} /> },
                 { key: 'acts', header: 'Programme activities', cell: (x) => { const list = activities.filter((a) => a.organizationId === x.organizationId); return `${list.length} (${list.filter((a) => a.status === 'active').length} active)`; } },
+                {
+                  // Programme-level counts only: no people, references or results of individual transactions.
+                  key: 'tx', header: 'Verification transactions', cell: (x) => {
+                    const tx = state.data.verificationAttempts.filter((a) => a.programmeId === p.id && a.organizationId === x.organizationId && a.status !== 'in-progress');
+                    const n = (d: string) => tx.filter((a) => a.decision === d).length;
+                    return tx.length ? `${tx.length} (${n('allow')} allowed, ${n('pending-review')} pending review)` : 'None yet';
+                  },
+                },
                 { key: 'since', header: 'Added', cell: (x) => formatDate(x.addedAt) },
                 {
                   key: 'actions', header: 'Actions', className: 'w-24 text-right', cell: (x) => canManage && x.status !== 'removed' ? (

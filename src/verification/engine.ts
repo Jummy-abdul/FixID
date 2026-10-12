@@ -10,7 +10,13 @@ import type { DeviceLocation } from '@/services/location';
 import { effectivePermissions, type Action, type AppState } from '@/store/state';
 import type { IdSwitchService } from '@/services/types';
 import { FACE_UNAVAILABLE_REASON, NO_FACE_VERIFICATION, type FaceVerificationResponse, type FaceVerificationService } from '@/services/faceVerification';
+import type { CustomIntegration } from '@/domain/integrations';
+import { MESSAGES, type LivenessStatus } from '@/domain/transactions';
+import type { IdentityLookupResult } from '@/services/integrations/contract';
+import { lookupIdentity, matchBiometric } from '@/services/integrations/integrationService';
+import { reusableFor, transactionPolicy } from '@/store/transactionOps';
 import { simulatedHolderBinding, type HolderBindingScenario } from './simulatedProviders';
+import { simulatedFaceVerification, type SimulatedFaceOutcome, type SimulatedLivenessOutcome } from '@/services/simulatedFaceVerification';
 
 /**
  * Verification Execution Service. Independent of any screen: the FixID web verifier is one client, and
@@ -28,7 +34,7 @@ export interface VerificationInputs {
   credential?: { method: 'reference' | 'simulated-presentation'; value: string };
   attributes?: Record<string, string>;
   /** Scenario for the labelled demonstration holder-binding provider only. */
-  demo?: { holderBinding?: HolderBindingScenario };
+  demo?: { holderBinding?: HolderBindingScenario; face?: { match?: SimulatedFaceOutcome; liveness?: SimulatedLivenessOutcome } };
   /** One live capture from the verifier's camera (JPEG data URL). Sent to the facial verification provider; never stored. */
   face?: { image: string; capturedAt: string };
   /** The verifier device's location, captured only when the activity has a location check. */
@@ -40,7 +46,7 @@ export interface RequiredSteps {
   credential: { methods: ('reference' | 'simulated-presentation')[] } | null;
   attributes: string[];
   /** Facial verification: whether a provider is connected and whether it checks liveness. */
-  biometric: { checks: ('liveness' | 'face-match')[]; available: boolean; liveness: boolean; providerName: string } | null;
+  biometric: { checks: ('liveness' | 'face-match')[]; available: boolean; liveness: boolean; providerName: string; simulated: boolean } | null;
   holderBinding: { available: boolean; simulated: boolean } | null;
   /** Plain-language list of what will be checked. No provider configuration is exposed. */
   summary: { name: string; requirement: ActivityCheck['requirement'] }[];
@@ -58,6 +64,8 @@ export type ParticipantLookup =
     eligibility: ParticipantEligibility;
     /** Whether an enrolled reference exists for 1:1 facial verification. */
     portrait: 'enrolled' | 'missing';
+    /** Enrollment state of the local biometric reference. Never changed by verification. */
+    enrollment: 'enrolled' | 'not-enrolled' | 'incomplete' | 'unavailable';
     /** Whether this activity verifies identity by face. */
     faceRequired: boolean;
     history: { verifiedAt?: string; entered?: { at: string; by: string; attemptId: string }; denied?: { at: string; by: string; reason?: string } };
@@ -99,8 +107,18 @@ function commonIdentifierName(state: AppState, version: ActivityVersion): string
   return id ? orgConfigs.find((i) => i.id === id)?.name : undefined;
 }
 
-export function requiredSteps(state: AppState, version: ActivityVersion, face: FaceVerificationService = NO_FACE_VERIFICATION): RequiredSteps {
+/**
+ * The facial verification provider for an organization: the configured one, or (demonstration
+ * organizations only, when none is configured) the labelled simulated provider. Never silently simulated.
+ */
+export function faceFor(org: Organization, face: FaceVerificationService, choice?: NonNullable<VerificationInputs['demo']>['face']): { service: FaceVerificationService; simulated: boolean } {
+  if (face.available || !org.integrations.simulatedBiometrics?.enabled) return { service: face, simulated: false };
+  return { service: simulatedFaceVerification(choice), simulated: true };
+}
+
+export function requiredSteps(state: AppState, version: ActivityVersion, configured: FaceVerificationService = NO_FACE_VERIFICATION): RequiredSteps {
   const org = state.data.organizations.find((o) => o.id === version.organizationId)!;
+  const { service: face, simulated: faceSimulated } = faceFor(org, configured);
   const providers = providersFor(org);
   const has = (t: CheckTypeId) => version.checks.find((c) => c.type === t);
   const lookup = has('identity-lookup');
@@ -112,7 +130,7 @@ export function requiredSteps(state: AppState, version: ActivityVersion, face: F
     credential: version.checks.some((c) => checkById(c.type).category === 'credential')
       ? { methods: org.integrations.verificationDemo?.enabled ? ['simulated-presentation', 'reference'] : ['reference'] } : null,
     attributes: has('attribute-match')?.params.attributes ?? [],
-    biometric: bio.length ? { checks: bio, available: face.available, liveness: face.supportsLiveness, providerName: face.providerName } : null,
+    biometric: bio.length ? { checks: bio, available: face.available, liveness: face.supportsLiveness, providerName: face.providerName, simulated: faceSimulated } : null,
     holderBinding: has('holder-binding') ? { available: proof.status === 'available', simulated: !!proof.simulated } : null,
     summary: [...version.checks].sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type)).map((c) => ({ name: checkById(c.type).name, requirement: c.requirement })),
   };
@@ -132,6 +150,8 @@ interface RunContext {
   now: Date;
   idSwitch: IdSwitchService;
   face: FaceVerificationService;
+  /** The face provider is the labelled simulated one: results are marked simulated and no image is sent. */
+  faceSimulated?: boolean;
   timeoutMs: number;
 }
 
@@ -155,7 +175,7 @@ export async function runChecks(ctx: RunContext, onProgress?: (runs: CheckRun[])
   // One provider request covers liveness and the 1:1 comparison.
   let faceCall: Promise<FaceVerificationResponse> | undefined;
   const callFace = () => faceCall ??= ctx.face.verify({
-    requestId: ctx.attempt.id, organizationId: org.id, subjectRef: resolved!.member.idSwitchId, probe: inputs.face!.image,
+    requestId: ctx.attempt.id, organizationId: org.id, subjectRef: resolved!.member.idSwitchId, probe: ctx.faceSimulated ? '' : inputs.face!.image,
     checkLiveness: version.checks.some((c) => c.type === 'liveness') && ctx.face.supportsLiveness,
   });
   const faceProblem = (): Outcome | null => {
@@ -208,7 +228,16 @@ export async function runChecks(ctx: RunContext, onProgress?: (runs: CheckRun[])
         ? { status: 'error', explanation: `${provider?.name ?? 'The service'} didn’t respond in time.` }
         : { status: 'error', explanation: `${provider?.name ?? 'The service'} returned an error, so the check couldn’t be completed.` };
     }
-    set(c.id, { ...out, completedAt: new Date().toISOString(), simulated: out.simulated ?? false });
+    const simulatedFace = ctx.faceSimulated && (c.type === 'liveness' || c.type === 'face-match') && out.status !== 'skipped';
+    // A simulated provider compared nothing and detected nothing: say so instead of the provider wording.
+    if (simulatedFace) {
+      const what = c.type === 'liveness' ? 'liveness result' : 'matching result';
+      const value = c.type === 'liveness'
+        ? { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', error: 'unavailable' }[out.status as 'passed']
+        : { passed: 'match', failed: 'no match', inconclusive: 'inconclusive', error: 'unavailable' }[out.status as 'passed'];
+      out = { ...out, explanation: `Simulated ${what}: ${value ?? out.status}. ${c.type === 'liveness' ? 'No real liveness or presentation-attack detection took place.' : 'No faces were compared.'}` };
+    }
+    set(c.id, { ...out, completedAt: new Date().toISOString(), simulated: out.simulated ?? simulatedFace ?? false });
   }
 
   async function execute(c: ActivityCheck): Promise<Outcome> {
@@ -368,6 +397,30 @@ export function createVerificationService(deps: ServiceDeps) {
     return `VER-${d.toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
   };
 
+  /** Transactions with a request in flight: a double click or repeated request can't run a step twice. */
+  const busy = new Set<string>();
+
+  /** The external transaction, its service and policy, if the caller may continue it now. */
+  function externalGuard(attemptId: string): { ok: true; attempt: VerificationAttempt; integration: CustomIntegration; policy: ReturnType<typeof transactionPolicy> } | ServiceError {
+    const s = deps.getState();
+    const attempt = s.data.verificationAttempts.find((a) => a.id === attemptId);
+    if (!attempt) return { ok: false, error: 'This verification wasn’t found.', code: 'not-found' };
+    const auth = authorizeExecution(s, attempt.organizationId, attempt.activityId, client);
+    if (!auth.ok) return auth;
+    if (attempt.identitySource !== 'external') return { ok: false, error: 'This verification doesn’t use an external identity service.', code: 'operational' };
+    if (attempt.status !== 'in-progress') return { ok: false, error: 'This verification has already finished.', code: 'not-in-progress' };
+    if (now() > new Date(attempt.expiresAt)) {
+      deps.dispatch({ type: 'verify/expire', organizationId: attempt.organizationId, at: now().toISOString() });
+      return { ok: false, error: 'This verification expired. Start a new one.', code: 'expired' };
+    }
+    const policy = transactionPolicy(s, attempt);
+    // The service is the one the activity (or its programme) requires now, and the one this transaction started with.
+    if (!policy.integration || policy.integration.id !== attempt.integrationId || policy.integration.status !== 'active') {
+      return { ok: false, error: MESSAGES.lookupUnavailable, code: 'operational' };
+    }
+    return { ok: true, attempt, integration: policy.integration, policy };
+  }
+
   const service = {
     client,
     /** Active activities the signed-in verifier may perform: all of the organization’s, unless an activity is restricted. */
@@ -388,8 +441,15 @@ export function createVerificationService(deps: ServiceDeps) {
     /** Whether facial verification is connected for this service. */
     faceVerificationAvailable: face.available,
 
+    /** How local face verification runs for an organization: a configured provider, the labelled simulation, or not at all. */
+    faceMode(organizationId: string): 'configured' | 'simulated' | 'unavailable' {
+      const org = deps.getState().data.organizations.find((o) => o.id === organizationId);
+      if (face.available) return 'configured';
+      return org?.integrations.simulatedBiometrics?.enabled ? 'simulated' : 'unavailable';
+    },
+
     /** Starts an attempt on the active version. Refusals are recorded in the Audit Log. */
-    startAttempt(organizationId: string, activityId: string): { ok: true; attempt: VerificationAttempt } | ServiceError {
+    startAttempt(organizationId: string, activityId: string, opts: { retryOf?: string } = {}): { ok: true; attempt: VerificationAttempt } | ServiceError {
       const at = now().toISOString();
       deps.dispatch({ type: 'verify/expire', organizationId, at });
       const s = deps.getState();
@@ -405,7 +465,7 @@ export function createVerificationService(deps: ServiceDeps) {
       const unavailable = activity ? executionUnavailable(s, activity) : null;
       if (unavailable) return { ok: false, error: unavailable, code: 'inactive' };
       const attemptId = newAttemptId();
-      deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client });
+      deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client, ...(opts.retryOf ? { retryOf: opts.retryOf } : {}) });
       const attempt = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
       return attempt ? { ok: true, attempt } : { ok: false, error: 'The verification couldn’t be started.', code: 'operational' };
     },
@@ -479,6 +539,8 @@ export function createVerificationService(deps: ServiceDeps) {
         },
         eligibility,
         portrait: member.faceEnrollment.status === 'enrolled' ? 'enrolled' : 'missing',
+        enrollment: service.faceMode(attempt.organizationId) === 'unavailable' ? 'unavailable'
+          : member.faceEnrollment.status === 'enrolled' ? 'enrolled' : member.faceEnrollment.status === 'not-enrolled' ? 'not-enrolled' : 'incomplete',
         faceRequired: !!steps.biometric,
         history: {
           ...(verified ? { verifiedAt: verified.completedAt! } : {}),
@@ -509,7 +571,8 @@ export function createVerificationService(deps: ServiceDeps) {
       let result: Awaited<ReturnType<typeof runChecks>>;
       try {
         const org = s.data.organizations.find((o) => o.id === attempt.organizationId)!;
-        result = await runChecks({ state: s, org, version, attempt, inputs, now: now(), idSwitch: deps.idSwitch, face, timeoutMs: deps.timeoutMs ?? CHECK_TIMEOUT_MS }, opts.onProgress);
+        const f = faceFor(org, face, inputs.demo?.face);
+        result = await runChecks({ state: s, org, version, attempt, inputs, now: now(), idSwitch: deps.idSwitch, face: f.service, faceSimulated: f.simulated, timeoutMs: deps.timeoutMs ?? CHECK_TIMEOUT_MS }, opts.onProgress);
       } catch {
         deps.dispatch({ type: 'verify/fail', attemptId, at: now().toISOString(), reason: 'The verification couldn’t be completed because of a system error.' });
         return { ok: false, error: 'Something went wrong while running the checks. Nothing was decided; start a new verification.', code: 'operational' };
@@ -549,6 +612,104 @@ export function createVerificationService(deps: ServiceDeps) {
       const after = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
       if (after?.entry?.status === 'denied') return { ok: true };
       return { ok: false, error: denyProblem(deps.getState(), attemptId) ?? 'The decision couldn’t be recorded.' };
+    },
+
+    /* ---------------- External identity journey ---------------- */
+
+    /**
+     * Identify Person: looks the reference up through the activity's configured identity service (the
+     * programme's, for a programme-linked activity). The verifier never chooses the service. Credentials stay
+     * with the integration; only validated, permitted attributes come back. One request at a time per transaction.
+     */
+    async lookupExternal(attemptId: string, reference: string): Promise<{ ok: true; attempt: VerificationAttempt; result: IdentityLookupResult } | ServiceError> {
+      const pre = externalGuard(attemptId);
+      if (!pre.ok) return pre;
+      if (!reference.trim()) return { ok: false, error: 'Enter the reference provided for this verification.', code: 'missing-input' };
+      if (pre.attempt.lookup?.status === 'FOUND') return { ok: false, error: 'An identity was already found for this verification.', code: 'missing-input' };
+      if (busy.has(attemptId)) return { ok: false, error: 'A request for this verification is already in progress.', code: 'operational' };
+      busy.add(attemptId);
+      try {
+        const id = `${attemptId}-L${(pre.attempt.lookup?.count ?? 0) + 1}`;
+        const result = await lookupIdentity(pre.integration, reference.trim(), undefined, id);
+        deps.dispatch({ type: 'verify/lookup', attemptId, at: now().toISOString(), reference: reference.trim(), requestId: id, result });
+        const saved = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId)!;
+        if (saved.lookup?.requestId !== id) return { ok: false, error: 'The lookup couldn’t be recorded. The verification may have expired or your access changed.', code: 'operational' };
+        return { ok: true, attempt: saved, result };
+      } finally { busy.delete(attemptId); }
+    },
+
+    /**
+     * Capture / Verify: liveness (when the activity requires or offers it) and then matching against the
+     * reference the external service holds. No image is ever sent to a simulated service, and none is stored:
+     * for the Simulated Identity Service the verifier picks labelled outcome fixtures. A mandatory liveness
+     * check that doesn't pass stops matching. Duplicate submissions return the recorded result.
+     */
+    async completeExternal(attemptId: string, input: { captured: boolean; demo?: { liveness?: SimulatedLivenessOutcome; match?: string } }, opts: { submissionId: string }): Promise<{ ok: true; attempt: VerificationAttempt } | ServiceError> {
+      const existing = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      if (existing?.status === 'completed' && existing.submissionId === opts.submissionId) return { ok: true, attempt: existing };
+      const pre = externalGuard(attemptId);
+      if (!pre.ok) return pre;
+      const { attempt, integration, policy } = pre;
+      if (attempt.lookup?.status !== 'FOUND' || !attempt.lookup.referenceId) return { ok: false, error: 'Find the identity before continuing.', code: 'missing-input' };
+      const simulated = integration.connection.target === 'simulated';
+      const face = policy.settings.method === 'face';
+      if (face && !input.captured) return { ok: false, error: 'Capture the person’s face first.', code: 'missing-input' };
+      if (face && simulated && policy.livenessApplies && !input.demo?.liveness) return { ok: false, error: 'Choose the simulated liveness result.', code: 'missing-input' };
+      if (face && simulated && !input.demo?.match) return { ok: false, error: 'Choose the simulated matching outcome.', code: 'missing-input' };
+      if (busy.has(attemptId)) return { ok: false, error: 'A request for this verification is already in progress.', code: 'operational' };
+      busy.add(attemptId);
+      try {
+        // Liveness: simulated for the Simulated Identity Service; a real service would need secure liveness evidence transfer, which this prototype doesn't have.
+        const liveness: { status: LivenessStatus; simulated: boolean } = !policy.livenessApplies ? { status: 'not-required', simulated: false }
+          : simulated ? { status: input.demo!.liveness!, simulated: true } : { status: 'unavailable', simulated: false };
+        let match: Omit<NonNullable<VerificationAttempt['match']>, 'at'> = { status: 'record-confirmed', simulated, service: integration.name };
+        let diagnostic: string | undefined;
+        if (face && !(policy.livenessRequired && liveness.status !== 'passed')) {
+          const id = `${attemptId}-M1`;
+          const r = await matchBiometric(integration, {
+            referenceId: attempt.lookup.referenceId,
+            // Only a fixture reference goes to the simulated service; a real capture would travel over an authorized secure interface.
+            captureReference: simulated ? input.demo!.match! : `CAPTURE-${attemptId}`,
+            ...(liveness.status === 'passed' ? { livenessEvidenceReference: `LIVENESS-${attemptId}` } : {}),
+          }, undefined, id);
+          const status = ({ MATCH: 'match', NO_MATCH: 'no-match', INCONCLUSIVE: 'inconclusive', UNAVAILABLE: 'unavailable', ERROR: 'error' } as const)[r.status];
+          match = {
+            status, simulated: r.simulated, service: integration.name, requestId: id,
+            ...(r.providerTransactionId ? { providerTransactionId: r.providerTransactionId } : {}),
+            // Scores only when the service genuinely supplied them, with its own scale.
+            ...(typeof r.score === 'number' && r.scoreScale ? { score: r.score, scoreScale: r.scoreScale, ...(typeof r.threshold === 'number' ? { threshold: r.threshold } : {}) } : {}),
+          };
+          if ((r.status === 'ERROR' || r.status === 'UNAVAILABLE') && r.message) diagnostic = r.message;
+        } else if (face) match = { status: 'not-evaluated', simulated: false, service: integration.name };
+        deps.dispatch({ type: 'verify/externalComplete', input: { attemptId, submissionId: opts.submissionId, at: now().toISOString(), liveness, match, ...(diagnostic ? { diagnostic } : {}) } });
+        const saved = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId)!;
+        if (saved.status !== 'completed') return { ok: false, error: 'The result couldn’t be recorded. The verification may have expired or your access changed.', code: 'operational' };
+        return { ok: true, attempt: saved };
+      } finally { busy.delete(attemptId); }
+    },
+
+    /** Ends a transaction whose lookup didn't find one identity, recording why. */
+    endExternal(attemptId: string): { ok: true; attempt: VerificationAttempt } | ServiceError {
+      const pre = externalGuard(attemptId);
+      if (!pre.ok) return pre;
+      deps.dispatch({ type: 'verify/end', attemptId, at: now().toISOString() });
+      const saved = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId)!;
+      return saved.status === 'completed' ? { ok: true, attempt: saved } : { ok: false, error: 'The verification couldn’t be ended this way.', code: 'operational' };
+    },
+
+    /** Earlier results this transaction may reuse under the activity's reverification policy. */
+    reusableResults(attemptId: string): VerificationAttempt[] {
+      const s = deps.getState();
+      const a = s.data.verificationAttempts.find((x) => x.id === attemptId);
+      return a && authorizeExecution(s, a.organizationId, a.activityId, client).ok ? reusableFor(s, a, now()) : [];
+    },
+
+    reuseResult(attemptId: string, fromId: string, opts: { submissionId: string }): { ok: true; attempt: VerificationAttempt } | ServiceError {
+      const pre = externalGuard(attemptId);
+      if (!pre.ok) return pre;
+      deps.dispatch({ type: 'verify/reuse', attemptId, fromId, submissionId: opts.submissionId, at: now().toISOString() });
+      const saved = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId)!;
+      return saved.status === 'completed' ? { ok: true, attempt: saved } : { ok: false, error: 'The earlier result can’t be reused for this verification.', code: 'operational' };
     },
 
     cancelAttempt(attemptId: string): { ok: boolean } {

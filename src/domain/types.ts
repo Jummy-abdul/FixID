@@ -75,6 +75,8 @@ export interface OrganizationIntegrations {
    * matching, liveness, holder binding and credential presentation. Never real verification.
    */
   verificationDemo?: { enabled: boolean };
+  /** Demonstration only: a labelled simulated facial verification provider for local verification when no real one is configured. */
+  simulatedBiometrics?: { enabled: boolean };
 }
 
 export interface AdminUser {
@@ -817,4 +819,52 @@ export interface VerificationAttempt {
   review?: { status: 'pending'; referredAt: ISODate; referredBy: string; reason: string };
   /** Idempotency key of the submission that completed the attempt. */
   submissionId?: string;
+
+  /* ---- Verification Transaction fields (Phase 4). Optional so earlier records stay valid. ---- */
+  /** FixID Local Records or an external identity service. */
+  identitySource?: 'local' | 'external';
+  /** The external integration used, and its name as shown to people who can see the transaction. */
+  integrationId?: string;
+  serviceName?: string;
+  programmeId?: string;
+  /** Lifecycle state. Read with `stageOf`, which also covers records without one. */
+  stage?: import('./transactions').TransactionStage;
+  /** External identity lookup: the reference entered and only the permitted attributes returned. */
+  lookup?: {
+    status: import('./integrations').LookupOutcome;
+    reference: string;
+    referenceId?: string;
+    displayName?: string;
+    attributes?: Record<string, string>;
+    requestId: string;
+    at: ISODate;
+    /** Lookups made in this transaction (corrections of the reference count). */
+    count: number;
+    simulated: boolean;
+  };
+  liveness?: { status: import('./transactions').LivenessStatus; required: boolean; simulated: boolean; at?: ISODate };
+  /** Identity match. Score fields only when the service genuinely supplied them; never comparable across services. */
+  match?: {
+    status: import('./transactions').IdentityMatchStatus;
+    providerTransactionId?: string;
+    score?: number;
+    scoreScale?: string;
+    threshold?: number;
+    requestId?: string;
+    at?: ISODate;
+    simulated: boolean;
+    /** Matching service identifier: the integration, or the local facial verification provider. */
+    service?: string;
+  };
+  eligibilityStatus?: import('./transactions').EligibilityStatus;
+  eligibilityExplanation?: string;
+  decision?: import('./programmes').ActivityDecision;
+  decisionExplanation?: string;
+  failureReason?: string;
+  /** Protected technical details (never secrets or payloads). Shown only to roles with audit access. */
+  diagnostics?: { at: ISODate; step: 'lookup' | 'matching' | 'liveness'; message: string }[];
+  /** The earlier transaction whose identity result was reused under the activity's reverification policy. */
+  reusedFrom?: string;
+  /** The transaction this one retries. The earlier result is never overwritten. */
+  retryOf?: string;
 }

@@ -79,8 +79,9 @@ const requestId = () => `REQ-${Date.now().toString(36).toUpperCase()}-${(++count
 
 /* ---------------- Operations (for verification workflows) ---------------- */
 
-export async function lookupIdentity(i: CustomIntegration, referenceValue: string, transport = transportFor(i)): Promise<IdentityLookupResult> {
-  const req: IdentityLookupRequest = { referenceType: 'EXTERNAL_ID', referenceValue, requestId: requestId(), purpose: 'IDENTITY_VERIFICATION' };
+/** `id`: the caller's unique request identifier (a transaction step), so a repeated request is recognisable. */
+export async function lookupIdentity(i: CustomIntegration, referenceValue: string, transport = transportFor(i), id: string = requestId()): Promise<IdentityLookupResult> {
+  const req: IdentityLookupRequest = { referenceType: 'EXTERNAL_ID', referenceValue, requestId: id, purpose: 'IDENTITY_VERIFICATION' };
   try {
     const raw = await transport.lookup(req);
     const problem = lookupSchemaProblem(raw, req.requestId);
@@ -91,8 +92,8 @@ export async function lookupIdentity(i: CustomIntegration, referenceValue: strin
   }
 }
 
-export async function matchBiometric(i: CustomIntegration, input: Omit<BiometricMatchRequest, 'requestId' | 'modality'>, transport = transportFor(i)): Promise<BiometricMatchResult> {
-  const req: BiometricMatchRequest = { ...input, requestId: requestId(), modality: 'FACE' };
+export async function matchBiometric(i: CustomIntegration, input: Omit<BiometricMatchRequest, 'requestId' | 'modality'>, transport = transportFor(i), id: string = requestId()): Promise<BiometricMatchResult> {
+  const req: BiometricMatchRequest = { ...input, requestId: id, modality: 'FACE' };
   try {
     const raw = await transport.match(req);
     const problem = matchSchemaProblem(raw, req.requestId);

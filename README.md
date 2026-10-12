@@ -144,6 +144,105 @@ Saving creates a **Draft** and never activates.
 - **Organization C** (Brightwater Tech Summit): *Attendee Records Service*, lookup only, **Draft**; and *Delegate Identity Service*, simulated lookup and matching, **Active** (used by programme scenarios C and D).
 - **Organization D** (sub-organization B1, Harbourside): *Hospital Identity Service*, an external configuration whose test failed (**Error**), so it can't be activated.
 
+## Verification journeys and transactions (Phase 4)
+
+Both identity models run through the same Verification Activity framework. The activity's configuration (and, for a programme-linked activity, the programme's authoritative requirements) decides the journey; the verifier never chooses the identity source, the matching service or whether liveness applies.
+
+**Verification Transaction** (the existing `VerificationAttempt`, extended in `src/domain/types.ts`; logic in `src/domain/transactions.ts` and `src/store/transactionOps.ts`). Every attempt gets a transaction reference when it starts, including cancelled, failed and incomplete ones. New fields:
+- **Context:** `identitySource` (local / external), `integrationId` and `serviceName`, and `programmeId`.
+- **Lookup:** the entered reference, the referenceId, only the permitted attributes, the requestId and the number of lookups.
+- **Identity checks:** `liveness`, and `match` (with the provider transaction ID, and score, scale and threshold only when the service supplied them).
+- **Results:** `eligibilityStatus`, `decision` with `decisionExplanation`, and `failureReason`.
+- **Links:** `reusedFrom` and `retryOf`.
+- **Diagnostics:** protected technical messages, shown only to roles with audit access.
+
+Stages: Initiated → Capture pending / Lookup completed → Pending Review, Completed, Failed, Cancelled or Unable to complete (`stageOf` also covers older records). Raw captures and biometric templates are never stored, and no local Person record or enrollment is ever created for an external identity.
+
+**Journey A — local** (existing flow, refined). The steps are Identify Person, Capture / Verify and View Result:
+- **Identify Person:** the organization's identifier. The lookup shows eligibility and the enrollment status (Enrolled / Not Enrolled / Enrollment Incomplete / Enrollment Unavailable), with a link to the user record for administrators who can edit users. Verification never enrolls anyone.
+- **Capture / Verify:** the existing camera capture, then 1:1 face matching and liveness through the facial verification provider.
+- **Eligibility:** the existing eligible population.
+- **Simulated provider:** when no real provider is configured, an organization with demonstration biometrics (`integrations.simulatedBiometrics`, seeded for Brightwater) uses a labelled *Simulated facial verification*. The verifier picks the outcomes, no image is sent, and results say "Simulated … No faces were compared."
+- **Other organizations:** without a provider or the demonstration setting, the behaviour is unchanged: no match is possible.
+
+**Journey B — external** (`src/pages/verifier/ExternalAttempt.tsx`):
+- **Identify Person:** "Enter the reference provided for this verification." The field uses the integration's reference label (default *External Reference ID*). Find Identity calls the activity's integration through the Prompt 2 integration service, with a unique requestId and purpose; credentials never reach the browser.
+- **Lookup results:**
+  - FOUND shows only the permitted attributes, then Continue Verification.
+  - NOT_FOUND lets the verifier correct the reference or end the attempt.
+  - MULTIPLE_MATCHES is never auto-selected: the transaction goes to Pending Review.
+  - UNAVAILABLE and ERROR offer Retry or End Verification, and never fall back to another source.
+- **Capture Face:** camera capture, Retake and Cancel (with confirmation). A clearly labelled *Use simulated capture* is available when the service is simulated.
+- **Liveness:** required liveness must pass before matching runs.
+- **Matching:** against the reference the external service holds. The simulated service receives only a fixture reference, never an image. A real service would need a secure capture transfer, which this prototype doesn't have.
+- **Eligibility:**
+  - Reference list: the entered reference or the confirmed referenceId is on the list.
+  - External source: a configured permitted attribute and its eligible values, default `recordStatus` = `ACTIVE`, editable in the activity editor.
+  - No predefined population: Not Required, never Eligible.
+
+**Decision evaluator** (`evaluateDecision`): identity match, liveness, eligibility and the effective policy give **Allow / Deny / Pending Review / Unable to Decide**, with an explanation.
+- A failed mandatory check, an unavailable service or an inconclusive result never gives Allow, and a match alone never allows.
+- No match or ineligible gives Deny only when the policy marks failures unsuccessful; otherwise Pending Review.
+- Unknown eligibility gives Pending Review; missing evidence or an unavailable service gives Unable to Decide.
+- Local transactions get the same fields, alongside the existing outcome, access and entry results.
+
+**Result screen** (both journeys):
+- **Verification Outcome** with the explanation and a *Simulated Result* indicator.
+- **Separate results:** Identity Verification, Liveness and Eligibility.
+- **Context:** Activity (and programme), Verification Source, Transaction Reference, Date and Time, and Status.
+- **Colour:** green only for Allow; Pending Review is violet; Unable to Decide is amber.
+- **Actions:**
+  - Complete and Verify Next Participant.
+  - Retry Verification when undecided or inconclusive: a new transaction linked with `retryOf`; the earlier result is kept.
+  - Submit for Review where the policy allows it.
+  - View Verification Details.
+
+**Duplicate protection:**
+- One request at a time per transaction.
+- requestIds for each lookup and match.
+- Idempotent completion by submissionId.
+- Finished transactions refuse further steps.
+- Refreshing the result screen only reads the record.
+
+**Reuse** (reverification "reuse within N days"): an earlier result can be reused only if it was a completed Allow with a real match, for the same organization, activity, integration and referenceId. It must also have satisfied the liveness check required now, fall within the validity period, and not itself be a reuse. Eligibility is re-checked now. The transaction records `reusedFrom`, and the screen says no new biometric match was performed.
+
+**History and details:**
+- **Columns:** Verification History adds Reference, Organization, Identity source, Identity match, Eligibility, Decision, Status and a View link, with Decision and Identity source filters. Earlier records still show their own results.
+- **Transaction details:** the transaction, permitted reference, steps, decision explanation, failure reason, provider transaction, simulation status and links, plus protected diagnostics for audit roles.
+- **Programme owners:** the programme detail page shows counts per participating organization only.
+
+**Access:**
+- **Verifiers:** perform only assigned activities in their own organization, and see only their own transactions.
+- **Direct URLs:** another organization's activity or transaction reveals nothing.
+- **Administrators and Auditors:** view history read-only according to the existing permissions.
+
+**Demonstration scenarios** (simulated; reset demo data first; sign in with the demonstration accounts):
+
+| # | Scenario | Who / where | Steps |
+|---|---|---|---|
+| 1 | Successful local verification | Tobyson (`demo@fixid.app`), switch to Brightwater → *Badge Collection* | Ticket number `TKT-100001` → Use simulated capture → Liveness Passed, Match |
+| 2 | Local match, not eligible | same | `TKT-100002`, Passed + Match → Deny (activity marks failures unsuccessful) |
+| — | Enrollment required | same | `TKT-100003`: Not Enrolled; can't be matched |
+| 3, 9 | Successful external verification without local enrollment | Brightwater → *Delegate Check-in* | `DEMO-10001` → Continue → simulated capture → Passed + Match → Allow; no user record created |
+| 4 | Not found | same | `DEMO-20001` → message → End Verification |
+| 5 | Biometric mismatch → review | Tomi Okon (`tomi.okon@harbourside.example`) → *Harbourside Staff Entry* | `DEMO-10001` → Passed + No match → Pending Review (programme policy) |
+| 6 | Service unavailable | Delegate Check-in | `DEMO-50001` (lookup) or matching *Service unavailable* → Unable to Decide |
+| 7 | Match, ineligible | Delegate Check-in / Harbourside | `DEMO-10002` (record SUSPENDED) → Deny / Pending Review |
+| 8 | Mandatory liveness failure | Harbourside Staff Entry | Liveness Failed → no matching, Pending Review |
+| 10 | Programme enforcement | Harbourside Staff Entry | Service and liveness are locked; requirements come from *Group Staff Verification* |
+| 11 | Repeat verification | Delegate Check-in | After scenario 3, verify `DEMO-10001` again → *Use previous verification* |
+| 12 | Cross-organization access | Tomi Okon | Open `/verify/activities/org_lts_va_delegate_checkin` → refused |
+
+**Limitations:**
+- **Simulated services:** the matching, liveness and lookup services are simulated (deterministic fixtures). No real face is compared, no presentation-attack detection happens, and no assurance is claimed.
+- **External services:** real external services stay disabled (no secure backend).
+- **Not built:**
+  - QR or barcode reference scanning (the integration contract doesn't declare it yet).
+  - Reuse for local verification.
+  - The exception management dashboard, programme oversight dashboard, external status API and scenario switcher (later prompts).
+- **Security:** access checks run in the browser prototype and aren't a security boundary.
+- **Saved browser data:** load the new scenarios with Settings → Demo data → Reset.
+
 ## Verification programmes, activities and eligibility (Phase 3)
 
 **Verification Programmes** (`/programmes`, Verification group; `programmes.view` for Organization Admin and Auditor, `programmes.manage` for Organization Admin). Programmes are optional: an activity never needs one.
@@ -166,16 +265,16 @@ Inheritance is enforced in the store, not just the UI (`activityPolicyProblems`,
 
 **Decision model** (`decide` in `src/domain/programmes.ts`): identity match, eligibility and the activity decision are separate results. The activity allows only when identity matches **and** eligibility is confirmed or not required; a match never makes someone eligible. Inconclusive matches and service unavailability follow the activity's decision rules; no match or ineligible is denied when exceptions are *Mark unsuccessful*, otherwise sent for review.
 
-**Execution in this prototype:** local activities verify as before. Activities using an external identity service are configured and can be activated, but **Start Verification is disabled** with *Verification through an external identity service isn't available in this prototype yet.* External execution, the full exception workflow and reporting are later phases. Programme-linked activities also stop when the programme or the organization's participation isn't active.
+**Execution:** see *Verification journeys and transactions (Phase 4)*. Activities on a simulated external service run end to end; a real external service can't be reached from this prototype, so Start Verification is disabled for it with an explanation. Programme-linked activities also stop when the programme or the organization's participation isn't active.
 
 **Demonstration scenarios** (all fictional; sign in with the demonstration accounts):
 - **A — Northbridge:** *Site Access Check*, an independent activity on local records (face, liveness required, local population), with an assigned verifier.
-- **B — Meridian:** the *Group Staff Verification* programme uses *Group Identity Service* (face, liveness required, review with escalation, eligibility required: external source or reference list) for both sub-organizations. Harbourside's *Harbourside Staff Entry* (external source eligibility, Tomi Okon assigned) and Eastgate's *Eastgate Contractor Check* (reference list `CTR-1001`–`CTR-1003`, Mira Santos assigned).
+- **B — Meridian:** the *Group Staff Verification* programme uses *Group Identity Service* (face, liveness required, review with escalation, eligibility required: external source or reference list) for both sub-organizations. Harbourside's *Harbourside Staff Entry* (external source eligibility, Tomi Okon assigned) and Eastgate's *Eastgate Contractor Check* (reference list `DEMO-10001`, `CTR-1001`, `CTR-1002`; Mira Santos assigned).
 - **C — Brightwater:** *Delegate Check-in*, an independent activity on its own *Delegate Identity Service*, eligibility from the lookup response.
-- **D — Brightwater:** *Speaker Lounge Access*, eligibility from a reference list (`SPK-2001`–`SPK-2004`); speakers aren't enrolled in FixID.
+- **D — Brightwater:** *Speaker Lounge Access*, eligibility from a reference list (`DEMO-10001`, `SPK-2001`–`SPK-2003`); speakers aren't enrolled in FixID.
 - **E — Liveness enforcement:** in a Meridian sub-organization, create an activity under *Group Staff Verification*: Liveness is locked at Required, and the store refuses an activity that asks for less.
 
-**Limitations:** access restrictions are enforced in the browser prototype only, not as production-grade security. Simulated identity services never compare real faces or perform liveness detection. Reverification reuse and programme-level exception escalation are recorded as rules but not executed yet. Browser data saved before Phase 3 keeps its activities; use Settings → Demo data → Reset to load the Phase 3 scenarios.
+**Limitations:** access restrictions are enforced in the browser prototype only, not as production-grade security. Simulated identity services never compare real faces or perform liveness detection. Programme-level exception escalation is recorded as a rule; the review workflow is a later phase. Browser data saved before Phase 3 keeps its activities; use Settings → Demo data → Reset to load the Phase 3 scenarios.
 
 ## Organizations, workspaces and demo accounts (Phase 1)
 

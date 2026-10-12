@@ -43,7 +43,11 @@ export interface VerificationSettings {
   liveness: LivenessRequirement;
   reverification: ReverificationPolicy;
   exceptions: ExceptionHandling;
-  eligibility: { approach: EligibilityApproach; referenceList?: string[] };
+  /**
+   * `attribute`/`allowedValues`: for external-source eligibility, the permitted lookup attribute and the values
+   * that make someone eligible (default recordStatus = ACTIVE). Unrelated attributes are never used.
+   */
+  eligibility: { approach: EligibilityApproach; referenceList?: string[]; attribute?: string; allowedValues?: string[] };
   decisionRules: DecisionRules;
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, RefreshCw, RotateCcw, SwitchCamera } from 'lucide-react';
+import { Camera, CameraOff, FlaskConical, RefreshCw, RotateCcw, SwitchCamera } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/cn';
 
@@ -22,12 +22,20 @@ function cameraProblem(e: unknown): CameraState {
 }
 
 /**
+ * Stands in for a capture in the labelled simulation mode. It's a marker, not an image: nothing was taken
+ * and nothing is sent anywhere.
+ */
+export const SIMULATED_CAPTURE = 'simulated:capture';
+
+/**
  * Live selfie capture with the device camera (phone, tablet or laptop webcam), through the browser's
  * camera API. Only a live camera frame can be captured: there's no file upload. The capture stays in
  * memory and is handed to `onCapture`; this component never stores it.
  */
-export function CameraCapture({ captured, onCapture, onRetake, disabled }: {
+export function CameraCapture({ captured, onCapture, onRetake, disabled, simulation }: {
   captured: string | null; onCapture: (dataUrl: string) => void; onRetake: () => void; disabled?: boolean;
+  /** Offer a clearly labelled simulated capture, for demonstrations where a real camera isn't available. */
+  simulation?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -88,6 +96,21 @@ export function CameraCapture({ captured, onCapture, onRetake, disabled }: {
     onCapture(data);
   };
 
+  if (captured === SIMULATED_CAPTURE) {
+    return (
+      <div className="space-y-3">
+        <div role="img" aria-label="Simulated capture" className="mx-auto flex aspect-video w-full max-w-md flex-col items-center justify-center gap-1 rounded-2xl bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-300">
+          <FlaskConical className="h-6 w-6" aria-hidden="true" />
+          <span className="text-sm font-semibold">Simulated capture</span>
+          <span className="px-4 text-center text-xs">No image was taken. This isn’t a live capture.</span>
+        </div>
+        <div className="flex justify-center">
+          <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={disabled} onClick={onRetake}>Retake</Button>
+        </div>
+      </div>
+    );
+  }
+
   if (captured) {
     return (
       <div className="space-y-3">
@@ -134,6 +157,12 @@ export function CameraCapture({ captured, onCapture, onRetake, disabled }: {
       <Button size="lg" icon={state.kind === 'idle' ? <Camera className="h-5 w-5" /> : <RefreshCw className="h-4 w-4" />} disabled={disabled} onClick={() => void start()}>
         {state.kind === 'idle' ? 'Capture Selfie' : 'Try again'}
       </Button>
+      {simulation && (
+        <div>
+          <Button variant="ghost" icon={<FlaskConical className="h-4 w-4" />} disabled={disabled} onClick={() => onCapture(SIMULATED_CAPTURE)}>Use simulated capture</Button>
+          <p className="text-xs text-slate-500">Demonstration only: no image is taken or sent.</p>
+        </div>
+      )}
     </div>
   );
 }

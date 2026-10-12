@@ -73,7 +73,7 @@ describe('demonstration scenarios (fictional data)', () => {
     expect(activity(s, B1_ACTIVITY).programmeId).toBe(p.id);
     expect(activity(s, B2_ACTIVITY).programmeId).toBe(p.id);
     expect(activityPolicy(s, activity(s, B1_ACTIVITY)).effective.eligibility.approach).toBe('external-source');
-    expect(activityPolicy(s, activity(s, B2_ACTIVITY)).effective.eligibility).toEqual({ approach: 'reference-list', referenceList: ['CTR-1001', 'CTR-1002', 'CTR-1003'] });
+    expect(activityPolicy(s, activity(s, B2_ACTIVITY)).effective.eligibility).toEqual({ approach: 'reference-list', referenceList: ['DEMO-10001', 'CTR-1001', 'CTR-1002'] });
     // The sub-organization uses the owner's service as metadata only; it doesn't own or configure it.
     expect(activityPolicy(s, activity(s, B1_ACTIVITY)).integration).toMatchObject({ id: 'int_b_identity', organizationId: ORG_B });
   });
@@ -84,7 +84,7 @@ describe('demonstration scenarios (fictional data)', () => {
     const d = activityPolicy(s, activity(s, `${ORG_C}_va_speaker_lounge`));
     expect(c.programme).toBeUndefined();
     expect(c.effective).toMatchObject({ identitySource: { kind: 'external', integrationId: 'int_c_delegates' }, eligibility: { approach: 'external-source' } });
-    expect(d.effective.eligibility).toEqual({ approach: 'reference-list', referenceList: ['SPK-2001', 'SPK-2002', 'SPK-2003', 'SPK-2004'] });
+    expect(d.effective.eligibility).toEqual({ approach: 'reference-list', referenceList: ['DEMO-10001', 'SPK-2001', 'SPK-2002', 'SPK-2003'] });
     // No local participant list or eligibility check is needed for either.
     for (const id of [`${ORG_C}_va_delegate_checkin`, `${ORG_C}_va_speaker_lounge`]) {
       const v = s.data.activityVersions.find((x) => x.id === activity(s, id).activeVersionId)!;
@@ -145,7 +145,8 @@ describe('programme management (store)', () => {
 
   it('suspending a participant or the programme stops new programme-linked verification; history and activities are kept', () => {
     let s = as('acct_demo_b_admin');
-    expect(executionUnavailable(s, activity(s, B1_ACTIVITY))).toMatch(/external identity service isn’t available in this prototype yet/);
+    // The programme's simulated external service can be used (Phase 4).
+    expect(executionUnavailable(s, activity(s, B1_ACTIVITY))).toBeNull();
     s = ok(applyParticipantStatus(s, { organizationId: ORG_B, programmeId: DEMO_PROGRAMME_B, participantId: ORG_B1, status: 'suspended', at: AT })).state;
     expect(canRunUnder(programme(s), ORG_B1)).toMatch(/participation is suspended/);
     expect(executionUnavailable(s, activity(s, B1_ACTIVITY))).toMatch(/participation is suspended/);
@@ -305,12 +306,13 @@ describe('screens', () => {
     expect(saved).toMatchObject({ organizationId: ORG_B1, programmeId: DEMO_PROGRAMME_B, verification: { liveness: 'required', eligibility: { approach: 'reference-list', referenceList: ['NS-0001', 'NS-0002'] } } });
   });
 
-  it('the verifier sees the external activity configured but can’t start it in this prototype', async () => {
+  it('the verifier sees the programme-linked external activity and can start it; the source isn’t theirs to choose', async () => {
     renderApp(`/verify/activities/${B1_ACTIVITY}`, createInitialState(new Date()), 'acct_demo_b1_verifier');
-    expect(await screen.findByText(/external identity service isn’t available in this prototype yet/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start Verification' })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Start Verification' })).toBeEnabled();
     expect(screen.getByRole('main')).toHaveTextContent('Group Staff Verification');
+    expect(screen.getByRole('main')).toHaveTextContent('Group Identity Service');
   });
+
 
   it('the Auditor can view programmes but not create them', async () => {
     renderApp('/programmes', createInitialState(new Date()), `${ORG_A}_usr_2`);

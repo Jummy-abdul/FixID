@@ -16,6 +16,10 @@ import { useServices } from '@/services/ServicesProvider';
 import { FACE_UNAVAILABLE_REASON } from '@/services/faceVerification';
 import type { DeviceLocation } from '@/services/location';
 import { CameraCapture } from '@/components/verification/CameraCapture';
+import { TransactionOutcome } from '@/components/verification/transactionParts';
+import { SIMULATED_FACE_OUTCOMES, SIMULATED_LIVENESS_OUTCOMES } from '@/services/simulatedFaceVerification';
+import { useAuthorization } from '@/auth/authorization';
+import { RunExternal } from './ExternalAttempt';
 import { AccessAndEntry, AttemptBadge, EligibilityBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
 
 export function VerifierAttemptPage() {
@@ -37,7 +41,9 @@ export function VerifierAttemptPage() {
       </Card>
     );
   }
-  return attempt.status === 'in-progress' ? <RunAttempt key={attempt.id} attempt={attempt} /> : <AttemptResult attempt={attempt} />;
+  if (attempt.status !== 'in-progress') return <AttemptResult attempt={attempt} />;
+  // The activity's configured identity source decides the journey; the verifier doesn't choose it.
+  return attempt.identitySource === 'external' ? <RunExternal key={attempt.id} attempt={attempt} /> : <RunAttempt key={attempt.id} attempt={attempt} />;
 }
 
 const STATUS_ICON: Record<CheckRun['status'], { icon: typeof CheckCircle2; tone: string; label: string }> = {
@@ -107,11 +113,14 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
   const [credValue, setCredValue] = useState('');
   const [attrs, setAttrs] = useState<Record<string, string>>({});
   const [demo, setDemo] = useState<NonNullable<VerificationInputs['demo']>>({});
+  const faceSimulated = !!steps.biometric?.simulated;
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<CheckRun[] | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const submission = useRef(`sub_${attempt.id}_${Math.random().toString(36).slice(2, 8)}`);
   const inFlight = useRef(false);
+  const { can } = useAuthorization();
+  const canManageEnrollment = can('users.edit');
 
   const find = async (e: FormEvent) => {
     e.preventDefault();
@@ -161,7 +170,7 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
     }
   };
 
-  const stepNames = guided ? ['Find Participant', 'Verify Identity', 'Result'] : null;
+  const stepNames = guided ? ['Identify Person', steps.biometric ? 'Capture / Verify' : 'Verify Identity', 'View Result'] : null;
   const current = runs ? 2 : stage === 'find' ? 0 : 1;
 
   return (
@@ -197,7 +206,7 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
             {lookupError && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{lookupError}</p>}
           </Card>
           {lookup && (
-            <ParticipantCard lookup={lookup} faceAvailable={!!steps.biometric?.available}
+            <ParticipantCard lookup={lookup} faceAvailable={!!steps.biometric?.available} canManageEnrollment={canManageEnrollment}
               onContinue={() => { setStage('verify'); setError(null); }}
               onRecord={() => void submit(false)} onChange={changeParticipant} />
           )}
@@ -225,13 +234,20 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
                 <h2 className="text-base font-semibold text-slate-900">Verify identity</h2>
                 <p className="mt-0.5 text-sm text-slate-500">Capture the person’s face now. It’s compared 1:1 with their enrolled portrait{steps.biometric.liveness ? ', with a liveness check' : ''}, then discarded.</p>
               </div>
-              {!steps.biometric.available && (
+              {!steps.biometric.available && !faceSimulated && (
                 <div role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
                   <p className="flex items-center gap-1.5 font-semibold"><ScanFace className="h-4 w-4" aria-hidden="true" />Biometric Verification Unavailable</p>
                   <p className="mt-1">Biometric verification isn’t available right now. You can capture a selfie, but no comparison will be made: identity will be recorded as Unable to Verify. Don’t compare faces by eye instead.</p>
                 </div>
               )}
-              <CameraCapture captured={capture} onCapture={setCapture} onRetake={() => setCapture(null)} />
+              <CameraCapture captured={capture} onCapture={setCapture} onRetake={() => setCapture(null)} simulation={faceSimulated} />
+              {faceSimulated && (
+                <div className="space-y-3 rounded-xl bg-amber-50/60 p-4 ring-1 ring-inset ring-amber-200">
+                  <p className="text-xs text-amber-900">Simulated facial verification (demonstration): no image is sent or compared. Choose the outcomes the simulation returns; they’re recorded as simulated.</p>
+                  {steps.biometric.checks.includes('liveness') && <ScenarioPicker label="Simulated Liveness Result" options={SIMULATED_LIVENESS_OUTCOMES} value={demo.face?.liveness} onChange={(liveness) => setDemo((d) => ({ ...d, face: { ...d.face, liveness } }))} />}
+                  <ScenarioPicker label="Simulated Matching Result" options={SIMULATED_FACE_OUTCOMES} value={demo.face?.match} onChange={(match) => setDemo((d) => ({ ...d, face: { ...d.face, match } }))} />
+                </div>
+              )}
             </Card>
           )}
           {(steps.credential || steps.attributes.length > 0 || steps.holderBinding) && (
@@ -280,7 +296,7 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
             <Button variant="ghost" onClick={() => setCancelling(true)}>Cancel verification</Button>
             <span className="flex-1" />
-            <Button size="lg" icon={<ShieldCheck className="h-5 w-5" />} disabled={!!steps.biometric && !capture} onClick={() => void submit(true)}>{guided ? 'Verify Identity' : 'Run verification'}</Button>
+            <Button size="lg" icon={<ShieldCheck className="h-5 w-5" />} disabled={(!!steps.biometric && !capture) || (faceSimulated && (!demo.face?.match || (steps.biometric!.checks.includes('liveness') && !demo.face?.liveness)))} onClick={() => void submit(true)}>{guided ? 'Verify Identity' : 'Run verification'}</Button>
           </div>
         </div>
       )}
@@ -292,10 +308,17 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
 }
 
 /** The person found for the identifier: only what the officer needs to confirm them and proceed. */
-function ParticipantCard({ lookup, faceAvailable, onContinue, onRecord, onChange }: {
-  lookup: Lookup; faceAvailable: boolean; onContinue: () => void; onRecord: () => void; onChange: () => void;
+const ENROLLMENT = {
+  enrolled: { label: 'Enrolled', tone: 'success' },
+  'not-enrolled': { label: 'Not Enrolled', tone: 'warning' },
+  incomplete: { label: 'Enrollment Incomplete', tone: 'warning' },
+  unavailable: { label: 'Enrollment Unavailable', tone: 'neutral' },
+} as const;
+
+function ParticipantCard({ lookup, faceAvailable, canManageEnrollment, onContinue, onRecord, onChange }: {
+  lookup: Lookup; faceAvailable: boolean; canManageEnrollment: boolean; onContinue: () => void; onRecord: () => void; onChange: () => void;
 }) {
-  const { participant: p, eligibility, portrait, faceRequired, history } = lookup;
+  const { participant: p, eligibility, portrait, faceRequired, history, enrollment } = lookup;
   const blocked = eligibility === 'not-eligible' ? 'not-eligible' : faceRequired && portrait === 'missing' ? 'no-portrait' : null;
   return (
     <Card className="px-5 py-5">
@@ -309,6 +332,7 @@ function ParticipantCard({ lookup, faceAvailable, onContinue, onRecord, onChange
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div><dt className="text-slate-500">Eligibility</dt><dd className="mt-0.5">{eligibility === 'eligible' ? <Badge tone="success">Eligible</Badge> : eligibility === 'not-eligible' ? <Badge tone="danger">Not eligible</Badge> : <Badge tone="neutral">Not checked for this activity</Badge>}</dd></div>
           {faceRequired && <div><dt className="text-slate-500">Enrolled portrait</dt><dd className="mt-0.5">{portrait === 'enrolled' ? <Badge tone="success">Available</Badge> : <Badge tone="warning">Not enrolled</Badge>}</dd></div>}
+          {faceRequired && <div><dt className="text-slate-500">Enrollment status</dt><dd className="mt-0.5"><Badge tone={ENROLLMENT[enrollment].tone}>{ENROLLMENT[enrollment].label}</Badge></dd></div>}
         </dl>
         <p className="text-xs text-slate-500">Finding this record doesn’t verify who is present. {faceRequired ? 'Their face must still be verified.' : 'Their identity must still be verified.'}</p>
         {history.entered && (
@@ -326,7 +350,10 @@ function ParticipantCard({ lookup, faceAvailable, onContinue, onRecord, onChange
           <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-900 ring-1 ring-inset ring-red-200">Not an eligible participant for this activity, so they can’t be cleared for it. Record the result, or check the identifier.</p>
         )}
         {blocked === 'no-portrait' && (
-          <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">No enrolled portrait exists for this person, so their face can’t be verified. They need to complete portrait enrollment first.</p>
+          <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
+            {enrollment === 'incomplete' ? 'This person’s enrollment isn’t complete' : 'No enrolled portrait exists for this person'}, so their face can’t be verified. They need to complete enrollment first; verification never enrolls anyone.
+            {canManageEnrollment && <Link to={`/users/${p.memberId}`} className="ml-1 font-semibold underline">Open their user record to manage enrollment</Link>}
+          </p>
         )}
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {blocked
@@ -433,10 +460,14 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   const reviewAllowed = !!version && (version.outcome.onRequiredFailure === 'pending-review' || version.outcome.onInconclusive === 'pending-review');
   const isMine = state.data.administrators.find((a) => a.id === attempt.verifierId)?.userId === state.data.admin.id;
   const canRefer = isMine && attempt.status === 'completed' && attempt.outcome !== 'verified' && reviewAllowed && !attempt.review;
+  const external = attempt.identitySource === 'external';
+  const programme = attempt.programmeId ? state.data.verificationProgrammes.find((p) => p.id === attempt.programmeId) : undefined;
+  // Retrying starts a new, linked transaction; this result is never overwritten.
+  const canRetry = isMine && attempt.status === 'completed' && (attempt.decision === 'unable-to-decide' || attempt.match?.status === 'inconclusive');
 
   // A new attempt starts empty: nothing about the previous person is carried over.
-  const startNew = () => {
-    const r = service.startAttempt(organization.id, attempt.activityId);
+  const startNew = (retry = false) => {
+    const r = service.startAttempt(organization.id, attempt.activityId, retry ? { retryOf: attempt.id } : {});
     if (!r.ok) return toast({ tone: 'error', title: 'Can’t start a new verification', description: r.error });
     navigate(`/verify/attempts/${r.attempt.id}`);
   };
@@ -444,28 +475,30 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   const done = attempt.status === 'completed' && !!attempt.outcome;
   return (
     <div className="mx-auto max-w-3xl">
-      {done ? <ResultSummary attempt={attempt} /> : (
+      {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} programmeName={programme?.name} /></div>}
+      {attempt.retryOf && <p className="mb-4 text-sm text-slate-600">Retry of transaction <Link to={`/verify/attempts/${attempt.retryOf}`} className="font-mono text-brand-700 underline">{attempt.retryOf}</Link>.</p>}
+      {done ? (!external && <ResultSummary attempt={attempt} />) : (
         <section className="rounded-2xl bg-slate-700 px-6 py-6 text-white" aria-label="Outcome">
           {attempt.status === 'cancelled' ? <CircleSlash className="h-8 w-8" aria-hidden="true" /> : <AlertTriangle className="h-8 w-8" aria-hidden="true" />}
           <h1 className="mt-2 text-2xl font-semibold">{attempt.status === 'cancelled' ? 'Verification cancelled' : attempt.status === 'expired' ? 'Verification interrupted' : 'Verification couldn’t be completed'}</h1>
           <p className="mt-1 text-white/90">{attempt.reasons[0] ?? 'No outcome was recorded for the person.'}</p>
         </section>
       )}
-      {attempt.simulated && (
+      {attempt.simulated && !attempt.decision && (
         <p className="mt-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 ring-1 ring-inset ring-amber-300">
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Demonstration result: some checks used simulated providers. This is not real identity or credential assurance.
         </p>
       )}
-      <div className="mt-4"><AccessAndEntry attempt={attempt} /></div>
+      {!external && <div className="mt-4"><AccessAndEntry attempt={attempt} /></div>}
       {attempt.review && <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">Pending review since {formatDateTime(attempt.review.referredAt)} ({attempt.review.referredBy}): {attempt.review.reason}</p>}
 
-      <Card className="mt-6 px-5 py-5">
+      {(!attempt.decision || details) && <Card className="mt-6 px-5 py-5">
         <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
           <div><dt className="text-slate-500">Activity</dt><dd className="font-medium text-slate-900">{attempt.activityName}</dd></div>
           <div><dt className="text-slate-500">Verification type</dt><dd className="text-slate-900">{TYPE_INFO[attempt.type].name}</dd></div>
           <div><dt className="text-slate-500">Date and time</dt><dd className="text-slate-900">{formatDateTime(attempt.completedAt ?? attempt.startedAt)}</dd></div>
           <div><dt className="text-slate-500">Reference</dt><dd className="font-mono text-xs text-slate-900">{attempt.id}</dd></div>
-          {attempt.status === 'completed' && <>
+          {attempt.status === 'completed' && !external && <>
             <div><dt className="text-slate-500">Identity and credential</dt><dd className="mt-0.5"><IdentityResultBadge attempt={attempt} /></dd></div>
             <div><dt className="text-slate-500">Eligibility</dt><dd className="mt-0.5"><EligibilityBadge attempt={attempt} /></dd></div>
           </>}
@@ -480,7 +513,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
             <div><dt className="text-slate-500">Inputs provided</dt><dd className="text-slate-900">{[attempt.inputs?.identifier && 'Identifier', attempt.inputs?.credential && (attempt.inputs.credential === 'reference' ? 'Credential number' : 'Credential presentation (simulated)'), attempt.inputs?.attributes?.length && `Details: ${attempt.inputs.attributes.join(', ')}`, attempt.inputs?.biometric && 'Live facial capture (not stored)'].filter(Boolean).join(' · ') || '—'}</dd></div>
           </>}
         </dl>
-      </Card>
+      </Card>}
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-semibold text-slate-900">Checks</h2>
         <CheckList runs={attempt.checks} details={details} />
@@ -492,10 +525,11 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
         )}
       </section>
       <div className="mt-6 flex flex-wrap gap-2">
-        {isMine && <Button size="lg" icon={<RotateCcw className="h-5 w-5" />} onClick={startNew}>Verify Next Participant</Button>}
-        <Button size="lg" variant="secondary" onClick={() => navigate(isMine ? `/verify/activities/${attempt.activityId}` : '/verify')}>Finish</Button>
+        {canRetry && <Button size="lg" icon={<RotateCcw className="h-5 w-5" />} onClick={() => startNew(true)}>Retry Verification</Button>}
+        {isMine && <Button size="lg" variant={canRetry ? 'secondary' : 'primary'} icon={<RotateCcw className="h-5 w-5" />} onClick={() => startNew()}>Verify Next Participant</Button>}
+        <Button size="lg" variant="secondary" onClick={() => navigate(isMine ? `/verify/activities/${attempt.activityId}` : '/verify')}>{isMine ? 'Complete' : 'Return'}</Button>
         <Button variant="secondary" onClick={() => setDetails((d) => !d)} aria-expanded={details}>{details ? 'Hide Verification Details' : 'View Verification Details'}</Button>
-        {canRefer && <Button variant="ghost" onClick={() => setReferring(true)}>Refer for Review</Button>}
+        {canRefer && <Button variant="ghost" onClick={() => setReferring(true)}>Submit for Review</Button>}
       </div>
       {referring && (
         <Modal open onClose={() => setReferring(false)} title="Refer for review" description="A reviewer will look at this verification. The original result and evidence stay as recorded."
