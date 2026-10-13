@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn';
 import { TEST_SCENARIOS, type TestScenario } from '@/services/integrations/integrationService';
 import { SIMULATED_LOOKUP_REFERENCES, SIMULATED_MATCH_FIXTURES } from '@/services/integrations/simulatedIdentityService';
 import { integrationFor } from '@/store/integrationOps';
-import { integrationUsage } from '@/store/programmeOps';
+import { integrationUsage } from '@/store/sharingOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
 import { CapabilityBadges, IntegrationStatusBadge, SimulatedBadge } from './IntegrationsPanel';
 import { ContractReference } from './IntegrationContract';

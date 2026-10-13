@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowLeft, FlaskConical, Lock, Repeat, ScanFace, Search,
 import { Badge, Button, Card, ConfirmDialog, Field, Input } from '@/components/ui';
 import { CameraCapture } from '@/components/verification/CameraCapture';
 import { JourneySteps, SimulatedBadge } from '@/components/verification/transactionParts';
-import { LIVENESS_LABEL } from '@/domain/programmes';
+import { LIVENESS_LABEL } from '@/domain/activitySettings';
 import { MESSAGES } from '@/domain/transactions';
 import type { VerificationAttempt } from '@/domain/types';
 import { formatDateTime } from '@/lib/dates';
@@ -20,7 +20,7 @@ const attributeLabel = (k: string) => ATTRIBUTE_LABEL[k] ?? k.replace(/([a-z])([
 
 /**
  * External identity verification. The person needs no FixID record: the reference identity is held by the
- * activity's configured external service (the programme's, for a programme-linked activity), which FixID
+ * activity's configured external source (the owner's, for a shared activity), which FixID
  * calls through the integration framework. Steps adapt to the method: Identify Person → Capture / Verify →
  * Check Eligibility → View Result, without capture for a record-only activity. The verifier can't change the
  * service or the requirements. Captures are transient: never sent to a simulated service, never stored.
@@ -31,7 +31,8 @@ export function RunExternal({ attempt }: { attempt: VerificationAttempt }) {
   const { state } = useStore();
   const policy = transactionPolicy(state, attempt);
   const integration = policy.integration;
-  const programme = attempt.programmeId ? state.data.verificationProgrammes.find((p) => p.id === attempt.programmeId) : undefined;
+  // A shared activity's requirements are set by the organization that owns it.
+  const owner = attempt.activityOwnerId && attempt.activityOwnerId !== attempt.organizationId ? state.data.organizations.find((o) => o.id === attempt.activityOwnerId) : undefined;
   const simulated = integration?.connection.target === 'simulated';
   const face = policy.settings.method === 'face';
   const found = attempt.lookup?.status === 'FOUND' ? attempt.lookup : null;
@@ -92,7 +93,7 @@ export function RunExternal({ attempt }: { attempt: VerificationAttempt }) {
       <p className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-600">
         <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
         Identity source: <span className="font-medium text-slate-900">{attempt.serviceName}</span>{simulated && <SimulatedBadge />}
-        {programme && <span className="text-slate-500">· set by the programme {programme.name}</span>}
+        {owner && <span className="text-slate-500">· set by {owner.name}</span>}
       </p>
       <JourneySteps steps={steps} current={current} />
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
@@ -188,7 +189,7 @@ export function RunExternal({ attempt }: { attempt: VerificationAttempt }) {
                 <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
                 <span>
                   Liveness: {policy.livenessApplies ? LIVENESS_LABEL[policy.livenessRequired ? 'required' : 'optional'] : LIVENESS_LABEL['not-applicable']}
-                  {policy.livenessRequired && programme ? ` (required by ${programme.name}; it can’t be skipped)` : policy.livenessRequired ? ' (it can’t be skipped)' : ''}
+                  {policy.livenessRequired && owner ? ` (required by ${owner.name}; it can’t be skipped)` : policy.livenessRequired ? ' (it can’t be skipped)' : ''}
                   {' · '}Matching by {attempt.serviceName} against the reference it holds
                 </span>
               </p>

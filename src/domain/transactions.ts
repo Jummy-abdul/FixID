@@ -1,5 +1,5 @@
 import type { LookupOutcome } from './integrations';
-import type { ActivityDecision, VerificationSettings } from './programmes';
+import type { ActivityDecision, VerificationSettings } from './activitySettings';
 import type { VerificationAttempt } from './types';
 
 /**
@@ -10,7 +10,7 @@ import type { VerificationAttempt } from './types';
  *   record, and nothing is enrolled or copied into FixID.
  *
  * Identity match, liveness, eligibility and the activity decision are recorded separately. The decision is
- * always derived here from the recorded results and the authoritative activity/programme policy, never
+ * always derived here from the recorded results and the authoritative activity policy, never
  * accepted from a screen. The transaction is the existing `VerificationAttempt` record, extended, so local
  * verification history and its terminology keep working.
  */
@@ -72,8 +72,8 @@ export interface DecisionInput {
 }
 
 /**
- * The reusable decision evaluator. Combines identity match, liveness, eligibility and the effective policy
- * (programme minimums applied). A failed mandatory check never produces Allow; an unavailable service never
+ * The reusable decision evaluator. Combines identity match, liveness, eligibility and the effective policy.
+ * A failed mandatory check never produces Allow; an unavailable service never
  * produces Allow; inconclusive is never a match; a match alone never allows.
  */
 export function evaluateDecision(i: DecisionInput): { decision: ActivityDecision; explanation: string } {

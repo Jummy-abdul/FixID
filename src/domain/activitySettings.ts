@@ -1,15 +1,15 @@
 /**
- * Verification Programmes and activity verification settings.
+ * Verification Activity settings and sharing.
  *
- * A programme is governance: an owning organization defines minimum verification requirements and which
- * of its sub-organizations take part. An activity is an operational context. Activities don't need a
- * programme; a programme-linked activity inherits the programme's mandatory requirements and may only make
- * them stricter. The effective settings are always computed (programme minimum + activity choices), so a
- * programme's rules are never copied into its activities and can't drift out of step.
+ * A Verification Activity is the one concept: an organization creates it either for its own use, or as a
+ * shared activity that other organizations take part in. A shared activity is a single record owned by
+ * one organization; participating organizations run that same activity from their own workspaces (with
+ * their own staff) and can't change its requirements. Nobody gets access to another organization's
+ * workspace through a shared activity.
  */
 
-export type ProgrammeStatus = 'draft' | 'active' | 'suspended' | 'completed' | 'archived';
-export type ParticipationStatus = 'invited' | 'active' | 'suspended' | 'removed';
+/** A participating organization's status in a shared activity. Invited until it accepts. */
+export type ParticipationStatus = 'invited' | 'active' | 'declined' | 'suspended' | 'removed';
 
 /** Where the reference identity is held (and, for external, which organization's integration is used). */
 export type IdentitySource = { kind: 'local' } | { kind: 'external'; integrationId: string };
@@ -21,7 +21,9 @@ export type ReverificationPolicy = { mode: 'every-time' } | { mode: 'reuse-withi
 /** What happens to a failed, disputed or inconclusive verification. Never a final access decision on its own. */
 export type ExceptionHandling = 'review' | 'unsuccessful' | 'pending';
 /**
- * How eligibility is determined, separately from identity:
+ * How eligibility is determined, separately from identity. Not chosen in the activity editor: it follows
+ * from the identity source (an external source's record status; FixID records: anyone registered, unless
+ * the activity limits who may be verified). Kept so earlier activities keep their behaviour.
  * - local-population: the activity's eligible population of locally registered people (groups and users);
  * - external-source: an authorized external lookup response (or approved external eligibility service);
  * - reference-list: a permitted list of external reference identifiers for the activity;
@@ -36,7 +38,7 @@ export interface DecisionRules {
   onServiceUnavailable: 'unable-to-decide' | 'pending-review';
 }
 
-/** The settings an activity is verified with. Stored on the activity; programme minimums are applied on top. */
+/** The settings an activity is verified with, stored on the activity. A shared activity's settings apply to every participant. */
 export interface VerificationSettings {
   identitySource: IdentitySource;
   method: VerificationMethod;
@@ -51,54 +53,24 @@ export interface VerificationSettings {
   decisionRules: DecisionRules;
 }
 
-/** A programme's mandatory minimum. Participating organizations can't weaken any of it. */
-export interface ProgrammeRequirements {
-  identitySource: IdentitySource;
-  method: VerificationMethod;
-  liveness: LivenessRequirement;
-  reverification: ReverificationPolicy;
-  exceptions: ExceptionHandling;
-  /** Escalate exceptions to an authorized programme reviewer in the owning organization. */
-  escalateToProgramme: boolean;
-  /** Eligibility must be determined (activities can't use "no predefined population"). */
-  eligibilityRequired: boolean;
-  /** Eligibility approaches activities may use. */
-  allowedEligibility: EligibilityApproach[];
-  /** Placeholder for a future assurance policy. No assurance level is claimed until one is defined. */
-  assurancePolicyId?: string;
-}
-
-export interface ProgrammeParticipant {
+/** A participating organization in a shared activity. */
+export interface ActivityParticipant {
   organizationId: string;
   status: ParticipationStatus;
-  addedAt: string;
-  addedBy: string;
+  invitedAt: string;
+  invitedBy: string;
   updatedAt?: string;
+  updatedBy?: string;
 }
 
-export interface VerificationProgramme {
-  id: string;
-  ownerOrganizationId: string;
-  name: string;
-  description: string;
-  purpose: string;
-  status: ProgrammeStatus;
-  /** `own`: only the owning organization; `sub-organizations`: explicitly selected sub-organizations. */
-  scope: 'own' | 'sub-organizations';
-  participants: ProgrammeParticipant[];
-  requirements: ProgrammeRequirements;
-  createdAt: string;
-  createdBy: string;
-  updatedAt: string;
-  updatedBy: string;
-  activatedAt?: string;
-}
+/** Who an activity is for: the owning organization only, or other organizations as well. */
+export type ActivityAudience = 'own' | 'shared';
 
 /* ---------------- Labels ---------------- */
 
-export const PROGRAMME_STATUS_LABEL: Record<ProgrammeStatus, string> = { draft: 'Draft', active: 'Active', suspended: 'Suspended', completed: 'Completed', archived: 'Archived' };
-export const PARTICIPATION_LABEL: Record<ParticipationStatus, string> = { invited: 'Invited', active: 'Active', suspended: 'Suspended', removed: 'Removed' };
-export const METHOD_LABEL: Record<VerificationMethod, string> = { face: 'Face verification (live face matched 1:1)', record: 'Identity record and stated details' };
+export const PARTICIPATION_LABEL: Record<ParticipationStatus, string> = { invited: 'Invited', active: 'Participating', declined: 'Declined', suspended: 'Suspended', removed: 'Removed' };
+export const AUDIENCE_LABEL: Record<ActivityAudience, string> = { own: 'For my organization', shared: 'For other organizations' };
+export const METHOD_LABEL: Record<VerificationMethod, string> = { face: 'Identifier and face match', record: 'Identifier and stated details' };
 export const LIVENESS_LABEL: Record<LivenessRequirement, string> = { required: 'Required', optional: 'Optional', 'not-applicable': 'Not applicable' };
 export const EXCEPTION_LABEL: Record<ExceptionHandling, string> = { review: 'Require review', unsuccessful: 'Mark unsuccessful', pending: 'Remain pending until resolved' };
 export const ELIGIBILITY_LABEL: Record<EligibilityApproach, string> = {
@@ -121,62 +93,11 @@ export const DEFAULT_DECISION_RULES: DecisionRules = { onInconclusiveMatch: 'pen
 export function defaultSettings(): VerificationSettings {
   return {
     identitySource: { kind: 'local' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' }, exceptions: 'unsuccessful',
-    eligibility: { approach: 'local-population' }, decisionRules: DEFAULT_DECISION_RULES,
+    eligibility: { approach: 'none' }, decisionRules: DEFAULT_DECISION_RULES,
   };
 }
 
-export function defaultProgrammeRequirements(): ProgrammeRequirements {
-  return {
-    identitySource: { kind: 'local' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' }, exceptions: 'review',
-    escalateToProgramme: false, eligibilityRequired: true, allowedEligibility: ['local-population', 'external-source', 'reference-list'],
-  };
-}
-
-/* ---------------- Strictness and inheritance ---------------- */
-
-const LIVENESS_RANK: Record<LivenessRequirement, number> = { 'not-applicable': 0, optional: 1, required: 2 };
-const METHOD_RANK: Record<VerificationMethod, number> = { record: 0, face: 1 };
-/** Smaller is stricter. */
-const reuseWindow = (r: ReverificationPolicy) => (r.mode === 'every-time' ? 0 : r.mode === 'reuse-within' ? r.days : 0);
-
-/** The settings that actually apply: the programme's minimum, made stricter by the activity where it chose to. */
-export function effectiveSettings(activity: VerificationSettings, programme?: ProgrammeRequirements): VerificationSettings {
-  if (!programme) return activity;
-  const method = METHOD_RANK[activity.method] >= METHOD_RANK[programme.method] ? activity.method : programme.method;
-  // The stricter of the two; face verification always has a liveness setting.
-  const liveness: LivenessRequirement = method === 'record' ? 'not-applicable'
-    : ([activity.liveness, programme.liveness].filter((l) => l !== 'not-applicable').sort((x, y) => LIVENESS_RANK[y] - LIVENESS_RANK[x])[0] ?? 'required');
-  const reverification = reuseWindow(activity.reverification) <= reuseWindow(programme.reverification) ? activity.reverification : programme.reverification;
-  const approach = programme.allowedEligibility.includes(activity.eligibility.approach) && !(programme.eligibilityRequired && activity.eligibility.approach === 'none')
-    ? activity.eligibility.approach : programme.allowedEligibility.find((a) => a !== 'none') ?? 'local-population';
-  return {
-    ...activity,
-    identitySource: programme.identitySource,
-    method, liveness, reverification,
-    exceptions: programme.exceptions,
-    eligibility: { ...activity.eligibility, approach },
-  };
-}
-
-/**
- * Why an activity's chosen settings would weaken a programme's mandatory requirements, one line each.
- * Participating organizations can only keep or tighten them.
- */
-export function weakeningProblems(activity: VerificationSettings, programme: ProgrammeRequirements): string[] {
-  const p: string[] = [];
-  const src = programme.identitySource;
-  const a = activity.identitySource;
-  if (src.kind !== a.kind || (src.kind === 'external' && a.kind === 'external' && src.integrationId !== a.integrationId)) p.push('The identity source is set by the programme and can’t be replaced.');
-  if (METHOD_RANK[activity.method] < METHOD_RANK[programme.method]) p.push('The programme requires face verification.');
-  if (programme.liveness === 'required' && activity.liveness !== 'required') p.push('Liveness is required by the programme and can’t be disabled.');
-  if (reuseWindow(activity.reverification) > reuseWindow(programme.reverification)) p.push('The programme’s reverification rule can’t be relaxed.');
-  if (activity.exceptions !== programme.exceptions) p.push('Exception handling is set by the programme.');
-  if (!programme.allowedEligibility.includes(activity.eligibility.approach)) p.push(`The programme doesn’t allow ${ELIGIBILITY_LABEL[activity.eligibility.approach].toLowerCase()}.`);
-  else if (programme.eligibilityRequired && activity.eligibility.approach === 'none') p.push('The programme requires eligibility to be determined.');
-  return p;
-}
-
-/** Problems with settings on their own (independent activities, and programme requirements). */
+/** Problems with an activity's settings. */
 export function settingsProblems(s: Pick<VerificationSettings, 'identitySource' | 'method' | 'liveness' | 'reverification'> & { eligibility?: VerificationSettings['eligibility'] }): string[] {
   const p: string[] = [];
   if (s.method === 'record' && s.liveness !== 'not-applicable') p.push('Liveness only applies to face verification.');

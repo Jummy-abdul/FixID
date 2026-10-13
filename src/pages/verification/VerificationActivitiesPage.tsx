@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Copy, Eye, Pencil, Plus, Power, PowerOff, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, Copy, Eye, Pencil, Plus, Power, PowerOff, ShieldCheck, Trash2, X } from 'lucide-react';
 import {
-  ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
+  Badge, Button, ButtonLink, Card, CardHeader, ConfirmDialog, DataTable, EmptyState, FilterSelect, OverflowMenu, PageHeader, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
   type OverflowMenuItem,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { ActivityStatusBadge } from '@/components/verification/parts';
 import type { ActivityConfig } from '@/domain/types';
-import { currentVersion, eligibleParticipants, requirementTags } from '@/domain/verification';
+import { currentVersion, requirementTags } from '@/domain/verification';
+import { PARTICIPATION_LABEL } from '@/domain/activitySettings';
+import { participation, sharedWith } from '@/store/sharingOps';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDate } from '@/lib/dates';
 import { activationProblems } from '@/store/activityOps';
@@ -40,8 +42,7 @@ export function VerificationActivitiesPage() {
     .filter((a) => a.organizationId === organization.id)
     .map((a) => {
       const version = currentVersion(state.data, a);
-      const usesList = !!version?.checks.some((c) => c.params.useParticipants);
-      return { activity: a, version, eligible: usesList ? eligibleParticipants(state.data, organization.id, a.participants).size : null };
+      return { activity: a, version, taking: (a.sharing?.participants ?? []).filter((p) => p.status === 'active').length };
     })
     .sort((a, b) => b.activity.updatedAt.localeCompare(a.activity.updatedAt)), [state.data, organization.id]);
   const filtered = useMemo(() => {
@@ -104,7 +105,8 @@ export function VerificationActivitiesPage() {
 
   return (
     <>
-      <PageHeader title="Verification Activities" description="Create and manage verification activities for your organization." actions={headerActions} />
+      <PageHeader title="Verification Activities" description={`Activities ${organization.name} uses to verify people, and shared activities it takes part in.`} actions={headerActions} />
+      <SharedWithUs />
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities by name" className="sm:w-72" />
@@ -118,12 +120,12 @@ export function VerificationActivitiesPage() {
             rows={pageRows}
             rowKey={(r) => r.activity.id}
             empty={rows.length === 0
-              ? <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No verification activities yet" description="An activity describes what to verify and who is eligible, for example an event, a site or a membership check." action={create} />
+              ? <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No verification activities yet" description="An activity is where your staff check a person’s identifier against an identity source, for example at a site, an event or a front desk." action={create} />
               : <EmptyState title="No matching activities" description="Try a different search or status." />}
             columns={[
               { key: 'name', header: 'Activity Name', cell: (r) => <Link to={activityPath(r.activity.id)} className="font-medium text-slate-900 hover:text-brand-700">{r.activity.name}</Link> },
               { key: 'requirements', header: 'Requirements', cell: (r) => <span className="whitespace-nowrap text-slate-700">{r.version ? requirementTags(r.version).join(' · ') || '—' : '—'}</span> },
-              { key: 'eligible', header: 'Eligible Participants', cell: (r) => <span className="tabular-nums text-slate-700">{r.eligible === null ? <span className="text-slate-400">Anyone verified</span> : r.eligible}</span> },
+              { key: 'for', header: 'For', cell: (r) => <span className="whitespace-nowrap text-slate-700">{r.activity.sharing ? <>Other organizations <span className="text-slate-500">· {r.taking} taking part</span></> : 'My organization'}</span> },
               {
                 key: 'status', header: 'Status', cell: (r) => (
                   <span className="flex flex-wrap items-center gap-1.5"><ActivityStatusBadge status={r.activity.status} />
@@ -154,3 +156,51 @@ export function VerificationActivitiesPage() {
   );
 }
 
+
+/**
+ * Shared activities other organizations invited this organization to, or that it takes part in. It runs
+ * them with its own staff; it can't change them. Accepting or declining needs permission to edit activities.
+ */
+function SharedWithUs() {
+  const { organization } = useSession();
+  const { state } = useStore();
+  const { can } = useAuthorization();
+  const { respondToInvitation } = useActions();
+  const toast = useToast();
+  const list = sharedWith(state, organization.id);
+  if (!list.length) return null;
+  const ownerName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? 'Another organization';
+  const respond = (id: string, name: string, accept: boolean) => {
+    const r = respondToInvitation(organization.id, id, accept);
+    if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
+    toast({ tone: 'success', title: accept ? 'Invitation accepted' : 'Invitation declined', description: accept ? `Assign your staff to ${name} to start verifying.` : name });
+  };
+  return (
+    <Card className="mb-6">
+      <CardHeader title="Shared with your organization" description="Activities other organizations invited you to. You run them with your own staff; the owner sets the requirements." />
+      <ul className="divide-y divide-slate-100" aria-label="Shared with your organization">
+        {list.map((a) => {
+          const status = participation(a, organization.id) as 'invited' | 'active' | 'suspended';
+          return (
+            <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+              <div className="min-w-0">
+                <Link to={activityPath(a.id)} className="font-medium text-slate-900 hover:text-brand-700">{a.name}</Link>
+                <p className="text-sm text-slate-500">From {ownerName(a.organizationId)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge tone={status === 'active' ? 'success' : status === 'invited' ? 'info' : 'warning'}>{status === 'invited' ? 'Invitation' : PARTICIPATION_LABEL[status]}</Badge>
+                {status === 'invited' && can('verification.activities.edit') && (
+                  <>
+                    <Button size="sm" icon={<Check className="h-4 w-4" />} onClick={() => respond(a.id, a.name, true)}>Accept<span className="sr-only"> {a.name}</span></Button>
+                    <Button size="sm" variant="secondary" icon={<X className="h-4 w-4" />} onClick={() => respond(a.id, a.name, false)}>Decline<span className="sr-only"> {a.name}</span></Button>
+                  </>
+                )}
+                {status === 'active' && <Link to={activityPath(a.id)} className="text-sm font-semibold text-brand-600 hover:text-brand-700">Manage staff<span className="sr-only"> for {a.name}</span></Link>}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}

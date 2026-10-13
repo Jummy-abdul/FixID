@@ -1,5 +1,5 @@
 import type { CustomIntegration } from '@/domain/integrations';
-import type { VerificationSettings } from '@/domain/programmes';
+import type { VerificationSettings } from '@/domain/activitySettings';
 import {
   MESSAGES, evaluateDecision, externalEligibility, finalStage, reuseProblem,
   type EligibilityStatus, type IdentityMatchStatus, type LivenessStatus,
@@ -8,19 +8,19 @@ import type { CheckRun, VerificationAttempt } from '@/domain/types';
 import { FACE_UNAVAILABLE_REASON } from '@/services/faceVerification';
 import type { IdentityLookupResult } from '@/services/integrations/contract';
 import { guardInProgress, replaceAttempt, type AttemptError } from './attemptOps';
-import { activityPolicy, settingsFromVersion } from './programmeOps';
+import { activityPolicy, settingsFromVersion } from './sharingOps';
 import type { AppState } from './state';
 
 /**
  * Verification Transaction steps for the external identity journey, and the unified result fields for
  * local verification. Every step re-checks the transaction's state and the verifier; the eligibility result
- * and the decision are computed here from recorded results and the authoritative (programme-applied)
+ * and the decision are computed here from recorded results and the authoritative activity
  * policy, never accepted from the caller. Production must run this on the server.
  */
 
 type Result = { ok: true; state: AppState; attempt: VerificationAttempt } | { ok: false; error: string; code: AttemptError | 'invalid-step' };
 
-/** The effective policy a transaction runs under, read from the activity and its programme now. */
+/** The effective policy a transaction runs under, read from the activity now. */
 export function transactionPolicy(state: AppState, attempt: Pick<VerificationAttempt, 'activityId' | 'versionId'>): {
   settings: VerificationSettings; integration?: CustomIntegration; livenessRequired: boolean; livenessApplies: boolean; reuseDays: number | null;
 } {

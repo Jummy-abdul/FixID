@@ -125,7 +125,7 @@ describe('organization structure (store)', () => {
 describe('demonstration accounts and role-specific experiences', () => {
   it('Organization Admin of an organization with sub-organizations: lists them, sees details, not records', async () => {
     const { user } = renderApp('/signin');
-    await signInAs(user, 'Programme Owner — Organization Admin of the parent organization');
+    await signInAs(user, 'Organization Admin — owns a shared activity');
     expect(await workspace()).toHaveTextContent('Meridian Group');
     expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Organization Admin');
     // A single membership: no switcher.
@@ -211,7 +211,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     const { user } = renderApp('/signin');
     await signInAs(user, 'Auditor');
     expect(await workspace()).toHaveTextContent('Northbridge Group');
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Create Organization' })).toBeNull();

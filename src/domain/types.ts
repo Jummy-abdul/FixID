@@ -1,4 +1,4 @@
-import type { VerificationSettings } from './programmes';
+import type { VerificationSettings } from './activitySettings';
 import type { LocationCheckConfig, LocationCheckRecord } from './location';
 import type { Role } from './roles';
 /**
@@ -465,14 +465,10 @@ export type AuditAction =
   | 'integration.test-failed'
   | 'integration.activated'
   | 'integration.deactivated'
-  | 'programme.created'
-  | 'programme.updated'
-  | 'programme.activated'
-  | 'programme.suspended'
-  | 'programme.resumed'
-  | 'programme.completed'
-  | 'programme.archived'
-  | 'programme.participant-changed'
+  | 'verification-activity.participants-invited'
+  | 'verification-activity.participant-changed'
+  | 'verification-activity.invitation-accepted'
+  | 'verification-activity.invitation-declined'
   | 'exception.created'
   | 'exception.assigned'
   | 'exception.review-started'
@@ -538,7 +534,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'programme' | 'exception' | 'verification-transaction' | 'status-api';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'exception' | 'verification-transaction' | 'status-api';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others; `denied` when access was refused. */
   result: 'success' | 'partial' | 'failure' | 'denied';
@@ -744,12 +740,14 @@ export interface ActivityConfig {
   locationCheck?: LocationCheckConfig;
   /** Drafts only: the editor step to reopen on, so a draft continues where it was left. */
   editorStep?: 'details' | 'requirements' | 'people' | 'review';
-  /** The Verification Programme the activity runs under, if any (set at creation). Independent activities have none. */
-  programmeId?: string;
   /**
-   * How people are verified: identity source, method, liveness, reverification, exceptions, eligibility
-   * approach and decision rules. For programme-linked activities the programme's minimums apply on top
-   * (see effectiveSettings). Missing on activities saved before this existed: derived from their configuration.
+   * Shared activities only: the other organizations invited to take part. They run this same activity from
+   * their own workspaces with their own staff, and can't change it. Missing for an activity for the owner's own use.
+   */
+  sharing?: { participants: import('./activitySettings').ActivityParticipant[] };
+  /**
+   * How people are verified: identity source, method, liveness, reverification, exceptions and decision
+   * rules. Missing on activities saved before this existed: derived from their configuration.
    */
   verification?: VerificationSettings;
   createdAt: ISODate;
@@ -848,7 +846,8 @@ export interface VerificationAttempt {
   /** The external integration used, and its name as shown to people who can see the transaction. */
   integrationId?: string;
   serviceName?: string;
-  programmeId?: string;
+  /** Shared activities: the organization that owns the activity (it may differ from the one that performed it). */
+  activityOwnerId?: string;
   /** Lifecycle state. Read with `stageOf`, which also covers records without one. */
   stage?: import('./transactions').TransactionStage;
   /** External identity lookup: the reference entered and only the permitted attributes returned. */
@@ -880,7 +879,7 @@ export interface VerificationAttempt {
   };
   eligibilityStatus?: import('./transactions').EligibilityStatus;
   eligibilityExplanation?: string;
-  decision?: import('./programmes').ActivityDecision;
+  decision?: import('./activitySettings').ActivityDecision;
   decisionExplanation?: string;
   failureReason?: string;
   /** Protected technical details (never secrets or payloads). Shown only to roles with audit access. */
@@ -897,5 +896,5 @@ export interface VerificationAttempt {
    * The current disposition after an authorized exception review. The original decision, identity match,
    * liveness and eligibility are kept unchanged alongside it.
    */
-  reviewDisposition?: { decision: import('./programmes').ActivityDecision; outcome: import('./exceptions').ResolutionOutcome; exceptionId: string; at: ISODate; by: string };
+  reviewDisposition?: { decision: import('./activitySettings').ActivityDecision; outcome: import('./exceptions').ResolutionOutcome; exceptionId: string; at: ISODate; by: string };
 }

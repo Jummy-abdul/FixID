@@ -59,7 +59,7 @@ describe('#007 neutral placeholders', () => {
     renderApp('/verification-activities/new', base());
     expect(screen.getByPlaceholderText('Enter activity name')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Describe the purpose of this verification activity')).toBeInTheDocument();
-    expect(screen.getByRole('main')).not.toHaveTextContent(/exam|CSC|student/i);
+    expect(screen.getByRole('main')).not.toHaveTextContent(/\bexam\b|examination|CSC|student/i);
   });
 });
 
@@ -78,45 +78,36 @@ describe('#009 / #010 activity drafts and verifiers', () => {
   it('keeps a new activity as a draft through a trip to invite an administrator, and continues where it stopped', async () => {
     const s = base();
     const { user } = renderApp('/verification-activities/new', s);
-    await user.type(screen.getByLabelText(/Activity Name/), 'Volunteer Briefing');
-    await user.type(screen.getByLabelText(/Description/), 'Entry to the volunteer briefing');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('heading', { name: 'Identity & Requirements' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
-    // Saved as one draft as soon as the first step was done.
-    await waitFor(() => expect(loadState()!.data.activityConfigs.filter((a) => a.name === 'Volunteer Briefing')).toHaveLength(1));
-    const draft = loadState()!.data.activityConfigs.find((a) => a.name === 'Volunteer Briefing')!;
-    expect(draft).toMatchObject({ status: 'draft', editorStep: 'people', createdBy: me(s).name });
+    await user.type(screen.getByLabelText('Activity name'), 'Volunteer Briefing');
+    await user.type(screen.getByLabelText(/Short description/), 'Entry to the volunteer briefing');
     // The administrator creating it is preselected as its verifier.
     expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me(s).name!)).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /Select group Volunteers/ }));
     await user.click(screen.getByRole('button', { name: 'Invite Administrator' }));
 
-    // Settings → Administrators & Roles, with the invitation open and a way back.
+    // Settings → Administrators & Roles, with the invitation open and a way back. Saved as one draft first.
     expect(await screen.findByRole('dialog', { name: 'Invite administrator' })).toBeInTheDocument();
-    const saved = loadState()!.data.activityConfigs.find((a) => a.id === draft.id)!;
-    expect(saved.participants).toEqual({ groupIds: [`${ORG}_grp_volunteers`], memberIds: [] });
-    expect(loadState()!.data.activityConfigs.filter((a) => a.name === 'Volunteer Briefing')).toHaveLength(1);
+    const drafts = loadState()!.data.activityConfigs.filter((a) => a.name === 'Volunteer Briefing');
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({ status: 'draft', createdBy: me(s).name, participants: { groupIds: [`${ORG}_grp_volunteers`], memberIds: [] } });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Invite administrator' })).toBeNull());
     await user.click(within(screen.getByRole('region', { name: 'Activity draft' })).getByRole('link', { name: /Back to activity/ }));
 
-    // Back where it stopped, with everything kept.
+    // Back in the editor, with everything kept.
     expect(await screen.findByRole('heading', { level: 1, name: 'Edit Volunteer Briefing' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Eligibility & Verifiers/ })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByLabelText('Activity name')).toHaveValue('Volunteer Briefing');
+    expect(screen.getByLabelText(/Short description/)).toHaveValue('Entry to the volunteer briefing');
     expect(screen.getByRole('checkbox', { name: /Select group Volunteers/ })).toBeChecked();
     expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me(s).name!)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Activity Details/ }));
-    expect(screen.getByLabelText(/Activity Name/)).toHaveValue('Volunteer Briefing');
-    expect(screen.getByLabelText(/Description/)).toHaveValue('Entry to the volunteer briefing');
     // Still a draft: never active, and not offered to verifiers.
     const stored = loadState()!;
-    expect(stored.data.activityConfigs.find((a) => a.id === draft.id)!.status).toBe('draft');
+    expect(stored.data.activityConfigs.find((a) => a.id === drafts[0].id)!.status).toBe('draft');
     const service = createVerificationService({ getState: () => stored, dispatch: () => undefined, idSwitch: createMockIdSwitch() });
-    expect(service.listAuthorizedActivities(ORG).some((x) => x.activity.id === draft.id)).toBe(false);
+    expect(service.listAuthorizedActivities(ORG).some((x) => x.activity.id === drafts[0].id)).toBe(false);
   });
 
-  it('offers Continue Editing for drafts on the list, reopening the saved step', async () => {
+  it('offers Continue Editing for drafts on the list, reopening the draft', async () => {
     let s = base();
     const saved = applySaveActivity(s, {
       organizationId: ORG, ids: { activityId: 'va_resume', versionId: 'vv_resume' }, at: AT,
@@ -128,22 +119,18 @@ describe('#009 / #010 activity drafts and verifiers', () => {
     await user.type(await screen.findByLabelText('Search activities by name'), 'Resume');
     await user.click(await screen.findByRole('link', { name: 'Continue Editing Resume Me' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Edit Resume Me' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Review & Activate/ })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByLabelText('Activity name')).toHaveValue('Resume Me');
   });
 
   it('shows only the missing-verifier warning, and only when nobody is assigned', async () => {
     const s = base();
     const { user } = renderApp('/verification-activities/new', s);
-    await user.type(screen.getByLabelText(/Activity Name/), 'Gate Check');
-    await user.click(screen.getByRole('button', { name: /Review & Activate/ }));
-    const review = await screen.findByRole('heading', { name: 'Review & Activate' });
-    const section = review.closest('section')!;
-    expect(section).not.toHaveTextContent(/biometric|provider|integration/i);
-    expect(section).not.toHaveTextContent('No verifier assigned');
-    await user.click(screen.getByRole('button', { name: /Eligibility & Verifiers/ }));
+    await user.type(screen.getByLabelText('Activity name'), 'Gate Check');
+    const review = screen.getByRole('heading', { name: 'Review and create' }).closest('div')!;
+    expect(review).not.toHaveTextContent(/biometric|provider|integration/i);
+    expect(review).not.toHaveTextContent('No verifier assigned');
     await user.click(screen.getByRole('button', { name: `Unassign ${me(s).name}` }));
-    await user.click(screen.getByRole('button', { name: /Review & Activate/ }));
-    const again = (await screen.findByRole('heading', { name: 'Review & Activate' })).closest('section')!;
+    const again = screen.getByRole('heading', { name: 'Review and create' }).closest('div')!;
     expect(again).toHaveTextContent('No verifier assigned');
     expect(again).toHaveTextContent('Assign at least one verifier to allow verification for this activity.');
     expect(again).not.toHaveTextContent('Worth checking');
@@ -168,17 +155,17 @@ describe('#012 simple Activity Overview', () => {
     const activity = byName(s, 'Annual Staff Conference');
     renderApp(`/verification-activities/${activity.id}`, s);
     const summary = screen.getByRole('region', { name: 'Activity summary' });
-    expect(summary).toHaveTextContent('Eligible participants');
-    expect(summary).toHaveTextContent('Verified participants0');
+    expect(summary).toHaveTextContent('Eligible people');
+    expect(summary).toHaveTextContent('Verified people0');
     expect(summary).toHaveTextContent('Entries granted0');
     const main = screen.getByRole('main');
-    for (const gone of ['How people are verified', 'How the result is decided', 'Technical details', 'Configuration versions', 'Liveness', 'Facial Identity Matching', 'provider']) {
+    for (const gone of ['How people are verified', 'How the result is decided', 'Technical details', 'Configuration versions', 'Facial Identity Matching', 'provider']) {
       expect(main).not.toHaveTextContent(gone);
     }
     expect(main).toHaveTextContent('Assigned verifiers');
     expect(main).toHaveTextContent('Location check');
     expect(main).toHaveTextContent('Last updated');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'Participants', 'Verification History']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'People', 'Verification History']);
   });
 });
 
@@ -188,7 +175,7 @@ describe('#013 role-based navigation and role switching', () => {
     const conference = byName(s, 'Annual Staff Conference');
     s = assign(s, me(s).id, [conference.id]);
     const { user } = renderApp('/', s);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
 
     await user.click(screen.getByRole('button', { name: /Account menu for/ }));
     await user.click(within(screen.getByRole('menu', { name: 'Account' })).getByRole('menuitem', { name: /^Verifier/ }));

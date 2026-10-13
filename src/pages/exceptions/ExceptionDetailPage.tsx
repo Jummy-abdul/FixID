@@ -58,7 +58,6 @@ function Detail({ e }: { e: VerificationException }) {
   const tx = state.data.verificationAttempts.find((a) => a.id === e.transactionId);
   const reverifications = state.data.verificationAttempts.filter((a) => e.reverificationTransactionIds.includes(a.id));
   const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
-  const programme = e.programmeId ? state.data.verificationProgrammes.find((p) => p.id === e.programmeId) : undefined;
   const cannot = reviewProblem(state, organization.id, e);
   const canReview = !cannot;
   const reviewers = reviewersFor(state, e);
@@ -95,8 +94,7 @@ function Detail({ e }: { e: VerificationException }) {
               <Row label="Exception reason">{EXCEPTION_REASON_LABEL[e.reason]}<span className="block text-xs text-slate-500">{e.reasonDetail}</span></Row>
               <Row label="Assigned reviewer">{e.assignedReviewerName ?? 'Unassigned'}</Row>
               <Row label="Organization">{orgName(e.organizationId)}</Row>
-              <Row label="Review queue">{e.route === 'programme' ? `Programme reviewers (${orgName(e.reviewOrganizationId)})` : `${orgName(e.reviewOrganizationId)} reviewers`}</Row>
-              <Row label="Programme">{programme?.name ?? '—'}</Row>
+              <Row label="Review queue">{e.route === 'owner' ? `${orgName(e.reviewOrganizationId)} reviewers (owner of the shared activity)` : `${orgName(e.reviewOrganizationId)} reviewers`}</Row>
               <Row label="Activity">{e.activityName}</Row>
             </dl>
           </Card>

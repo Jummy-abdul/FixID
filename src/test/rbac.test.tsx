@@ -82,7 +82,7 @@ describe('system roles and permissions', () => {
   it('starts every organization with only the three system roles; custom roles come from administrators', () => {
     const fresh = createInitialState(new Date());
     // The only custom roles in demo data back the custom-role demonstration accounts (B2 and B).
-    expect(fresh.data.customRoles.map((r) => [r.organizationId, r.name])).toEqual([[ORG_B2, 'Records Officer'], ['org_meridian', 'Programme Reviewer']]);
+    expect(fresh.data.customRoles.map((r) => [r.organizationId, r.name])).toEqual([[ORG_B2, 'Records Officer'], ['org_meridian', 'Exception Reviewer']]);
     for (const o of fresh.data.organizations.filter((x) => x.id !== ORG_B2 && x.id !== 'org_meridian')) expect(rolesFor(fresh.data.customRoles, o.id).map((r) => r.name)).toEqual(['Organization Admin', 'Verifier', 'Auditor']);
     expect(fresh.data.administrators.filter((a) => a.organizationId !== ORG_B2 && a.userId !== 'acct_demo_b_reviewer').every((a) => findRole(fresh.data.customRoles, a.organizationId, a.roleIds[0]!)?.system)).toBe(true);
     // A created role belongs only to the organization that created it.
@@ -311,7 +311,7 @@ describe('screens', () => {
   it('shows the Auditor a read-only workspace', async () => {
     const p = reducer(base(), { type: 'preview/start', roleId: 'auditor' });
     const { user, unmount } = renderApp('/users', p);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Programmes', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
     await screen.findByRole('heading', { level: 1, name: 'Users' });
     expect(screen.queryByRole('link', { name: 'Add user' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Import Users' })).toBeNull();

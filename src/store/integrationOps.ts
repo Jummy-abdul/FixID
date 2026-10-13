@@ -24,8 +24,8 @@ export const integrationFor = (state: AppState, organizationId: string, id: stri
 
 /**
  * Whether an organization may use an integration for a new verification operation: only its own, active
- * integrations that offer the capability. Prompt 3 will extend this with explicitly authorized programme
- * access; organization relationships alone never grant it.
+ * integrations that offer the capability. A shared activity always uses its owner's integration; organization
+ * relationships alone never grant access to one.
  */
 export function usableIntegration(state: AppState, organizationId: string, id: string, capability: IntegrationCapability): { ok: true; integration: CustomIntegration } | { ok: false; error: string } {
   const i = integrationFor(state, organizationId, id);

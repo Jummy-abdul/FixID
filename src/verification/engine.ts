@@ -4,7 +4,7 @@ import type {
 } from '@/domain/types';
 import { checkById, eligibleParticipants, providersFor } from '@/domain/verification';
 import { actorPermissions, actorRecord } from '@/store/adminOps';
-import { executionUnavailable } from '@/store/programmeOps';
+import { executionUnavailable } from '@/store/sharingOps';
 import { WEB_CLIENT, authorizeExecution, denyProblem, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
 import type { DeviceLocation } from '@/services/location';
 import { effectivePermissions, type Action, type AppState } from '@/store/state';
@@ -415,7 +415,7 @@ export function createVerificationService(deps: ServiceDeps) {
       return { ok: false, error: 'This verification expired. Start a new one.', code: 'expired' };
     }
     const policy = transactionPolicy(s, attempt);
-    // The service is the one the activity (or its programme) requires now, and the one this transaction started with.
+    // The service is the one the activity requires now, and the one this transaction started with.
     if (!policy.integration || policy.integration.id !== attempt.integrationId || policy.integration.status !== 'active') {
       return { ok: false, error: MESSAGES.lookupUnavailable, code: 'operational' };
     }
@@ -428,7 +428,8 @@ export function createVerificationService(deps: ServiceDeps) {
     listAuthorizedActivities(organizationId: string): { activity: ActivityConfig; version: ActivityVersion }[] {
       const s = deps.getState();
       return s.data.activityConfigs
-        .filter((a) => a.organizationId === organizationId && a.status === 'active')
+        // Its own activities, and shared activities it takes part in.
+        .filter((a) => (a.organizationId === organizationId || a.sharing?.participants.some((p) => p.organizationId === organizationId && p.status === 'active')) && a.status === 'active')
         .filter((a) => authorizeExecution(s, organizationId, a.id, client).ok)
         .map((a) => ({ activity: a, version: s.data.activityVersions.find((v) => v.id === a.activeVersionId)! }))
         .filter((x) => x.version);
@@ -456,14 +457,14 @@ export function createVerificationService(deps: ServiceDeps) {
       const s = deps.getState();
       const auth = authorizeExecution(s, organizationId, activityId, client);
       if (!auth.ok) {
-        if (s.data.activityConfigs.some((a) => a.id === activityId && a.organizationId === organizationId)) {
+        if (s.data.activityConfigs.some((a) => a.id === activityId && (a.organizationId === organizationId || a.sharing?.participants.some((p) => p.organizationId === organizationId)))) {
           deps.dispatch({ type: 'verify/denied', organizationId, activityId, reason: auth.error, at, client });
         }
         return auth;
       }
-      // Programme status and external identity sources are checked before anything starts.
-      const activity = s.data.activityConfigs.find((a) => a.id === activityId && a.organizationId === organizationId);
-      const unavailable = activity ? executionUnavailable(s, activity) : null;
+      // Participation (shared activities) and external identity sources are checked before anything starts.
+      const activity = s.data.activityConfigs.find((a) => a.id === activityId);
+      const unavailable = activity ? executionUnavailable(s, activity, organizationId) : null;
       if (unavailable) return { ok: false, error: unavailable, code: 'inactive' };
       const attemptId = newAttemptId();
       deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client, ...(opts.retryOf ? { retryOf: opts.retryOf } : {}), ...(opts.reverificationOf ? { reverificationOf: opts.reverificationOf } : {}) });
@@ -620,7 +621,7 @@ export function createVerificationService(deps: ServiceDeps) {
 
     /**
      * Identify Person: looks the reference up through the activity's configured identity service (the
-     * programme's, for a programme-linked activity). The verifier never chooses the service. Credentials stay
+     * owner's, for a shared activity). The verifier never chooses the service. Credentials stay
      * with the integration; only validated, permitted attributes come back. One request at a time per transaction.
      */
     async lookupExternal(attemptId: string, reference: string): Promise<{ ok: true; attempt: VerificationAttempt; result: IdentityLookupResult } | ServiceError> {

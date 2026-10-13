@@ -21,7 +21,7 @@ import {
 } from './adminOps';
 import type { RoleId } from '@/domain/roles';
 import { loadState, saveState } from './persistence';
-import { applyParticipantStatus, applyProgrammeTransition, applySaveProgramme, type ProgrammeInput } from './programmeOps';
+import { applyAssignSharedVerifiers, applyParticipantStatus, applyRespondToInvitation } from './sharingOps';
 import {
   applyActivateIntegration, applyDeactivateIntegration, applyIntegrationTestResult, applyIntegrationTestStarted, applySaveIntegration, integrationFor,
 } from './integrationOps';
@@ -271,19 +271,20 @@ export function useActions() {
         const r = run(() => applyResendSubOrganizationInvite(getState(), { organizationId, childOrganizationId, token, at }), { type: 'organizations/resendSubInvite', organizationId, childOrganizationId, token, at });
         return r.ok ? { ...r, token } : r;
       },
-      /** Verification Programmes, managed by the owning organization only. */
-      saveProgramme: (organizationId: string, input: Omit<ProgrammeInput, 'organizationId' | 'id' | 'at'>, id?: string) => {
-        const full: ProgrammeInput = { ...input, organizationId, id: id ?? newId('prg'), at: new Date().toISOString() };
-        const r = run(() => applySaveProgramme(getState(), full), { type: 'programmes/save', input: full });
-        return r.ok ? { ...r, programmeId: full.id } : r;
-      },
-      programmeTransition: (organizationId: string, programmeId: string, transition: 'activate' | 'suspend' | 'resume' | 'complete' | 'archive') => {
+      /** Shared activities: a participating organization accepts or declines an invitation. */
+      respondToInvitation: (organizationId: string, activityId: string, accept: boolean) => {
         const at = new Date().toISOString();
-        return run(() => applyProgrammeTransition(getState(), { organizationId, programmeId, transition, at }), { type: 'programmes/transition', organizationId, programmeId, transition, at });
+        return run(() => applyRespondToInvitation(getState(), { organizationId, activityId, accept, at }), { type: 'sharing/respond', organizationId, activityId, accept, at });
       },
-      setProgrammeParticipant: (organizationId: string, programmeId: string, participantId: string, status: 'active' | 'suspended' | 'removed') => {
+      /** The owner suspends, reactivates or removes a participating organization. */
+      setParticipantStatus: (organizationId: string, activityId: string, participantId: string, status: 'active' | 'suspended' | 'removed') => {
         const at = new Date().toISOString();
-        return run(() => applyParticipantStatus(getState(), { organizationId, programmeId, participantId, status, at }), { type: 'programmes/participant', organizationId, programmeId, participantId, status, at });
+        return run(() => applyParticipantStatus(getState(), { organizationId, activityId, participantId, status, at }), { type: 'sharing/participant', organizationId, activityId, participantId, status, at });
+      },
+      /** A participating organization chooses which of its own staff verify for a shared activity. */
+      assignSharedVerifiers: (organizationId: string, activityId: string, verifierIds: string[]) => {
+        const at = new Date().toISOString();
+        return run(() => applyAssignSharedVerifiers(getState(), { organizationId, activityId, verifierIds, at }), { type: 'sharing/assignVerifiers', organizationId, activityId, verifierIds, at });
       },
       /** Exception review. Each re-checks exceptions.review in the organization the exception is routed to. */
       assignException: (organizationId: string, exceptionId: string, reviewerId: string) => {

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Clock, FlaskConical, Repeat, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui';
-import type { ActivityDecision } from '@/domain/programmes';
+import type { ActivityDecision } from '@/domain/activitySettings';
 import {
   DECISION_LABEL, ELIGIBILITY_STATUS_LABEL, LIVENESS_STATUS_LABEL, LOOKUP_LABEL, MATCH_LABEL, STAGE_LABEL, stageOf,
   type EligibilityStatus, type IdentityMatchStatus, type LivenessStatus, type TransactionStage,
@@ -48,7 +48,7 @@ const PANEL = {
  * decision with its explanation, then identity, liveness and eligibility as separate results. A biometric
  * match is never presented as approval, and simulated results are labelled as such.
  */
-export function TransactionOutcome({ attempt, programmeName }: { attempt: VerificationAttempt; programmeName?: string }) {
+export function TransactionOutcome({ attempt, sharedBy }: { attempt: VerificationAttempt; sharedBy?: string }) {
   if (!attempt.decision) return null;
   const p = PANEL[attempt.decision];
   return (
@@ -89,7 +89,7 @@ export function TransactionOutcome({ attempt, programmeName }: { attempt: Verifi
           <EligibilityStatusBadge status={attempt.eligibilityStatus} />
           {attempt.eligibilityExplanation && <span className="block text-xs text-slate-500">{attempt.eligibilityExplanation}</span>}
         </Row>
-        <Row label="Activity">{attempt.activityName}{programmeName ? <span className="block text-xs text-slate-500">Programme: {programmeName}</span> : null}</Row>
+        <Row label="Activity">{attempt.activityName}{sharedBy ? <span className="block text-xs text-slate-500">Shared activity from {sharedBy}</span> : null}</Row>
         <Row label="Verification Source">{sourceName(attempt)}</Row>
         <Row label="Person">{attempt.subject?.label ?? 'Not identified'}</Row>
         <Row label="Transaction Reference"><span className="font-mono text-xs">{attempt.id}</span></Row>

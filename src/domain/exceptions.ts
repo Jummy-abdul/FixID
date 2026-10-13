@@ -1,8 +1,8 @@
-import type { ActivityDecision } from './programmes';
+import type { ActivityDecision } from './activitySettings';
 import type { VerificationAttempt } from './types';
 
 /**
- * Verification Exceptions: a transaction that needs authorized attention under its activity or programme
+ * Verification Exceptions: a transaction that needs authorized attention under its activity
  * policy. An exception is a separate record linked to the transaction. It never changes the transaction's
  * recorded evidence (identity match, liveness, eligibility or the original decision); a reviewer records a
  * separate determination, and the transaction's current disposition is derived from it.
@@ -13,8 +13,8 @@ export type ExceptionReason =
   | 'identity-mismatch' | 'inconclusive' | 'liveness-failed' | 'record-ambiguity' | 'disputed'
   | 'eligibility-uncertain' | 'eligibility-not-met' | 'missing-evidence' | 'service-failure' | 'other';
 export type ResolutionOutcome = 'verification-confirmed' | 'verification-not-confirmed' | 'reverification-required' | 'unable-to-resolve';
-/** Where the exception is reviewed: the transaction's own organization, or the programme owner's reviewers. */
-export type ExceptionRoute = 'local' | 'programme';
+/** Where the exception is reviewed: the transaction's own organization, or (shared activities) the activity owner's reviewers. */
+export type ExceptionRoute = 'local' | 'owner';
 
 export type ExceptionAction =
   | 'created' | 'assigned' | 'review-started' | 'note-added' | 'information-requested'
@@ -40,7 +40,8 @@ export interface VerificationException {
   id: string;
   /** The organization whose transaction it is. */
   organizationId: string;
-  programmeId?: string;
+  /** Shared activities: the organization that owns the activity. */
+  activityOwnerId?: string;
   transactionId: string;
   activityId: string;
   activityName: string;

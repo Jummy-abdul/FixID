@@ -6,7 +6,7 @@ import { useAuthorization } from '@/auth/authorization';
 import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
 import { DECISION_LABEL, ELIGIBILITY_STATUS_LABEL, MATCH_LABEL, STAGE_LABEL, stageOf } from '@/domain/transactions';
 import { currentDecision, exceptionFor } from '@/store/exceptionOps';
-import type { ActivityDecision } from '@/domain/programmes';
+import type { ActivityDecision } from '@/domain/activitySettings';
 import { Badge, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice, type Column } from '@/components/ui';
 import { ResultBadge } from '@/components/domain/StatusBadges';
 import { AccessAndEntry, AccessBadge, EligibilityBadge, EntryBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
@@ -43,7 +43,8 @@ interface HistoryRow {
   eligibility: ReactNode;
   decision: ReactNode;
   decisionKey?: ActivityDecision;
-  programmeId?: string;
+  /** The organization that performed it (shared activities can be performed by participating organizations). */
+  performedBy?: string;
   matchKey?: string;
   eligibilityKey?: string;
   stageKey: string;
@@ -69,7 +70,7 @@ function fromAttempt(a: VerificationAttempt, organization = '', current: Activit
     // The current disposition (after any review); the original decision stays on the transaction.
     decision: <span className="inline-flex items-center gap-1"><DecisionBadge decision={a.status === 'completed' ? current : undefined} />{a.reviewDisposition && <span className="text-xs text-slate-500">Reviewed</span>}{a.reusedFrom && <Repeat className="h-3.5 w-3.5 text-sky-600" aria-label="Reused identity result" />}{a.simulated && <FlaskConical className="h-3.5 w-3.5 text-amber-600" aria-label="Used simulated services" />}</span>,
     decisionKey: a.status === 'completed' ? current : undefined, status: <StageBadge attempt={a} />,
-    programmeId: a.programmeId, matchKey: a.match?.status, eligibilityKey: a.eligibilityStatus, stageKey: stageOf(a), simulated: a.simulated,
+    performedBy: a.organizationId, matchKey: a.match?.status, eligibilityKey: a.eligibilityStatus, stageKey: stageOf(a), simulated: a.simulated,
     outcome: <span className="inline-flex items-center gap-1"><AttemptBadge attempt={a} />{a.simulated && <FlaskConical className="h-3.5 w-3.5 text-amber-600" aria-label="Used simulated providers" />}</span>,
     outcomeKey: a.status === 'completed' ? a.outcome : undefined,
     access: <AccessBadge attempt={a} />, location: <LocationBadge attempt={a} />, entry: <EntryBadge attempt={a} />, entered: a.entry?.status === 'entered',
@@ -118,7 +119,7 @@ export function VerificationHistoryPage() {
   const [entry, setEntry] = useQueryState('entry', 'all');
   const [decision, setDecision] = useQueryState('decision', 'all');
   const [source, setSource] = useQueryState('source', 'all');
-  const [programme, setProgramme] = useQueryState('programme', 'all');
+  const [performer, setPerformer] = useQueryState('organization', 'all');
   const [match, setMatch] = useQueryState('match', 'all');
   const [elig, setElig] = useQueryState('eligibility', 'all');
   const [stage, setStage] = useQueryState('status', 'all');
@@ -127,10 +128,11 @@ export function VerificationHistoryPage() {
   const [page, setPage] = usePageParam();
   const now = useMemo(() => new Date(), []);
 
-  const attempts = useMemo(() => state.data.verificationAttempts.filter((a) => a.organizationId === organization.id && a.status !== 'in-progress'), [state.data.verificationAttempts, organization.id]);
+  // Its own transactions, and those participating organizations performed for its shared activities.
+  const attempts = useMemo(() => state.data.verificationAttempts.filter((a) => (a.organizationId === organization.id || a.activityOwnerId === organization.id) && a.status !== 'in-progress'), [state.data.verificationAttempts, organization.id]);
   const configs = state.data.activityConfigs.filter((a) => a.organizationId === organization.id);
-  // Programmes this organization's transactions ran under (by name only).
-  const programmes = (state.data.verificationProgrammes ?? []).filter((p) => attempts.some((a) => a.programmeId === p.id));
+  // Organizations that performed these transactions (by name only): this one, and participants in its shared activities.
+  const performers = [...new Set(attempts.map((a) => a.organizationId))].map((id) => ({ id, name: state.data.organizations.find((o) => o.id === id)?.name ?? id }));
   const all = useMemo(() => {
     const legacyName = new Map(activities.map((a) => [a.id, a.name]));
     const legacy = (t: Transaction): HistoryRow => {
@@ -145,7 +147,8 @@ export function VerificationHistoryPage() {
         search: [t.id, t.reason, m?.displayName, t.credentialId && credentialById.get(t.credentialId)?.identifier, legacyName.get(t.activityId)].join(' ').toLowerCase(),
       };
     };
-    return [...attempts.map((a) => fromAttempt(a, organization.name, a.status === 'completed' ? currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined) : undefined)), ...transactions.map(legacy)].sort((a, b) => b.at.localeCompare(a.at));
+    const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? '';
+    return [...attempts.map((a) => fromAttempt(a, orgName(a.organizationId), a.status === 'completed' ? currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined) : undefined)), ...transactions.map(legacy)].sort((a, b) => b.at.localeCompare(a.at));
   }, [attempts, transactions, activities, memberById, credentialById, organization.name, state]);
 
   const filtered = useMemo(() => {
@@ -156,7 +159,7 @@ export function VerificationHistoryPage() {
       (outcome === 'all' || r.outcomeKey === outcome) &&
       (decision === 'all' || r.decisionKey === decision) &&
       (source === 'all' || r.sourceKey === source) &&
-      (programme === 'all' || (programme === 'none' ? !r.programmeId : r.programmeId === programme)) &&
+      (performer === 'all' || (r.performedBy ?? organization.id) === performer) &&
       (match === 'all' || r.matchKey === match) &&
       (elig === 'all' || r.eligibilityKey === elig) &&
       (stage === 'all' || r.stageKey === stage) &&
@@ -165,7 +168,7 @@ export function VerificationHistoryPage() {
       (entry === 'all' || (entry === 'entered') === r.entered) &&
       (!person || r.memberId === person) &&
       (!query || r.search.includes(query)));
-  }, [all, range, outcome, decision, source, programme, match, elig, stage, sim, activity, entry, person, q, now]);
+  }, [all, range, outcome, decision, source, performer, match, elig, stage, sim, activity, entry, person, q, now]);
 
   const { pageRows, pageCount, current } = usePageSlice(filtered, page, PAGE_SIZE);
   const personName = person ? memberById.get(person)?.displayName : null;
@@ -195,7 +198,7 @@ export function VerificationHistoryPage() {
             options={[{ value: 'all', label: 'All decisions' }, ...(Object.keys(DECISION_LABEL) as ActivityDecision[]).map((d) => ({ value: d, label: DECISION_LABEL[d] }))]} />
           <FilterSelect label="Identity source" value={source} onChange={setSource}
             options={[{ value: 'all', label: 'All identity sources' }, { value: 'local', label: 'FixID Local Records' }, { value: 'external', label: 'External identity services' }]} />
-          {programmes.length > 0 && <FilterSelect label="Programme" value={programme} onChange={setProgramme} options={[{ value: 'all', label: 'All programmes' }, { value: 'none', label: 'No programme' }, ...programmes.map((p) => ({ value: p.id, label: p.name }))]} />}
+          {performers.length > 1 && <FilterSelect label="Performed by" value={performer} onChange={setPerformer} options={[{ value: 'all', label: 'All organizations' }, ...performers.map((p) => ({ value: p.id, label: p.name }))]} />}
           <FilterSelect label="Identity match" value={match} onChange={setMatch} options={[{ value: 'all', label: 'Any identity match' }, ...(Object.keys(MATCH_LABEL) as (keyof typeof MATCH_LABEL)[]).map((k) => ({ value: k, label: MATCH_LABEL[k] }))]} />
           <FilterSelect label="Eligibility" value={elig} onChange={setElig} options={[{ value: 'all', label: 'Any eligibility' }, ...(Object.keys(ELIGIBILITY_STATUS_LABEL) as (keyof typeof ELIGIBILITY_STATUS_LABEL)[]).map((k) => ({ value: k, label: ELIGIBILITY_STATUS_LABEL[k] }))]} />
           <FilterSelect label="Transaction status" value={stage} onChange={setStage} options={[{ value: 'all', label: 'Any status' }, ...(['completed', 'pending-review', 'failed', 'unable-to-complete', 'cancelled'] as const).map((k) => ({ value: k, label: STAGE_LABEL[k] }))]} />
@@ -227,8 +230,9 @@ export function VerificationRecordPage() {
   const { state } = useStore();
   const { organization } = useSession();
   const { recordAccessDenied } = useActions();
-  const attempt = state.data.verificationAttempts.find((a) => a.id === recordId && a.organizationId === organization.id);
-  // Another organization's transaction is never shown; the refused attempt is audited.
+  // Its own transaction, or one a participating organization performed for its shared activity. Any other
+  // organization's transaction is never shown; the refused attempt is audited.
+  const attempt = state.data.verificationAttempts.find((a) => a.id === recordId && (a.organizationId === organization.id || a.activityOwnerId === organization.id));
   const elsewhere = !attempt && state.data.verificationAttempts.some((a) => a.id === recordId);
   useEffect(() => { if (elsewhere && recordId) recordAccessDenied(organization.id, 'verification-transaction', recordId); }, [elsewhere, recordId, organization.id, recordAccessDenied]);
   return attempt ? <AttemptDetail attempt={attempt} /> : <TransactionDetailPage />;
@@ -239,7 +243,8 @@ function AttemptDetail({ attempt }: { attempt: VerificationAttempt }) {
   const { state } = useStore();
   const { can } = useAuthorization();
   const providers = providersFor(organization);
-  const programme = attempt.programmeId ? state.data.verificationProgrammes.find((p) => p.id === attempt.programmeId) : undefined;
+  const performer = attempt.organizationId !== organization.id ? state.data.organizations.find((o) => o.id === attempt.organizationId)?.name : undefined;
+  const owner = attempt.activityOwnerId && attempt.activityOwnerId !== organization.id ? state.data.organizations.find((o) => o.id === attempt.activityOwnerId)?.name : undefined;
   return (
     <>
       <PageHeader
@@ -264,7 +269,7 @@ function AttemptDetail({ attempt }: { attempt: VerificationAttempt }) {
           {attempt.reasons.length > 0 && <ul className="mt-4 list-disc space-y-0.5 pl-5 text-sm text-slate-600" aria-label="Reasons">{attempt.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}
           {attempt.review && <p className="mt-4 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-900">Pending review since {formatDateTime(attempt.review.referredAt)} ({attempt.review.referredBy}): {attempt.review.reason}</p>}
         </Card>
-        <TransactionDetails attempt={attempt} programmeName={programme?.name} />
+        <TransactionDetails attempt={attempt} performedBy={performer} sharedBy={owner} />
         {attempt.diagnostics?.length && can('audit.view') ? (
           <Card className="px-5 py-5">
             <h2 className="text-sm font-semibold text-slate-900">Diagnostics (protected)</h2>
@@ -310,7 +315,7 @@ function AttemptDetail({ attempt }: { attempt: VerificationAttempt }) {
  * The transaction record, read-only: identity source, the permitted reference, each step's result, the
  * decision and why. Never raw biometric data. Ready for the review and audit tools of a later phase.
  */
-function TransactionDetails({ attempt: a, programmeName }: { attempt: VerificationAttempt; programmeName?: string }) {
+function TransactionDetails({ attempt: a, performedBy, sharedBy }: { attempt: VerificationAttempt; performedBy?: string; sharedBy?: string }) {
   const row = (label: string, value: ReactNode) => <div><dt className="text-slate-500">{label}</dt><dd className="mt-0.5 text-slate-900">{value}</dd></div>;
   return (
     <Card className="px-5 py-5">
@@ -319,7 +324,8 @@ function TransactionDetails({ attempt: a, programmeName }: { attempt: Verificati
         {row('Transaction Reference', <span className="font-mono text-xs">{a.id}</span>)}
         {row('Status', <StageBadge attempt={a} />)}
         {row('Identity Source', sourceName(a))}
-        {programmeName && row('Programme', programmeName)}
+        {sharedBy && row('Shared activity from', sharedBy)}
+        {performedBy && row('Performed by', performedBy)}
         {a.lookup && row('External Reference ID', <><span className="font-mono">{a.lookup.reference.toUpperCase()}</span><span className="block text-xs text-slate-500">Lookup: {lookupLabel(a)}{a.lookup.count > 1 ? ` (${a.lookup.count} lookups)` : ''}</span></>)}
         {a.lookup?.status === 'FOUND' && a.lookup.attributes && Object.keys(a.lookup.attributes).length > 0 && row('Permitted attributes returned', Object.entries(a.lookup.attributes).map(([k, v]) => `${k}: ${v}`).join(' · '))}
         {a.liveness && row('Liveness', <><LivenessBadge status={a.liveness.status} />{a.liveness.simulated && <span className="ml-1"><SimulatedBadge /></span>}</>)}

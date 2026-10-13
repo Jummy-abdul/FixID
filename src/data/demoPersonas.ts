@@ -21,8 +21,8 @@ export const SEEDED_SUB_ORGANIZATIONS: Record<string, string> = { [ORG_B1]: ORG_
 
 /** The custom role behind the "custom role" demonstration account (exists in Organization B2 only). */
 export const B2_RECORDS_ROLE = `${ORG_B2}_role_records`;
-/** The custom role behind the programme reviewer account (exists in Organization B only). */
-export const B_REVIEWER_ROLE = `${ORG_B}_role_programme_reviewer`;
+/** The custom role behind the exception reviewer account (exists in Organization B only). */
+export const B_REVIEWER_ROLE = `${ORG_B}_role_exception_reviewer`;
 
 export interface DemoPersona {
   /** The account ID; also the administrator records' `userId`. */
@@ -49,8 +49,8 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     firstName: 'Esther', lastName: 'Lawal', email: 'esther.lawal@northbridge.example',
   },
   {
-    accountId: 'acct_demo_b_admin', persona: 'Programme Owner — Organization Admin of the parent organization', organizationId: ORG_B,
-    description: 'Runs Organization B, owns its verification programme and oversees its two sub-organizations’ programme results, not their private records.',
+    accountId: 'acct_demo_b_admin', persona: 'Organization Admin — owns a shared activity', organizationId: ORG_B,
+    description: 'Runs Organization B and owns a shared activity its two sub-organizations take part in. Sees that activity’s results and exceptions, not their other records.',
     firstName: 'Victor', lastName: 'Hale', email: 'victor.hale@meridian.example',
   },
   {
@@ -79,13 +79,13 @@ export const DEMO_PERSONAS: DemoPersona[] = [
     firstName: 'Mira', lastName: 'Santos', email: 'mira.santos@eastgate.example',
   },
   {
-    accountId: 'acct_demo_b_reviewer', persona: 'Custom role (Programme Reviewer)', organizationId: ORG_B,
-    description: 'Holds a custom role in Organization B: reviews programme exceptions and views programme reports. No configuration access.',
+    accountId: 'acct_demo_b_reviewer', persona: 'Custom role (Exception Reviewer)', organizationId: ORG_B,
+    description: 'Holds a custom role in Organization B: reviews exceptions, including those from its shared activity, and views reports. No configuration access.',
     firstName: 'Sam', lastName: 'Rivera', email: 'sam.rivera@meridian.example',
   },
   {
     accountId: 'acct_demo_c_admin', persona: 'Organization Admin — independent organization with an external identity service', organizationId: ORG_C,
-    description: 'Runs Organization C: its activities, its simulated identity service and its exception reviews.',
+    description: 'Runs Organization C: its activities, its simulated identity source and its exception reviews. Has an invitation to Organization B’s shared activity.',
     firstName: 'Jordan', lastName: 'Blake', email: 'jordan.blake@brightwater.example',
   },
   {

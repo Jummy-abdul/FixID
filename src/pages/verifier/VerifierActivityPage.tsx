@@ -9,11 +9,11 @@ import { formatCoordinate, formatRadius } from '@/domain/location';
 import { participantProgress, participantStatuses } from '@/domain/participantStatus';
 import type { ActivityConfig } from '@/domain/types';
 import { activeAssignments, describeRequirements, eligibleParticipants } from '@/domain/verification';
-import { ELIGIBILITY_LABEL, LIVENESS_LABEL, METHOD_LABEL } from '@/domain/programmes';
+import { checksLabel, sourceLabel } from '@/components/verification/RequirementsSummary';
 import { formatDateTime } from '@/lib/dates';
 import { useOrgData, useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
-import { activityPolicy, executionUnavailable } from '@/store/programmeOps';
+import { activityFor, activityPolicy, executionUnavailable } from '@/store/sharingOps';
 
 /** Where the activity takes place, from its location check or its descriptive location. */
 export function activityPlace(a: ActivityConfig): string | null {
@@ -34,7 +34,8 @@ export function VerifierActivityPage() {
   const { organization } = useSession();
   const { state } = useStore();
   const service = useVerificationService();
-  const activity = state.data.activityConfigs.find((a) => a.id === activityId && a.organizationId === organization.id);
+  // Its own activity, or a shared activity it takes part in.
+  const activity = activityId ? activityFor(state, organization.id, activityId) : undefined;
   const auth = activityId ? service.authorize(organization.id, activityId) : null;
 
   // Another organization's activity, or one that doesn't exist, looks the same: nothing is revealed.
@@ -64,7 +65,9 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
   const place = activityPlace(activity);
   const usesFace = !!version?.checks.some((c) => c.type === 'face-match');
   const policy = activityPolicy(state, activity);
-  const unavailable = executionUnavailable(state, activity);
+  const shared = activity.organizationId !== organization.id || !!activity.sharing;
+  const ownerName = state.data.organizations.find((o) => o.id === activity.organizationId)?.name ?? organization.name;
+  const unavailable = executionUnavailable(state, activity, organization.id);
   const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
   const mine = state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.verifierId === record?.id && a.status !== 'in-progress').slice(0, 5);
 
@@ -129,14 +132,12 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
         <Card className="mt-6 px-5 py-4">
           <h2 className="text-sm font-semibold text-slate-900">Verification requirements</h2>
           <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2" aria-label="Verification requirements">
-            <div><dt className="text-slate-500">Owning Organization</dt><dd className="text-slate-900">{organization.name}</dd></div>
-            <div><dt className="text-slate-500">Programme</dt><dd className="text-slate-900">{policy.programme ? policy.programme.name : 'None — independent activity'}</dd></div>
-            <div><dt className="text-slate-500">Identity Source</dt><dd className="text-slate-900">{policy.effective.identitySource.kind === 'local' ? 'FixID Local Records' : `${policy.integration?.name ?? 'External identity service'} (external)`}</dd></div>
-            <div><dt className="text-slate-500">Verification Method</dt><dd className="text-slate-900">{METHOD_LABEL[policy.effective.method]}{policy.effective.method === 'face' ? ` · Liveness ${LIVENESS_LABEL[policy.effective.liveness].toLowerCase()}` : ''}</dd></div>
-            <div><dt className="text-slate-500">Eligibility Requirement</dt><dd className="text-slate-900">{ELIGIBILITY_LABEL[policy.effective.eligibility.approach]}</dd></div>
+            <div><dt className="text-slate-500">Owned by</dt><dd className="text-slate-900">{ownerName}{shared ? ' (shared activity)' : ''}</dd></div>
+            <div><dt className="text-slate-500">Identity Source</dt><dd className="text-slate-900">{sourceLabel(policy.effective.identitySource, policy.integration)}</dd></div>
+            <div><dt className="text-slate-500">Required Checks</dt><dd className="text-slate-900">{checksLabel(policy.effective)}</dd></div>
             <div><dt className="text-slate-500">Assigned Verifiers</dt><dd className="text-slate-900">{verifiers.join(', ') || 'None'}</dd></div>
           </dl>
-          {policy.programme && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Requirements set by the programme are enforced and can’t be changed while verifying.</p>}
+          {shared && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Requirements are set by {ownerName} and can’t be changed while verifying.</p>}
           <p className="mt-3 text-xs font-medium text-slate-500">Checks</p>
           <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-600">
             {describeRequirements(version, (id) => credentialTypeById.get(id)?.name ?? '').map((l) => <li key={l}>{l}</li>)}

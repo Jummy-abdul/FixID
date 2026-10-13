@@ -20,19 +20,24 @@ import { cn } from '@/lib/cn';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { NO_VERIFIER_WARNING, activationProblems } from '@/store/activityOps';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
-import { activityPolicy } from '@/store/programmeOps';
+import { activityFor, activityPolicy, audienceOf } from '@/store/sharingOps';
+import { sharedActivityTransactions, summarize } from '@/store/reporting';
+import { AUDIENCE_LABEL } from '@/domain/activitySettings';
+import { ParticipatingOrganizationsTab, SharedActivityParticipantView } from './SharedActivityPanels';
 import { NotFoundPage } from '../NotFoundPage';
 import { AttemptsTable } from './VerificationHistoryPage';
 import { activityPath } from './paths';
 
-type TabId = 'overview' | 'participants' | 'history';
+type TabId = 'overview' | 'organizations' | 'participants' | 'history';
 
 export function ActivityDetailsPage() {
   const { activityId } = useParams();
   const { state } = useStore();
   const { organization } = useSession();
-  const activity = state.data.activityConfigs.find((a) => a.id === activityId && a.organizationId === organization.id);
+  // The organization's own activity, or a shared activity it was invited to or takes part in. Nothing else.
+  const activity = activityId ? activityFor(state, organization.id, activityId) : undefined;
   if (!activity) return <NotFoundPage entity="verification activity" backTo="/verification-activities" />;
+  if (activity.organizationId !== organization.id) return <SharedActivityParticipantView key={activity.id} activity={activity} />;
   return <Details key={activity.id} activity={activity} />;
 }
 
@@ -59,9 +64,11 @@ function Details({ activity }: { activity: ActivityConfig }) {
   const canManage = can('verification.activities.activate');
   const canEdit = can('verification.activities.edit');
   const usesParticipants = !!current?.checks.some((c) => c.params.useParticipants);
+  const shared = audienceOf(activity) === 'shared';
   const tabs = [
     { value: 'overview' as const, label: 'Overview' },
-    { value: 'participants' as const, label: 'Participants', count: usesParticipants ? eligible : undefined },
+    ...(shared ? [{ value: 'organizations' as const, label: 'Participating Organizations', count: (activity.sharing?.participants ?? []).filter((p) => p.status === 'active' || p.status === 'invited').length }] : []),
+    ...(usesParticipants ? [{ value: 'participants' as const, label: 'People', count: eligible }] : []),
     ...(can('verification.results.view') ? [{ value: 'history' as const, label: 'Verification History', count: attempts.length }] : []),
   ];
   const selected: TabId = tabs.some((t) => t.value === tab) ? (tab as TabId) : 'overview';
@@ -107,6 +114,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
           <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-slate-700">
             {activity.locationCheck?.enabled && <div className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Location check</dt><dd>Location check on{activity.locationCheck.label ? ` · ${activity.locationCheck.label.split(',')[0]}` : ''}</dd></div>}
             {when && <div className="flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Schedule</dt><dd>{when}{activity.schedule?.enforced ? ' · verification only in this window' : ''}</dd></div>}
+            <div className="flex items-center gap-1.5"><dt className="sr-only">For</dt><dd className="text-slate-600">{AUDIENCE_LABEL[audienceOf(activity)]}{shared ? ` · ${(activity.sharing?.participants ?? []).filter((p) => p.status === 'active').length} taking part` : ''}</dd></div>
             {usesParticipants && <div className="flex items-center gap-1.5"><Users className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Eligible participants</dt><dd>{eligible} eligible {eligible === 1 ? 'participant' : 'participants'}</dd></div>}
           </dl>
         </div>
@@ -133,10 +141,11 @@ function Details({ activity }: { activity: ActivityConfig }) {
       <Tabs<TabId> value={selected} onChange={(v) => setTab(v)} tabs={tabs} />
       <div className="mt-6" role="tabpanel" aria-label={tabs.find((t) => t.value === selected)?.label}>
         {selected === 'overview' && <Overview activity={activity} warnings={problems.warnings} />}
+        {selected === 'organizations' && <ParticipatingOrganizationsTab activity={activity} />}
         {selected === 'participants' && <ParticipantsTab activity={activity} uses={usesParticipants} />}
         {selected === 'history' && (
           <Card>
-            <p className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">Verification attempts for this activity. Configuration changes are in the Audit Log.</p>
+            <p className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">Verification attempts for this activity{shared ? ', including those performed by participating organizations' : ''}. Configuration changes are in the Audit Log.</p>
             <AttemptsTable rows={attempts} hideActivity />
           </Card>
         )}
@@ -147,7 +156,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
           title={{ activate: draft && active ? `Activate version ${draft.number}?` : `Activate ${activity.name}?`, deactivate: `Deactivate ${activity.name}?`, remove: `Remove ${activity.name}?`, discard: 'Discard draft changes?' }[pending]}
           confirmLabel={{ activate: 'Activate', deactivate: 'Deactivate', remove: 'Remove Draft', discard: 'Discard changes' }[pending]}
           description={{
-            activate: draft && active ? `New verifications will use version ${draft.number}. Earlier verifications keep the version they used.` : 'Your organization’s verifiers will be able to use it straight away.',
+            activate: draft && active ? `New verifications will use version ${draft.number}. Earlier verifications keep the version they used.` : activity.sharing ? 'Your verifiers and participating organizations’ assigned staff will be able to use it straight away.' : 'Your organization’s verifiers will be able to use it straight away.',
             deactivate: 'No new verifications can start. Earlier verification records and the configuration are kept, and you can activate it again later.',
             remove: 'This draft was never activated. It will be removed. This can’t be undone.',
             discard: `Draft version ${draft?.number} will be deleted. Version ${active?.number} stays as it is.`,
@@ -177,16 +186,20 @@ function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: 
   // Only issues an administrator can act on.
   const actionable = warnings.filter((w) => w === NO_VERIFIER_WARNING);
   const policy = activityPolicy(state, activity);
-  // Simple local activities keep a plain overview (#012); governed or external ones show what applies and where it comes from.
-  const showSettings = !!policy.programme || policy.effective.identitySource.kind === 'external';
+  // For a shared activity, the owner counts every participating organization's transactions for it.
+  const results = summarize(state, sharedActivityTransactions(state, activity));
   return (
     <div className="space-y-6">
       <section aria-label="Activity summary" className="grid gap-4 sm:grid-cols-3">
-        {[
-          ['Eligible participants', progress.eligible],
-          ['Verified participants', progress.verified],
+        {(usesList ? [
+          ['Eligible people', progress.eligible],
+          ['Verified people', progress.verified],
           ['Entries granted', progress.granted],
-        ].map(([label, value]) => (
+        ] : [
+          ['Verifications', results.attempts],
+          ['Verified', results.allowed],
+          ['Not verified or pending', results.denied + results.pendingReview + results.unableToComplete],
+        ]).map(([label, value]) => (
           <Card key={label} className="p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p></Card>
         ))}
       </section>
@@ -194,32 +207,25 @@ function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: 
       <Card className="px-6 py-5">
         <h2 className="text-sm font-semibold text-slate-900">Activity details</h2>
         <dl className="mt-3 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-          <div><dt className="text-slate-500">Eligible participants</dt><dd className="mt-0.5 text-slate-900">{usesList ? (
-            <>
-              {groups.length > 0 && <span className="block">Groups: {list(groups)}</span>}
-              {users.length > 0 && <span className="block">Users: {list(users)}</span>}
-            </>
-          ) : 'None selected'}</dd></div>
+          {usesList && <div><dt className="text-slate-500">Who can be verified</dt><dd className="mt-0.5 text-slate-900">
+            {groups.length > 0 && <span className="block">Groups: {list(groups)}</span>}
+            {users.length > 0 && <span className="block">Users: {list(users)}</span>}
+          </dd></div>}
           <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="mt-0.5 text-slate-900">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet'}</dd></div>
           <div><dt className="text-slate-500">Location check</dt><dd className="mt-0.5 text-slate-900">{loc?.enabled
             ? validCoordinates(loc.lat, loc.lng)
               ? <>On{loc.label && <span className="block">{loc.label}</span>}<span className="block text-slate-600">{formatCoordinate(loc.lat)}, {formatCoordinate(loc.lng)} · within {formatRadius(loc.radiusM)}</span></>
               : 'On, but no location selected'
             : 'Off'}</dd></div>
-          <div><dt className="text-slate-500">Verification programme</dt><dd className="mt-0.5 text-slate-900">{policy.programme
-            ? <Link to={`/programmes/${policy.programme.id}`} className="font-medium text-brand-700 hover:text-brand-800">{policy.programme.name}</Link>
-            : 'None — independent activity'}</dd></div>
+          <div><dt className="text-slate-500">For</dt><dd className="mt-0.5 text-slate-900">{AUDIENCE_LABEL[audienceOf(activity)]}</dd></div>
           <div><dt className="text-slate-500">Last updated</dt><dd className="mt-0.5 text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
         </dl>
       </Card>
-      {showSettings && (
-        <Card className="px-6 py-5">
-          <h2 className="text-sm font-semibold text-slate-900">Verification settings</h2>
-          {policy.programme && <p className="mt-1 text-xs text-slate-500">Settings marked with a lock are set by {policy.programme.name}; this activity can only make them stricter.</p>}
-          <div className="mt-3"><ActivitySettingsSummary settings={policy.effective} inherited={!!policy.programme} integration={policy.integration}
-            ownerName={policy.integration && policy.integration.organizationId !== organization.id ? policy.integrationOwner : undefined} /></div>
-        </Card>
-      )}
+      <Card className="px-6 py-5">
+        <h2 className="text-sm font-semibold text-slate-900">Verification settings</h2>
+        {activity.sharing && <p className="mt-1 text-xs text-slate-500">These apply to every participating organization. Only your organization can change them.</p>}
+        <div className="mt-3"><ActivitySettingsSummary settings={policy.effective} integration={policy.integration} /></div>
+      </Card>
       {loc?.enabled && validCoordinates(loc.lat, loc.lng) && maps.available && (
         <Card className="px-6 py-5">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">Location check area</h2>

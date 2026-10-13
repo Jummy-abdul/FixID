@@ -34,7 +34,7 @@ import { buildChecks } from '@/domain/verification';
 import { LEGACY_ROLE_TEMPLATES } from '@/domain/roles';
 import { invitationToken } from '@/lib/tokens';
 import type { VerificationException } from '@/domain/exceptions';
-import { DEFAULT_DECISION_RULES, type VerificationProgramme, type VerificationSettings } from '@/domain/programmes';
+import { DEFAULT_DECISION_RULES, type VerificationSettings } from '@/domain/activitySettings';
 import { CONTRACT_VERSION, SIMULATED_BASE_URL, type CustomIntegration, type IntegrationCheck } from '@/domain/integrations';
 import { B2_RECORDS_ROLE, B_REVIEWER_ROLE, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C, ORG_D, SEEDED_SUB_ORGANIZATIONS } from './demoPersonas';
 import { buildIdSwitchRegistry } from './idSwitchRegistry';
@@ -74,8 +74,6 @@ export interface SeedData {
   organizationRelationships: OrganizationRelationship[];
   /** Custom identity services, each owned by one organization. */
   customIntegrations: CustomIntegration[];
-  /** Verification Programmes, each owned by one organization. */
-  verificationProgrammes: VerificationProgramme[];
   verificationExceptions: VerificationException[];
 }
 
@@ -903,7 +901,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
   // Brightwater demonstrates local face verification with the labelled simulated provider (no real provider is configured).
   const demoOrg = organizations.find((o) => o.id === ORG_C);
   if (demoOrg) demoOrg.integrations = { ...demoOrg.integrations, simulatedBiometrics: { enabled: true } };
-  const scenarios = seedProgrammeScenarios(organizations, today);
+  const scenarios = seedActivityScenarios(organizations, today);
   activitiesSeed.activityConfigs.push(...scenarios.activityConfigs);
   activitiesSeed.activityVersions.push(...scenarios.activityVersions);
   activitiesSeed.verifierAssignments.push(...scenarios.verifierAssignments);
@@ -931,15 +929,14 @@ export function buildSeed(now: Date = new Date()): SeedData {
       permissions: ['users.view', 'users.create', 'users.import', 'groups.view'], system: false,
       createdAt: iso(addDays(today, -130)), createdBy: 'Mira Santos', updatedAt: iso(addDays(today, -130)), updatedBy: 'Mira Santos',
     }, {
-      // Demonstration only: a restricted programme reviewer in Organization B (no configuration access).
-      id: B_REVIEWER_ROLE, organizationId: ORG_B, name: 'Programme Reviewer', description: 'Reviews programme exceptions and views programme oversight and reports. Can’t configure anything.',
-      permissions: ['programmes.view', 'exceptions.view', 'exceptions.review', 'reports.view'], system: false,
+      // Demonstration only: a restricted exception reviewer in Organization B (no configuration access).
+      id: B_REVIEWER_ROLE, organizationId: ORG_B, name: 'Exception Reviewer', description: 'Reviews exceptions (including those from organizations taking part in shared activities) and views reports. Can’t configure anything.',
+      permissions: ['verification.activities.view', 'exceptions.view', 'exceptions.review', 'reports.view'], system: false,
       createdAt: iso(addDays(today, -95)), createdBy: 'Victor Hale', updatedAt: iso(addDays(today, -95)), updatedBy: 'Victor Hale',
     }],
     logoAssets: [],
     ssoConnections: [],
     customIntegrations: seedIntegrations(today),
-    verificationProgrammes: scenarios.verificationProgrammes,
     verificationExceptions: [],
     organizationRelationships: Object.entries(SEEDED_SUB_ORGANIZATIONS).map(([child, parent]) => ({
       id: `rel_${child}`, parentOrganizationId: parent, childOrganizationId: child, type: 'sub-organization' as const, origin: 'created-by-parent' as const,
@@ -950,7 +947,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
 
 /**
  * Fictional custom identity services. Organization A has none (local verification only); B's is tested and
- * active; C has a Draft and an active simulated service (programme scenarios C and D); D's points at an external
+ * active; C has a Draft and an active simulated service (activity scenario C); D's points at an external
  * service, so its test fails (external requests are
  * disabled in the prototype) and it can't be activated.
  */
@@ -1025,27 +1022,27 @@ export function seedIntegrations(today: Date): CustomIntegration[] {
  */
 export const DEMO_LOCAL_PEOPLE = ['PN-100001', 'PN-100002', 'PN-100003'] as const;
 
-/** The parent-governed programme in demonstration scenario B. */
-export const DEMO_PROGRAMME_B = 'prog_meridian_staff';
+/** The shared activity in demonstration scenario B: owned by Organization B, run by B1 and B2. */
+export const DEMO_SHARED_ACTIVITY = `${ORG_B}_va_staff_entry`;
 
 /**
- * Demonstration scenarios for verification programmes (all fictional):
- * A — Northbridge: an independent activity using local records.
- * B — Meridian: a programme using its external identity service, applied to both sub-organizations, each
- *     with its own programme-linked activity (Harbourside: external eligibility; Eastgate: reference list).
- * C — Brightwater: an independent activity using its own external identity service.
- * D — Brightwater: eligibility from a reference list, without enrolling anybody locally.
- * E — Liveness enforcement: B's programme requires liveness, which its activities can't disable.
+ * Demonstration activities (all fictional):
+ * A — Northbridge: an activity for its own use, checked against its FixID records.
+ * B — Meridian: one shared activity using its connected identity source. Its two sub-organizations take
+ *     part (each runs it from its own workspace with its own staff); Brightwater has been invited.
+ * C — Brightwater: activities for its own use with its own connected identity source.
  */
-export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 'integrations'>[], today: Date):
-  Pick<SeedData, 'verificationProgrammes' | 'activityConfigs' | 'activityVersions' | 'verifierAssignments'> {
+export function seedActivityScenarios(organizations: Pick<Organization, 'id' | 'integrations'>[], today: Date):
+  Pick<SeedData, 'activityConfigs' | 'activityVersions' | 'verifierAssignments'> {
   const at = (days: number) => new Date(today.getTime() - days * DAY).toISOString();
-  const out = { verificationProgrammes: [] as VerificationProgramme[], activityConfigs: [] as ActivityConfig[], activityVersions: [] as ActivityVersion[], verifierAssignments: [] as VerifierAssignment[] };
+  const out = { activityConfigs: [] as ActivityConfig[], activityVersions: [] as ActivityVersion[], verifierAssignments: [] as VerifierAssignment[] };
   const has = (id: string) => organizations.some((o) => o.id === id);
   const settings = (x: Partial<VerificationSettings>): VerificationSettings => ({
     identitySource: { kind: 'local' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' }, exceptions: 'review',
     eligibility: { approach: 'local-population' }, decisionRules: DEFAULT_DECISION_RULES, ...x,
   });
+  const assign = (orgId: string, activityId: string, administratorId: string, by: string) =>
+    out.verifierAssignments.push({ organizationId: orgId, activityId, administratorId, status: 'active', assignedAt: at(8), assignedBy: by });
   const add = (orgId: string, key: string, by: string, a: Pick<ActivityConfig, 'name' | 'description'> & Partial<ActivityConfig>, v: VerificationSettings, verifierIds: string | string[] = [], identifierConfigId?: string) => {
     const org = organizations.find((o) => o.id === orgId) as Organization;
     const id = `${orgId}_va_${key}`;
@@ -1064,41 +1061,37 @@ export function seedProgrammeScenarios(organizations: Pick<Organization, 'id' | 
       id, organizationId: orgId, entryPolicy: 'off', participants: { groupIds: [], memberIds: [] }, restrictVerifiers: false, purpose: a.description,
       status: 'active', activeVersionId: vid, createdAt: at(9), createdBy: by, updatedAt: at(8), updatedBy: by, verification: v, ...a,
     });
-    for (const administratorId of [verifierIds].flat()) out.verifierAssignments.push({ organizationId: orgId, activityId: id, administratorId, status: 'active', assignedAt: at(8), assignedBy: by });
+    for (const administratorId of [verifierIds].flat()) assign(orgId, id, administratorId, by);
   };
 
   if (has(ORG_A)) {
-    add(ORG_A, 'site_access', 'Esther Lawal', { name: 'Site Access Check', description: 'Independent activity: registered staff verified against local records before entering the site.', participants: { groupIds: [`${ORG_A}_grp_volunteers`], memberIds: [] } },
+    add(ORG_A, 'site_access', 'Esther Lawal', { name: 'Site Access Check', description: 'Registered staff checked against FixID records before entering the site.', participants: { groupIds: [`${ORG_A}_grp_volunteers`], memberIds: [] } },
       settings({}), `${ORG_A}_adm_4`);
   }
   if (has(ORG_B) && has(ORG_B1) && has(ORG_B2)) {
-    out.verificationProgrammes.push({
-      id: DEMO_PROGRAMME_B, ownerOrganizationId: ORG_B, name: 'Group Staff Verification', description: 'Shared requirements for verifying staff across Meridian’s sub-organizations.',
-      purpose: 'Verify staff identity consistently at every Meridian site.', status: 'active', scope: 'sub-organizations',
-      participants: [ORG_B1, ORG_B2].map((organizationId) => ({ organizationId, status: 'active' as const, addedAt: at(12), addedBy: 'Victor Hale', updatedAt: at(12) })),
-      requirements: {
-        identitySource: { kind: 'external', integrationId: 'int_b_identity' }, method: 'face', liveness: 'required', reverification: { mode: 'every-time' },
-        exceptions: 'review', escalateToProgramme: true, eligibilityRequired: true, allowedEligibility: ['external-source', 'reference-list'],
-      },
-      createdAt: at(14), createdBy: 'Victor Hale', updatedAt: at(12), updatedBy: 'Victor Hale', activatedAt: at(12),
-    });
-    const external = { identitySource: { kind: 'external' as const, integrationId: 'int_b_identity' } };
-    add(ORG_B1, 'staff_entry', 'Lina Ford', { name: 'Harbourside Staff Entry', description: 'Programme-linked: staff verified through the group identity service; eligibility from its lookup response.', programmeId: DEMO_PROGRAMME_B },
-      settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] } }), `${ORG_B1}_adm_verifier`);
-    add(ORG_B2, 'contractor_check', 'Mira Santos', { name: 'Eastgate Contractor Check', description: 'Programme-linked: contractors on the permitted reference list, verified through the group identity service.', programmeId: DEMO_PROGRAMME_B },
-      settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'CTR-1001', 'CTR-1002'] } }), `${ORG_B2}_adm_owner`);
+    const participants = [
+      ...[ORG_B1, ORG_B2].map((organizationId) => ({ organizationId, status: 'active' as const, invitedAt: at(12), invitedBy: 'Victor Hale', updatedAt: at(11), updatedBy: organizationId === ORG_B1 ? 'Lina Ford' : 'Mira Santos' })),
+      ...(has(ORG_C) ? [{ organizationId: ORG_C, status: 'invited' as const, invitedAt: at(1), invitedBy: 'Victor Hale' }] : []),
+    ];
+    add(ORG_B, 'staff_entry', 'Victor Hale', {
+      name: 'Group Staff Entry', description: 'Shared activity: each participating organization checks its staff against the group’s connected identity source.',
+      sharing: { participants },
+    }, settings({ identitySource: { kind: 'external', integrationId: 'int_b_identity' }, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] } }));
+    // Each participating organization assigns its own staff to the shared activity.
+    assign(ORG_B1, DEMO_SHARED_ACTIVITY, `${ORG_B1}_adm_verifier`, 'Lina Ford');
+    assign(ORG_B2, DEMO_SHARED_ACTIVITY, `${ORG_B2}_adm_owner`, 'Mira Santos');
   }
   if (has(ORG_C)) {
     const verifiers = [`${ORG_C}_adm_owner`, `${ORG_C}_adm_4`];
     const external = { identitySource: { kind: 'external' as const, integrationId: 'int_c_delegates' } };
     // Prompt 4 scenarios 3, 4, 6, 7, 9 and 11: an external identity, nobody enrolled in FixID; a result may be reused for a day.
-    add(ORG_C, 'visitor_checkin', 'Tobyson TE', { name: 'Visitor Check-in', description: 'Independent activity using the organization’s own external identity service; eligibility from its lookup response.' },
+    add(ORG_C, 'visitor_checkin', 'Tobyson TE', { name: 'Visitor Check-in', description: 'Visitors checked against the organization’s connected identity source.' },
       settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] }, exceptions: 'unsuccessful', reverification: { mode: 'reuse-within', days: 1 } }), verifiers);
-    add(ORG_C, 'restricted_lounge', 'Tobyson TE', { name: 'Restricted Lounge Access', description: 'Eligibility from a permitted reference list. Guests aren’t enrolled in FixID.' },
+    add(ORG_C, 'restricted_lounge', 'Tobyson TE', { name: 'Restricted Lounge Access', description: 'Guests checked against the connected identity source; only listed guests are admitted. Problems go to review.' },
       settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'GST-2001', 'GST-2002', 'GST-2003'] } }), verifiers);
     // Prompt 4 scenarios 1 and 2: local identity verification with enrolled faces and an eligible population.
     add(ORG_C, 'badge_collection', 'Tobyson TE', {
-      name: 'Badge Collection', description: 'Registered participants verified against their FixID enrollment before collecting a badge.',
+      name: 'Badge Collection', description: 'Registered participants checked against their FixID records before collecting a badge.',
       participants: { groupIds: [], memberIds: [`${ORG_C}_m_001`, `${ORG_C}_m_003`] },
     }, settings({ exceptions: 'unsuccessful' }), verifiers, `${ORG_C}_idc_participant-number`);
   }

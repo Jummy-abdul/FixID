@@ -5,8 +5,8 @@ import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_SESSION } from '@/auth/authCore';
 import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
-import { DEMO_LOCAL_PEOPLE, DEMO_PROGRAMME_B, buildSeed } from '@/data/seed';
-import { defaultSettings } from '@/domain/programmes';
+import { DEMO_LOCAL_PEOPLE, DEMO_SHARED_ACTIVITY, buildSeed } from '@/data/seed';
+import { defaultSettings } from '@/domain/activitySettings';
 import { evaluateDecision, externalEligibility, stageOf } from '@/domain/transactions';
 import { loadState } from '@/store/persistence';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
@@ -17,7 +17,7 @@ import { CAPTURE } from './helpers/faceVerification';
 const DELEGATE = `${ORG_C}_va_visitor_checkin`;
 const SPEAKER = `${ORG_C}_va_restricted_lounge`;
 const BADGE = `${ORG_C}_va_badge_collection`;
-const STAFF = `${ORG_B1}_va_staff_entry`;
+const STAFF = DEMO_SHARED_ACTIVITY;
 let seq = 0;
 
 /** Signed in as an account, in its organization (Tobyson for Brightwater). */
@@ -157,10 +157,10 @@ describe('Journey B: external identity verification', () => {
     expect(a).toMatchObject({ status: 'completed', decision: 'pending-review', stage: 'pending-review', match: { status: 'not-evaluated' } });
   });
 
-  it('Scenario 5: no match under a programme requiring review → Pending Review, not Deny', async () => {
+  it('Scenario 5: no match under a shared activity requiring review → Pending Review, not Deny', async () => {
     const h = harness(tomi());
     const a = await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' });
-    expect(a).toMatchObject({ programmeId: DEMO_PROGRAMME_B, integrationId: 'int_b_identity', decision: 'pending-review', stage: 'pending-review', match: { status: 'no-match' } });
+    expect(a).toMatchObject({ activityOwnerId: ORG_B, integrationId: 'int_b_identity', decision: 'pending-review', stage: 'pending-review', match: { status: 'no-match' } });
     expect(a.decisionExplanation).toBe('Identity could not be confirmed. Identity verification requires further review.');
     expect(a.review?.status).toBe('pending');
   });
@@ -189,7 +189,7 @@ describe('Journey B: external identity verification', () => {
     // Visitor Check-in marks failures unsuccessful; Sample Person B's record is SUSPENDED.
     const deny = await external(h, ORG_C, DELEGATE, 'DEMO-10002', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
     expect(deny).toMatchObject({ match: { status: 'match' }, eligibilityStatus: 'ineligible', decision: 'deny' });
-    // The programme-linked activity requires review instead.
+    // The shared activity requires review instead.
     const review = await external(harness(tomi()), ORG_B1, STAFF, 'DEMO-10002', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
     expect(review).toMatchObject({ match: { status: 'match' }, eligibilityStatus: 'ineligible', decision: 'pending-review' });
     // Reference-list eligibility: listed vs not listed.
@@ -197,7 +197,7 @@ describe('Journey B: external identity verification', () => {
     expect((await external(h, ORG_C, SPEAKER, 'DEMO-10002', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' })).eligibilityStatus).toBe('ineligible');
   });
 
-  it('Scenario 8: mandatory liveness failure stops matching and can’t allow; the programme’s review policy applies', async () => {
+  it('Scenario 8: mandatory liveness failure stops matching and can’t allow; the shared activity’s review policy applies', async () => {
     const h = harness(tomi());
     const a = await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'failed', match: 'SIM-CAPTURE-MATCH' });
     expect(a).toMatchObject({ liveness: { status: 'failed', required: true }, match: { status: 'not-evaluated' }, decision: 'pending-review' });
@@ -205,14 +205,11 @@ describe('Journey B: external identity verification', () => {
     expect(a.match?.providerTransactionId).toBeUndefined();
   });
 
-  it('Scenario 10: the programme’s service and liveness are enforced from the authoritative configuration', async () => {
-    // Even if the activity's stored settings were tampered with to drop liveness, the programme's minimum applies.
-    let s = tomi();
-    s = { ...s, data: { ...s.data, activityConfigs: s.data.activityConfigs.map((x) => (x.id === STAFF ? { ...x, verification: { ...x.verification!, liveness: 'optional', identitySource: { kind: 'local' } } } : x)) } };
-    const h = harness(s);
+  it('Scenario 10: the shared activity’s source and liveness come from the owner’s configuration, never the verifier', async () => {
+    const h = harness(tomi());
     const started = h.service.startAttempt(ORG_B1, STAFF);
     if (!started.ok) throw new Error(started.error);
-    expect(started.attempt).toMatchObject({ identitySource: 'external', integrationId: 'int_b_identity' });
+    expect(started.attempt).toMatchObject({ identitySource: 'external', integrationId: 'int_b_identity', activityOwnerId: ORG_B, organizationId: ORG_B1 });
     await h.service.lookupExternal(started.attempt.id, 'DEMO-10001');
     const skip = await h.service.completeExternal(started.attempt.id, { captured: true, demo: { liveness: 'unavailable', match: 'SIM-CAPTURE-MATCH' } }, { submissionId: 'p' });
     expect(skip).toMatchObject({ ok: true, attempt: { liveness: { required: true }, match: { status: 'not-evaluated' } } });
@@ -307,8 +304,8 @@ describe('screens', () => {
   it('runs the external journey: Identify Person, Capture Face (simulated), result with separate identity and eligibility', async () => {
     const user = renderApp(`/verify/activities/${DELEGATE}`, tobyson(), 'usr_tobyson');
     const reqs = await screen.findByLabelText('Verification requirements');
-    expect(reqs).toHaveTextContent('Identity SourceBrightwater Identity Service (external)');
-    expect(reqs).toHaveTextContent('Eligibility RequirementExternal source eligibility');
+    expect(reqs).toHaveTextContent('Identity SourceBrightwater Identity Service');
+    expect(reqs).toHaveTextContent('Required ChecksIdentifier, face match, liveness');
     await user.click(screen.getByRole('button', { name: 'Start Verification' }));
     expect(await screen.findByRole('heading', { name: 'Identify Person' })).toBeInTheDocument();
     expect(screen.getByText('Enter the reference provided for this verification.')).toBeInTheDocument();
@@ -378,14 +375,14 @@ describe('screens', () => {
     expect(document.body.textContent).not.toContain('DEMO-10001');
   });
 
-  it('the programme owner sees programme-level counts only, not participants’ transactions', async () => {
+  it('the shared activity owner sees counts by organization, not participants’ references', async () => {
     const h = harness(tomi());
     await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
-    renderApp(`/programmes/${DEMO_PROGRAMME_B}`, as('acct_demo_b_admin', ORG_B, h.state), 'acct_demo_b_admin');
-    const overview = await screen.findByRole('region', { name: 'Programme overview' });
-    const row = within(overview).getAllByRole('row').find((r) => r.textContent?.includes('Meridian Harbourside'))!;
-    // Three seeded demonstration transactions plus this one; counts only.
-    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(2, 6)).toEqual(['1', '4', '2', '2']);
+    renderApp(`/verification-activities/${STAFF}?tab=organizations`, as('acct_demo_b_admin', ORG_B, h.state), 'acct_demo_b_admin');
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row').find((r) => r.textContent?.includes('Meridian Harbourside'))!;
+    // Three seeded demonstration transactions plus this one: verifications, verified, pending review.
+    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(3, 6)).toEqual(['4', '2', '2']);
     expect(document.body.textContent).not.toContain('DEMO-10001');
   });
 });

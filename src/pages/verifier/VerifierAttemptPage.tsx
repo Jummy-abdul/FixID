@@ -468,7 +468,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   const isMine = state.data.administrators.find((a) => a.id === attempt.verifierId)?.userId === state.data.admin.id;
   const canRefer = isMine && attempt.status === 'completed' && attempt.outcome !== 'verified' && reviewAllowed && !attempt.review && !attempt.exceptionId && !attempt.reverificationOf;
   const external = attempt.identitySource === 'external';
-  const programme = attempt.programmeId ? state.data.verificationProgrammes.find((p) => p.id === attempt.programmeId) : undefined;
+  const owner = attempt.activityOwnerId && attempt.activityOwnerId !== attempt.organizationId ? state.data.organizations.find((o) => o.id === attempt.activityOwnerId) : undefined;
   const exception = attempt.exceptionId ? exceptionFor(state, attempt.exceptionId) : undefined;
   const canReverify = isMine && !!exception?.reverificationRequested && exception.organizationId === organization.id && !state.data.verificationAttempts.some((x) => x.reverificationOf === exception.id && x.status === 'in-progress');
   const startReverification = () => {
@@ -489,7 +489,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   const done = attempt.status === 'completed' && !!attempt.outcome;
   return (
     <div className="mx-auto max-w-3xl">
-      {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} programmeName={programme?.name} /></div>}
+      {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} sharedBy={owner?.name} /></div>}
       {exception && (
         <div className="mb-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">
           <p>Exception <span className="font-mono font-semibold">{exception.id}</span> · {EXCEPTION_STATUS_LABEL[exception.status]}{exception.resolution && exception.resolution.outcome !== 'reverification-required' ? ` · ${RESOLUTION_LABEL[exception.resolution.outcome]}` : ''}</p>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, ClipboardList, FlaskConical, Layers3, ListChecks, ShieldAlert, XCircle } from 'lucide-react';
+import { Building2, CheckCircle2, ClipboardList, FlaskConical, ListChecks, ShieldAlert, XCircle } from 'lucide-react';
 import { Badge, Card, CardHeader, EmptyState, FilterSelect, StatCard } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { ActivityStatusBadge } from '@/components/verification/parts';
@@ -9,8 +9,8 @@ import { EXCEPTION_REASON_LABEL, isUnresolved } from '@/domain/exceptions';
 import { formatDateTime } from '@/lib/dates';
 import { currentDecision, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
 import { integrationsOf } from '@/store/integrationOps';
-import { participation } from '@/store/programmeOps';
-import { organizationTransactions, oversight, summarize } from '@/store/reporting';
+import { participation, sharedWith } from '@/store/sharingOps';
+import { organizationTransactions, sharedResults, summarize } from '@/store/reporting';
 import { useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
@@ -20,7 +20,7 @@ const PERIODS = { '7d': 7, '30d': 30, all: 0 } as const;
 /**
  * Verification operations for the current workspace, from its stored transactions and exceptions: what
  * happened, what needs review, and whether activities and identity services are working. Read-only; each
- * section appears only with the permission to see it. Programme owners also see their programmes' totals.
+ * section appears only with the permission to see it. Shared activities it owns, and those it takes part in, are listed too.
  */
 export function VerificationOperations() {
   const { organization } = useSession();
@@ -31,7 +31,7 @@ export function VerificationOperations() {
   const from = useMemo(() => (PERIODS[period] ? new Date(Date.now() - PERIODS[period] * 86_400_000).toISOString() : undefined), [period]);
   const showResults = can('verification.results.view');
   const showExceptions = can('exceptions.view') || can('exceptions.review');
-  if (!showResults && !showExceptions && !can('programmes.view')) return null;
+  if (!showResults && !showExceptions && !can('verification.activities.view')) return null;
 
   const tx = organizationTransactions(state, organization.id, { from });
   const s = summarize(state, tx);
@@ -40,7 +40,10 @@ export function VerificationOperations() {
   const exceptions = showExceptions ? exceptionsVisibleTo(state, organization.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [];
   const integrations = integrationsOf(state, organization.id);
   const faceMode = service.faceMode(organization.id);
-  const owned = can('programmes.view') ? (state.data.verificationProgrammes ?? []).filter((p) => participation(p, organization.id) === 'owner' && p.status !== 'draft') : [];
+  const canSeeActivities = can('verification.activities.view');
+  const owned = canSeeActivities ? activities.filter((a) => a.sharing && a.status !== 'draft') : [];
+  const joined = canSeeActivities ? sharedWith(state, organization.id) : [];
+  const ownerName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? 'Another organization';
 
   return (
     <section aria-label="Verification operations" className="mt-8 space-y-6">
@@ -125,18 +128,30 @@ export function VerificationOperations() {
           </Card>
         )}
       </div>
-      {owned.length > 0 && (
+      {(owned.length > 0 || joined.length > 0) && (
         <Card>
-          <CardHeader title="Programmes you oversee" description="Programme-level totals across participating organizations." />
-          <ul className="divide-y divide-slate-100" aria-label="Programmes you oversee">
-            {owned.map((p) => {
-              const o = oversight(state, p);
+          <CardHeader title="Shared activities" description="Activities shared between organizations: those you own, and those you take part in." />
+          <ul className="divide-y divide-slate-100" aria-label="Shared activities">
+            {owned.map((a) => {
+              const o = sharedResults(state, a);
               return (
-                <li key={p.id}>
-                  <Link to={`/programmes/${p.id}`} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50">
-                    <Layers3 className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 font-medium text-slate-900">{p.name}</span>
-                    <span className="text-slate-600">{o.participating} organizations · {o.summary.attempts} attempts · {o.summary.pendingReview} pending review · {o.exceptions.unresolved} open exceptions</span>
+                <li key={a.id}>
+                  <Link to={`/verification-activities/${a.id}?tab=organizations`} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50">
+                    <Building2 className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 font-medium text-slate-900">{a.name} <span className="font-normal text-slate-500">· yours</span></span>
+                    <span className="text-slate-600">{o.participating} organizations taking part · {o.summary.attempts} verifications · {o.exceptions.unresolved} open exceptions</span>
+                  </Link>
+                </li>
+              );
+            })}
+            {joined.map((a) => {
+              const st = participation(a, organization.id);
+              return (
+                <li key={a.id}>
+                  <Link to={`/verification-activities/${a.id}`} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50">
+                    <Building2 className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 font-medium text-slate-900">{a.name} <span className="font-normal text-slate-500">· from {ownerName(a.organizationId)}</span></span>
+                    <Badge tone={st === 'invited' ? 'info' : st === 'active' ? 'success' : 'warning'}>{st === 'invited' ? 'Invitation waiting' : st === 'active' ? 'Taking part' : 'Suspended'}</Badge>
                   </Link>
                 </li>
               );

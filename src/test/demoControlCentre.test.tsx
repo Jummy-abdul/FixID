@@ -5,6 +5,7 @@ import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_ACCOUNT, DEMO_PERSONA_ACCOUNTS, DEMO_SESSION, builtInAccounts, demoOperatorProblem } from '@/auth/authCore';
 import { DEMO_PERSONAS, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
+import { DEMO_SHARED_ACTIVITY } from '@/data/seed';
 import { readinessChecklist } from '@/demo/readiness';
 import { RUNS_KEY } from '@/demo/runs';
 import { SCENARIOS, overallStatus, takeBaseline, type ScenarioDefinition } from '@/demo/scenarios';
@@ -15,7 +16,7 @@ import { createVerificationService } from '@/verification/engine';
 
 const VISITOR = `${ORG_C}_va_visitor_checkin`;
 const LOUNGE = `${ORG_C}_va_restricted_lounge`;
-const STAFF = `${ORG_B1}_va_staff_entry`;
+const STAFF = DEMO_SHARED_ACTIVITY;
 const AT = new Date().toISOString();
 const HALIMA = `${ORG_C}_usr_4`;
 const byId = (id: string) => SCENARIOS.find((s) => s.id === id)!;
@@ -180,15 +181,21 @@ describe('scenarios executed through the real verification steps', () => {
     expect(overallStatus(results)).toBe('passed');
   });
 
-  it('S10 refuses weakened programme requirements; S02 counts a programme-linked transaction for the owner', async () => {
+  it('S10 keeps shared requirements with the owner; S02 runs the shared activity from the invited organization', async () => {
     const base = createInitialState(new Date());
     const s10 = byId('S10').evaluate(base, takeBaseline(base));
-    expect(s10.find((r) => r.label === 'Weakening is refused by the business rules')?.status).toBe('passed');
-    expect(s10.find((r) => r.label === 'Refusal shown in the editor')?.status).toBe('not-tested');
+    expect(s10.find((r) => r.label === 'A participant can’t change the shared activity')?.status).toBe('passed');
+    expect(s10.find((r) => r.label === 'Shared activities keep a connected identity source')?.status).toBe('passed');
+    expect(s10.find((r) => r.label === 'Read-only view shown to the participant')?.status).toBe('not-tested');
 
-    const { h, baseline } = load(byId('S02'), 'acct_demo_b1_verifier', ORG_B1);
-    await external(h, ORG_B1, STAFF, 'DEMO-10001', PASS);
-    expect(statusOf(byId('S02'), h.state, baseline)).toBe('passed');
+    const { h, baseline } = load(byId('S02'), 'acct_demo_c_admin', ORG_C);
+    expect(statusOf(byId('S02'), h.state, baseline)).not.toBe('passed');
+    h.dispatch({ type: 'sharing/respond', organizationId: ORG_C, activityId: STAFF, accept: true, at: AT });
+    const halima = h.state.data.administrators.find((a) => a.organizationId === ORG_C && a.userId === HALIMA)!.id;
+    h.dispatch({ type: 'sharing/assignVerifiers', organizationId: ORG_C, activityId: STAFF, verifierIds: [halima], at: AT });
+    h.actAs(HALIMA, ORG_C);
+    await external(h, ORG_C, STAFF, 'DEMO-10001', PASS);
+    expect(byId('S02').evaluate(h.state, baseline).filter((r) => r.status !== 'passed')).toEqual([]);
   });
 
   it('evaluators detect a wrong outcome instead of passing it', async () => {

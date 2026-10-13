@@ -1,5 +1,5 @@
-import { activityGovernanceBlockers, activityPolicyProblems, canRunUnder, settingsFromVersion } from './programmeOps';
-import type { VerificationSettings } from '@/domain/programmes';
+import { activityGovernanceBlockers, activityPolicyProblems, audienceOf, nextParticipants, participantProblems, settingsFromVersion } from './sharingOps';
+import type { ActivityAudience, VerificationSettings } from '@/domain/activitySettings';
 import { formatCoordinate, formatRadius, locationConfigProblem, type LocationCheckConfig } from '@/domain/location';
 import type { Permission } from '@/domain/roles';
 import type {
@@ -43,9 +43,11 @@ export interface ActivityForm {
    * (checks, outcome rules, requirements) exactly as saved instead of regenerating it.
    */
   keepConfiguration?: boolean;
-  /** New activities: the programme to run under (independent when missing). Fixed once created. */
-  programmeId?: string;
-  /** Verification settings. Programme minimums are applied on top and can't be weakened. */
+  /** New activities: for the organization's own use, or shared with other organizations. Fixed once created. */
+  audience?: ActivityAudience;
+  /** Shared activities: the organizations taking part. New ones are invited; left undefined, the current list is kept. */
+  participantIds?: string[];
+  /** Verification settings. For a shared activity they apply to every participating organization. */
   verification?: VerificationSettings;
 }
 
@@ -180,18 +182,29 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
 
   const nameErr = nameProblem(state, organizationId, form.name, existing?.id);
   if (nameErr) return { ok: false, error: nameErr, field: 'name' };
-  // Governance: a programme link is only made at creation, to a programme this organization may run under now;
-  // its mandatory requirements can never be weakened, and only accessible, active identity services can be used.
-  const programmeId = existing ? existing.programmeId : form.programmeId;
-  if (!existing && programmeId) {
-    const programme = (state.data.verificationProgrammes ?? []).find((p) => p.id === programmeId);
-    const cannot = programme ? canRunUnder(programme, organizationId) : 'This programme doesn’t exist.';
-    if (cannot) return { ok: false, error: cannot };
-  }
-  if (form.verification) {
-    const problems = activityPolicyProblems(state, organizationId, programmeId, form.verification);
+  // Who the activity is for is decided when it's created. A shared activity needs a connected identity
+  // source and at least one other organization; participants can never change its requirements.
+  const audience: ActivityAudience = existing ? audienceOf(existing) : form.audience ?? 'own';
+  const currentIds = (existing?.sharing?.participants ?? []).filter((p) => p.status !== 'removed' && p.status !== 'declined').map((p) => p.organizationId);
+  const participantIds = audience === 'shared' ? [...new Set(form.participantIds ?? currentIds)] : [];
+  if (audience === 'shared') {
+    const problems = participantProblems(state, organizationId, participantIds);
     if (problems.length) return { ok: false, error: problems[0], problems };
   }
+  const verificationToCheck = form.verification ?? existing?.verification;
+  if (form.verification || (audience === 'shared' && verificationToCheck)) {
+    const problems = activityPolicyProblems(state, organizationId, verificationToCheck!, audience);
+    if (problems.length) return { ok: false, error: problems[0], problems };
+  }
+  const sharing = audience === 'shared' ? { participants: nextParticipants(existing?.sharing?.participants, participantIds, at, by) } : undefined;
+  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
+  const invited = (sharing?.participants ?? []).filter((p) => p.status === 'invited' && !existing?.sharing?.participants.some((x) => x.organizationId === p.organizationId && x.status === 'invited'));
+  const removedParticipants = (sharing?.participants ?? []).filter((p) => p.status === 'removed' && existing?.sharing?.participants.some((x) => x.organizationId === p.organizationId && x.status !== 'removed'));
+  const sharingEvents: NewEvent[] = [
+    ...(invited.length ? [{ action: 'verification-activity.participants-invited' as const, summary: `${by} invited ${invited.map((p) => orgName(p.organizationId)).join(', ')} to take part in ${form.name.trim()}.` }] : []),
+    ...removedParticipants.map((p) => ({ action: 'verification-activity.participant-changed' as const, summary: `${by} removed ${orgName(p.organizationId)} from ${form.name.trim()}. Its earlier records are kept.`, changes: [{ field: 'Participation', from: 'Participating', to: 'Removed' }] })),
+  ];
+  const sharingChanged = sharingEvents.length > 0;
   const verificationFields = form.verification ? { verification: form.verification } : existing?.verification ? { verification: existing.verification } : {};
   const eligible = new Set(eligibleVerifiers(state.data, organizationId).map((a) => a.id));
   const diff = verifierDiff(state, organizationId, existing?.id ?? input.ids.activityId, form.verifierIds);
@@ -232,7 +245,7 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
     if (!need('verification.activities.create')) return { ok: false, error: DENIED };
     const activity: ActivityConfig = {
       id: input.ids.activityId, organizationId, ...details, ...settings, status: 'draft', draftVersionId: input.ids.versionId,
-      ...(programmeId ? { programmeId } : {}), ...verificationFields,
+      ...(sharing ? { sharing } : {}), ...verificationFields,
       ...(form.editorStep ? { editorStep: form.editorStep } : {}),
       createdAt: at, createdBy: by, updatedAt: at, updatedBy: by,
     };
@@ -247,6 +260,7 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
         ...(participantsChanged ? [{ field: 'Eligible participants', from: 'None', to: describeParticipants(settings.participants) }] : [])],
     }];
     for (const id of diff.add) events.push({ action: 'verification-activity.verifier-assigned', summary: `${by} assigned ${adminName(state, id)} as a verifier for ${activity.name}.`, related: [{ id, name: adminName(state, id) }] });
+    events.push(...sharingEvents);
     return {
       ok: true, activityId: activity.id,
       state: withEvents(state, activity, at, events, {
@@ -280,11 +294,12 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   if (detailChanges.length && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   if (participantsChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   if (configChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
+  if (sharingChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   // An activity saved before verification settings existed is compared with the settings its configuration implies.
   const verificationChanged = !!form.verification && JSON.stringify(form.verification) !== JSON.stringify(existing.verification ?? settingsFromVersion(base));
   if (verificationChanged && !need('verification.activities.edit')) return { ok: false, error: DENIED };
   const stepChanged = existing.status === 'draft' && !!form.editorStep && form.editorStep !== existing.editorStep;
-  if (!detailChanges.length && !participantsChanged && !configChanged && !verificationChanged && !diff.add.length && !diff.remove.length) {
+  if (!detailChanges.length && !participantsChanged && !configChanged && !verificationChanged && !sharingChanged && !diff.add.length && !diff.remove.length) {
     // Only the draft's editor position moved: remember it quietly (it isn't an activity change).
     if (!stepChanged) return { ok: true, state, activityId: existing.id };
     return { ok: true, activityId: existing.id, state: { ...state, data: { ...state.data, activityConfigs: state.data.activityConfigs.map((a) => (a.id === existing.id ? { ...a, editorStep: form.editorStep } : a)) } } };
@@ -307,7 +322,7 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
     }
   }
   const next: ActivityConfig = {
-    ...existing, ...details, ...settings, ...verificationFields, draftVersionId, updatedAt: at, updatedBy: by,
+    ...existing, ...details, ...settings, ...verificationFields, ...(sharing ? { sharing } : {}), draftVersionId, updatedAt: at, updatedBy: by,
     ...(existing.status === 'draft' && form.editorStep ? { editorStep: form.editorStep } : {}),
   };
   const label = next.name;
@@ -329,7 +344,8 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
     });
   }
   if (cfg.rules.length) events.push({ action: 'verification-activity.rules-changed', summary: `${by} changed the verification rules for ${label}${into}.`, changes: cfg.rules });
-  if (verificationChanged && !cfg.rules.length) events.push({ action: 'verification-activity.rules-changed', summary: `${by} changed the verification settings for ${label} (identity source, requirements or eligibility).` });
+  if (verificationChanged && !cfg.rules.length) events.push({ action: 'verification-activity.rules-changed', summary: `${by} changed the verification settings for ${label} (identity source or required checks).` });
+  events.push(...sharingEvents);
   if (cfg.providerChanges.length) events.push({ action: 'verification-activity.providers-changed', summary: `${by} changed providers or sources for ${label}${into}.`, changes: cfg.providerChanges });
   for (const id of diff.add) events.push({ action: 'verification-activity.verifier-assigned', summary: `${by} assigned ${adminName(state, id)} as a verifier for ${label}.`, related: [{ id, name: adminName(state, id) }] });
   for (const id of diff.remove) events.push({ action: 'verification-activity.verifier-removed', summary: `${by} removed ${adminName(state, id)} as a verifier for ${label}.`, related: [{ id, name: adminName(state, id) }] });

@@ -1,14 +1,11 @@
 import { StatusApiDemoPage } from './pages/developer/StatusApiDemoPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
-import { ProgrammeOrganizationPage } from './pages/programmes/ProgrammeOversight';
 import { ExceptionsPage } from './pages/exceptions/ExceptionsPage';
 import { ExceptionDetailPage } from './pages/exceptions/ExceptionDetailPage';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AcceptInvitationPage } from './pages/auth/AcceptInvitationPage';
 import { OrganizationDetailPage, OrganizationsPage } from './pages/organizations/OrganizationsPage';
 import { PlatformPage } from './pages/platform/PlatformPage';
-import { ProgrammesPage } from './pages/programmes/ProgrammesPage';
-import { ProgrammeDetailPage } from './pages/programmes/ProgrammeDetailPage';
 import { IntegrationDetailPage } from './pages/settings/IntegrationDetailPage';
 import { DemoProviderPage, SsoCallbackPage, SsoSignInPage } from './pages/auth/SsoPages';
 import { AppLayout } from './layout/AppLayout';
@@ -143,9 +140,8 @@ export function AppRoutes() {
         <Route path="reports" element={<RequirePermission permission="reports.view"><ReportsPage /></RequirePermission>} />
         <Route path="exceptions" element={<RequirePermission permission={['exceptions.view', 'exceptions.review']}><ExceptionsPage /></RequirePermission>} />
         <Route path="exceptions/:exceptionId" element={<RequirePermission permission={['exceptions.view', 'exceptions.review']}><ExceptionDetailPage /></RequirePermission>} />
-        <Route path="programmes" element={<RequirePermission permission="programmes.view"><ProgrammesPage /></RequirePermission>} />
-        <Route path="programmes/:programmeId/organizations/:orgId" element={<RequirePermission permission="programmes.view"><ProgrammeOrganizationPage /></RequirePermission>} />
-        <Route path="programmes/:programmeId" element={<RequirePermission permission="programmes.view"><ProgrammeDetailPage /></RequirePermission>} />
+        {/* Verification Programmes were merged into Verification Activities (shared activities). */}
+        <Route path="programmes/*" element={<Navigate to="/verification-activities" replace />} />
         <Route path="organizations" element={<RequirePermission permission="organizations.view"><OrganizationsPage /></RequirePermission>} />
         <Route path="organizations/:orgId" element={<RequirePermission permission="organizations.view"><OrganizationDetailPage /></RequirePermission>} />
         <Route path="settings/integrations/:integrationId" element={<RequirePermission permission="integrations.view"><IntegrationDetailPage /></RequirePermission>} />

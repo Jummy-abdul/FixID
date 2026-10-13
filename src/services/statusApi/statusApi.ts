@@ -11,7 +11,7 @@ import type { AppState } from '@/store/state';
  * identity (no secret is involved), and every response is marked `simulated: true`.
  *
  * Authorization: the calling client must belong to the transaction's organization, or to the owner of the
- * transaction's programme (programme-level access). Anything else gets 404, exactly like an unknown ID, so
+* shared activity the transaction belongs to (owner access). Anything else gets 404, exactly like an unknown ID, so
  * a transaction ID alone reveals nothing. No personal information is returned.
  */
 
@@ -34,7 +34,6 @@ export interface StatusResponseBody {
   /** The decision recorded when verification completed, when a review later changed the disposition. */
   originalDecision?: string;
   review?: { outcome: string; decidedAt: string };
-  programmeId?: string;
   activityId: string;
   updatedAt: string;
   /** The response comes from the simulated API. */
@@ -59,11 +58,9 @@ function statusOf(a: VerificationAttempt, pending: boolean, decision?: string): 
   return 'COMPLETED';
 }
 
-/** Why a client may see a transaction's status: its own organization's, or a programme it owns. */
-function authorized(state: AppState, client: StatusApiClient, a: VerificationAttempt): boolean {
-  if (client.organizationId === a.organizationId) return true;
-  const programme = a.programmeId ? (state.data.verificationProgrammes ?? []).find((p) => p.id === a.programmeId) : undefined;
-  return !!programme && programme.ownerOrganizationId === client.organizationId && programme.status !== 'draft';
+/** Why a client may see a transaction's status: its own organization's, or one performed for a shared activity it owns. */
+function authorized(_state: AppState, client: StatusApiClient, a: VerificationAttempt): boolean {
+  return client.organizationId === a.organizationId || client.organizationId === a.activityOwnerId;
 }
 
 export function getVerificationStatus(state: AppState, req: { clientId?: string; transactionId: string }): StatusApiResponse {
@@ -85,7 +82,6 @@ export function getVerificationStatus(state: AppState, req: { clientId?: string;
       eligibility: a.eligibilityStatus ? upper(a.eligibilityStatus) : 'NOT_EVALUATED',
       decision: status === 'PENDING_REVIEW' || status === 'IN_PROGRESS' ? (status === 'PENDING_REVIEW' ? 'PENDING_REVIEW' : 'NONE') : current ? upper(current) as StatusResponseBody['decision'] : 'NONE',
       ...(a.reviewDisposition ? { originalDecision: upper(a.decision ?? 'none'), review: { outcome: upper(a.reviewDisposition.outcome), decidedAt: a.reviewDisposition.at } } : {}),
-      ...(a.programmeId ? { programmeId: a.programmeId } : {}),
       activityId: a.activityId, updatedAt, simulated: true, simulatedEvidence: a.simulated,
     },
   };

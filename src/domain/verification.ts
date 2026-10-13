@@ -420,7 +420,9 @@ export const activeAssignments = (d: Pick<VerificationData, 'verifierAssignments
  * activity. Removing the role, the assignment or the activity stops it immediately.
  */
 export function authorizeVerifier(d: VerificationData, input: { organizationId: string; activityId: string; administratorId: string; now?: Date }): { authorized: true } | { authorized: false; reason: string } {
-  const activity = d.activityConfigs.find((a) => a.id === input.activityId && a.organizationId === input.organizationId);
+  // The organization's own activity, or a shared activity it actively takes part in.
+  const activity = d.activityConfigs.find((a) => a.id === input.activityId && (a.organizationId === input.organizationId
+    || a.sharing?.participants.some((p) => p.organizationId === input.organizationId && p.status === 'active')));
   if (!activity) return { authorized: false, reason: 'Activity not found in this organization.' };
   if (activity.status !== 'active' || !activity.activeVersionId) return { authorized: false, reason: 'The activity isn’t active.' };
   const admin = d.administrators.find((a) => a.id === input.administratorId && a.organizationId === input.organizationId);
@@ -441,7 +443,8 @@ export function authorizeVerifier(d: VerificationData, input: { organizationId: 
 
 /** What a verifier application needs to run an activity: the active version and its checks. */
 export function executionPlan(d: VerificationData, organizationId: string, activityId: string) {
-  const activity = d.activityConfigs.find((a) => a.id === activityId && a.organizationId === organizationId);
+  const activity = d.activityConfigs.find((a) => a.id === activityId && (a.organizationId === organizationId
+    || a.sharing?.participants.some((p) => p.organizationId === organizationId && p.status === 'active')));
   if (!activity || activity.status !== 'active') return null;
   const version = d.activityVersions.find((v) => v.id === activity.activeVersionId);
   if (!version) return null;

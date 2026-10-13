@@ -208,7 +208,7 @@ function AccountsTable({ state, currentEmail, onSignIn }: { state: AppState; cur
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr><th className="px-4 py-2">Account</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Workspaces</th><th className="px-4 py-2">Assigned activities</th><th className="px-4 py-2">Programmes</th><th className="px-4 py-2"><span className="sr-only">Action</span></th></tr>
+            <tr><th className="px-4 py-2">Account</th><th className="px-4 py-2">Role</th><th className="px-4 py-2">Workspaces</th><th className="px-4 py-2">Assigned activities</th><th className="px-4 py-2">Shared activities</th><th className="px-4 py-2"><span className="sr-only">Action</span></th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {ACCOUNT_ROWS.map((a) => {
@@ -216,14 +216,14 @@ function AccountsTable({ state, currentEmail, onSignIn }: { state: AppState; cur
               const records = d.administrators.filter((r) => r.userId === userId && r.status === 'active');
               const roles = [...new Set(records.flatMap((r) => r.roleIds.map((id) => findRole(d.customRoles ?? [], r.organizationId, id)?.name ?? id)))];
               const assigned = d.verifierAssignments.filter((v) => v.status === 'active' && records.some((r) => r.id === v.administratorId)).map((v) => d.activityConfigs.find((x) => x.id === v.activityId)?.name).filter(Boolean);
-              const programmes = (d.verificationProgrammes ?? []).filter((p) => records.some((r) => r.organizationId === p.ownerOrganizationId || p.participants.some((x) => x.organizationId === r.organizationId && x.status === 'active'))).map((p) => p.name);
+              const shared = d.activityConfigs.filter((x) => x.sharing && x.status !== 'draft' && records.some((r) => r.organizationId === x.organizationId || x.sharing!.participants.some((p) => p.organizationId === r.organizationId && (p.status === 'active' || p.status === 'invited')))).map((x) => x.name);
               return (
                 <tr key={a.email}>
                   <td className="px-4 py-2"><span className="block font-medium text-slate-900">{a.name}</span><span className="text-xs text-slate-500">{a.email}</span></td>
                   <td className="px-4 py-2 text-slate-700">{a.platform ? 'Platform Administrator' : roles.join(', ') || '—'}<span className="block text-xs text-slate-500">{a.persona}</span></td>
                   <td className="px-4 py-2 text-slate-700">{a.platform ? 'Platform console' : [...new Set(records.map((r) => orgName(r.organizationId)))].join(', ') || orgName(a.organizationId)}</td>
                   <td className="px-4 py-2 text-slate-700">{assigned.length ? assigned.join(', ') : '—'}</td>
-                  <td className="px-4 py-2 text-slate-700">{programmes.length ? [...new Set(programmes)].join(', ') : '—'}</td>
+                  <td className="px-4 py-2 text-slate-700">{shared.length ? [...new Set(shared)].join(', ') : '—'}</td>
                   <td className="px-4 py-2 text-right">
                     {currentEmail === a.email ? <Badge tone="success">Signed in</Badge>
                       : <Button size="sm" variant="secondary" icon={<LogIn className="h-4 w-4" />} onClick={() => onSignIn(a.email)} aria-label={`Sign in as ${a.name} (${a.email})`}>Sign in as</Button>}
@@ -282,7 +282,7 @@ function ScenarioDetail({ scenario: s, run, state, currentEmail, onLoad, onRun, 
             <Field label="Initial data">{s.initialData}</Field>
             <Field label="Organization structure">{s.organizationStructure}</Field>
             <Field label="Users">{s.users.map(nameOf).join(', ')}</Field>
-            {s.programme && <Field label="Programme">{s.programme}</Field>}
+            {s.sharedActivity && <Field label="Shared activity">{s.sharedActivity}</Field>}
             <Field label="Activity">{s.activity}</Field>
             <Field label="Identity source">{s.identitySource}</Field>
             <Field label="Integration">{s.integration}</Field>

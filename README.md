@@ -47,7 +47,7 @@ src/
 | — | Dashboard | `/` |
 | User Management | Users · Groups | `/users` · `/groups`, `/groups/:id` |
 | Credential Management | Credentials · Templates | `/credentials` · `/templates` (card designs), `/templates/credential-types` |
-| Verification | Verification Programmes · Verification Activities · Verification History | `/programmes`, `/programmes/:id` · `/verification-activities` · `/verification-history` |
+| Verification | Verification Activities (own and shared) · Verification History · Exceptions · Reports | `/verification-activities` · `/verification-history` · `/exceptions` · `/reports` |
 | Administration | Audit Log · Settings | `/audit` · `/settings` |
 
 Previous paths (`/people`, `/transactions`, `/card-designs`, `/credential-types`, including detail pages and query strings) redirect to their new routes. The former Verification Events page is no longer in the navigation: `/activities` redirects to Verification Activities and `/activities/:id` to Verification History filtered to that event. Its sample records are kept and shown in Verification History.
@@ -339,38 +339,48 @@ Stages: Initiated → Capture pending / Lookup completed → Pending Review, Com
 - **Security:** access checks run in the browser prototype and aren't a security boundary.
 - **Saved browser data:** load the new scenarios with Settings → Demo data → Reset.
 
-## Verification programmes, activities and eligibility (Phase 3)
+## Verification Activities: one concept, for your organization or shared
 
-**Verification Programmes** (`/programmes`, Verification group; `programmes.view` for Organization Admin and Auditor, `programmes.manage` for Organization Admin). Programmes are optional: an activity never needs one.
-- **Ownership and scope:** the owner is always the active workspace. A programme applies to its owner only, or to sub-organizations the owner selects explicitly (only active sub-organization relationships; none are added automatically).
-- **Participants:** Invited → Active (when the programme is activated) → Suspended ⇄ Active, or Removed. Only the owner changes participation.
-- **Requirements:** identity source (FixID Local Records, or one of the owner's active custom identity services with the capabilities the method needs), verification method, liveness (required / optional / not applicable), reverification, exception handling (with optional escalation to a programme reviewer), eligibility (required or not, and the approaches activities may use). Assurance shows *Assurance policy not yet defined.*
-- **Lifecycle:** Draft → Active ⇄ Suspended → Completed → Archived. A Draft can be incomplete; activation validates everything. Suspended, completed and archived programmes stop new programme-linked verification; nothing is deleted, and every change is audited (Audit Log → *Programmes*).
-- **List:** Programme Name, Owning Organization, Participating Organizations, Verification Source, Status, Date Created, Actions, with search and a status filter. **Create Programme** opens a four-step wizard (Programme Details, Participating Organizations, Verification Requirements, Review; Save as Draft or Save & Activate).
-- **Details:** requirements, participants (owner only, programme-level status and activity counts, never the participants' other records) and programme activities. A participant sees the requirements read-only and only its own activities; any other organization gets *Programme not available*.
+Verification Programmes were merged into Verification Activities. There is one concept, **Verification Activities** (`/verification-activities`). When an activity is created, the first decision is who it's for:
 
-**Verification activities** keep their existing editor (autosave drafts, location check, verifiers) with four steps:
-1. **Activity Details:** name, description, an optional **Verification Programme** (only programmes the organization can use now; set at creation), optional start and end times, location check.
-2. **Identity & Requirements:** identity source, method, liveness, reverification, exception handling, decision rules, assurance. For a programme-linked activity the programme's mandatory settings are shown with a lock and *Set by the programme …*; only stricter choices are offered (for example *Liveness is required by the programme … and can't be disabled.*).
-3. **Eligibility & Verifiers:** the eligibility approach (only those the programme allows), then the local participant picker, a reference list, or a note that eligibility comes from the external lookup response; then verifiers.
-4. **Review & Activate:** including the programme and the effective verification settings.
+- **For my organization:** your staff verify people for your own purposes.
+- **For other organizations (shared activity):** one activity record, owned and configured by your organization. The organizations you choose get an invitation in their **own existing FixID workspace**. Nobody registers again, and nobody copies the activity. They accept, assign their **own** staff, and run the same activity.
 
-Inheritance is enforced in the store, not just the UI (`activityPolicyProblems`, `weakeningProblems`): a programme-linked activity can't replace the identity source or exception handling, weaken the method or liveness, lengthen reuse, or use an eligibility approach the programme doesn't allow. Only active participants (or the owner of an own-organization programme) can create activities under it. Activities saved before Phase 3 get settings derived from their configuration; credential-based or customized configurations are kept and shown read-only.
+**Creating an activity** is one short page (`ActivityEditorPage`). Conditional fields keep it short:
 
-**Eligibility approaches:** local eligible population (groups and users, as before), external source eligibility (from the authorized lookup response), reference list eligibility (permitted external references; letters, digits and hyphens, 2–40 characters), or no predefined population. Local eligibility requires local enrollment; the external approaches don't, and nothing is copied into FixID.
+1. Activity name and an optional short description.
+2. Who it's for (fixed once created).
+3. Identity source. Only sources available to the organization are shown: *FixID records*, and its active connected sources from Settings → Integrations. A single suitable source is preselected. A shared activity needs a connected source, so participants never see the owner's own records.
+4. Participating organizations (shared activities only).
+5. Required checks: face match, liveness, and what happens when a check fails (*Mark as not verified* or *Send for review*). If the source is unavailable, no decision is made; the person isn't treated as invalid.
+6. Who can verify, then **Review and create** (or **Save as draft**).
 
-**Decision model** (`decide` in `src/domain/programmes.ts`): identity match, eligibility and the activity decision are separate results. The activity allows only when identity matches **and** eligibility is confirmed or not required; a match never makes someone eligible. Inconclusive matches and service unavailability follow the activity's decision rules; no match or ineligible is denied when exceptions are *Mark unsuccessful*, otherwise sent for review.
+*More options* holds the optional extras: limiting who can be verified (FixID records only) and the location check. Eligibility isn't configured any more. A connected source's record status decides it behind the scenes; with FixID records anyone registered can be checked unless the activity limits it. A valid-looking identifier only lets the person be checked; it never marks them as verified.
 
-**Execution:** see *Verification journeys and transactions (Phase 4)*. Activities on a simulated external service run end to end; a real external service can't be reached from this prototype, so Start Verification is disabled for it with an explanation. Programme-linked activities also stop when the programme or the organization's participation isn't active.
+**Shared activities and permissions** (`src/store/sharingOps.ts`):
+- **Participation:** Invited → Participating (accepted) or Declined; the owner can Suspend, Resume or Remove. Only an invited organization can accept, in its own workspace (`verification.activities.edit`). Every change is audited in both organizations.
+- **Participants' rights:** they assign their own active staff (`sharing/assignVerifiers`); another organization's staff can't be assigned. They see the requirements read-only (*Set by …*) and can't edit the activity; the store refuses any change (`applySaveActivity` only finds the owner's activities).
+- **Where transactions live:** in the performing organization's workspace, linked to the owner (`activityOwnerId`). They use the owner's identity source and requirements.
+- **What the owner sees:** this activity's results by organization (*Participating Organizations* tab, dashboard, *Shared activity report*, Verification History with a *Performed by* filter). It reviews the activity's exceptions (route `owner`). The simulated status API answers the owner's client for these transactions only. It never sees participants' other activities, people, records or exceptions.
+- **Independence:** participating doesn't change an organization's workspace. It keeps managing its own administrators, users and settings, and creates its own activities.
 
-**Demonstration scenarios** (all fictional; sign in with the demonstration accounts):
-- **A — Northbridge:** *Site Access Check*, an independent activity on local records (face, liveness required, local population), with an assigned verifier.
-- **B — Meridian:** the *Group Staff Verification* programme uses *Group Identity Service* (face, liveness required, review with escalation, eligibility required: external source or reference list) for both sub-organizations. Harbourside's *Harbourside Staff Entry* (external source eligibility, Tomi Okon assigned) and Eastgate's *Eastgate Contractor Check* (reference list `DEMO-10001`, `CTR-1001`, `CTR-1002`; Mira Santos assigned).
-- **C — Brightwater:** *Visitor Check-in*, an independent activity on its own *Brightwater Identity Service*, eligibility from the lookup response.
-- **D — Brightwater:** *Restricted Lounge Access*, eligibility from a reference list (`DEMO-10001`, `GST-2001`–`SPK-2003`); speakers aren't enrolled in FixID.
-- **E — Liveness enforcement:** in a Meridian sub-organization, create an activity under *Group Staff Verification*: Liveness is locked at Required, and the store refuses an activity that asks for less.
+**Navigation:** one *Verification Activities* item. Its page lists your activities and, above them, *Shared with your organization* (invitations with Accept and Decline, and participations). Old `/programmes` links redirect there.
 
-**Limitations:** access restrictions are enforced in the browser prototype only, not as production-grade security. Simulated identity services never compare real faces or perform liveness detection. Programme-level exception escalation is recorded as a rule; the review workflow is a later phase. Browser data saved before Phase 3 keeps its activities; use Settings → Demo data → Reset to load the Phase 3 scenarios.
+**Data:** stored browser data from before this change (state version 9) is reseeded once (version 10). Demo scenario B is now the shared activity *Group Staff Entry*:
+- It is owned by Meridian Group and uses *Group Identity Service*.
+- Meridian Harbourside takes part (Tomi Okon assigned), and so does Meridian Eastgate (Mira Santos assigned).
+- Brightwater Collective has a pending invitation (Jordan Blake can accept it).
+
+**Try it:**
+1. Sign in as Jordan Blake. In Verification Activities, *Accept* Group Staff Entry, then *Manage staff* and choose Halima Bello.
+2. Sign in as Halima Bello and verify `DEMO-10001` (Match / No match) or `DEMO-20001` (not found) or `DEMO-50001` (unavailable).
+3. Sign in as Victor Hale and open Group Staff Entry → *Participating Organizations*, then Exceptions.
+
+**Limitations:**
+- Any active organization on FixID can be invited (names only); there's no invitation by email or approval flow beyond Accept/Decline.
+- The owner can't delegate review to a participant.
+- Access rules are enforced in the browser prototype only, not as production-grade security.
+- Earlier sections below mention programmes; read "programme" there as "shared activity" and "programme owner" as "activity owner".
 
 ## Organizations, workspaces and demo accounts (Phase 1)
 

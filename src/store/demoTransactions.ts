@@ -1,4 +1,5 @@
 import { ORG_B, ORG_B1, ORG_B2, ORG_C } from '@/data/demoPersonas';
+import { DEMO_SHARED_ACTIVITY } from '@/data/seed';
 import { minimizeLookup, toMatchResult } from '@/services/integrations/contract';
 import { simulatedLookup, simulatedMatch } from '@/services/integrations/simulatedIdentityService';
 import { WEB_CLIENT } from './attemptOps';
@@ -26,13 +27,13 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  // Meridian programme, Harbourside (Tomi Okon): a success, a mismatch for programme review, an eligibility question.
-  { key: 'D01', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: `${ORG_B1}_va_staff_entry`, daysAgo: 6, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
-  { key: 'D02', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: `${ORG_B1}_va_staff_entry`, daysAgo: 3, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
-  { key: 'D03', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: `${ORG_B1}_va_staff_entry`, daysAgo: 2, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
-  // Meridian programme, Eastgate (Mira Santos): a success and an identity service outage.
-  { key: 'D04', org: ORG_B2, userId: 'acct_demo_b2_admin', activityId: `${ORG_B2}_va_contractor_check`, daysAgo: 5, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
-  { key: 'D05', org: ORG_B2, userId: 'acct_demo_b2_admin', activityId: `${ORG_B2}_va_contractor_check`, daysAgo: 1, reference: 'DEMO-50001', end: true },
+  // Meridian's shared activity, run by Harbourside (Tomi Okon): a success, a mismatch for the owner's review, an eligibility question.
+  { key: 'D01', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: DEMO_SHARED_ACTIVITY, daysAgo: 6, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D02', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: DEMO_SHARED_ACTIVITY, daysAgo: 3, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
+  { key: 'D03', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: DEMO_SHARED_ACTIVITY, daysAgo: 2, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  // Meridian's shared activity, run by Eastgate (Mira Santos): a success and an identity source outage.
+  { key: 'D04', org: ORG_B2, userId: 'acct_demo_b2_admin', activityId: DEMO_SHARED_ACTIVITY, daysAgo: 5, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D05', org: ORG_B2, userId: 'acct_demo_b2_admin', activityId: DEMO_SHARED_ACTIVITY, daysAgo: 1, reference: 'DEMO-50001', end: true },
   // Brightwater (Tobyson): a success, a definitive denial (no exception), a mismatch for local review, an outage.
   { key: 'D06', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 4, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
   { key: 'D07', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 4, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
@@ -74,8 +75,8 @@ export function seedDemoTransactions(initial: AppState, now: Date): AppState {
     });
   }
 
-  // Programme review in progress: Victor Hale (Meridian) takes the eligibility exception and adds a note.
-  const eligibility = (s.data.verificationExceptions ?? []).find((e) => e.reason === 'eligibility-not-met' && e.route === 'programme');
+  // Owner review in progress: Victor Hale (Meridian) takes the eligibility exception and adds a note.
+  const eligibility = (s.data.verificationExceptions ?? []).find((e) => e.reason === 'eligibility-not-met' && e.route === 'owner');
   if (eligibility) {
     as('acct_demo_b_admin', ORG_B);
     const reviewer = s.data.administrators.find((a) => a.organizationId === ORG_B && a.userId === 'acct_demo_b_admin');

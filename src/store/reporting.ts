@@ -1,15 +1,15 @@
 import { isUnresolved, type VerificationException } from '@/domain/exceptions';
-import type { ActivityDecision, VerificationProgramme } from '@/domain/programmes';
+import type { ActivityDecision } from '@/domain/activitySettings';
 import { stageOf } from '@/domain/transactions';
 import type { ActivityConfig, VerificationAttempt } from '@/domain/types';
 import { currentDecision, exceptionsOf } from './exceptionOps';
-import { activityPolicy, participation, sourceProblem } from './programmeOps';
+import { participation } from './sharingOps';
 import type { AppState } from './state';
 
 /**
  * Operational metrics computed from stored transactions and exceptions only: nothing here is sampled,
- * estimated or invented. Every function takes an explicit scope (an organization, or a programme and its
- * participants), so callers can't accidentally widen it.
+ * estimated or invented. Every function takes an explicit scope (an organization, or a shared activity and
+ * its participants), so callers can't accidentally widen it.
  */
 
 export interface Period { from?: string; to?: string }
@@ -68,74 +68,48 @@ export function activityBreakdown(state: AppState, attempts: VerificationAttempt
     .sort((x, y) => y.attempts - x.attempts);
 }
 
-/* ---------------- Programme oversight ---------------- */
-
-export type ConfigurationStatus = 'meets-requirements' | 'action-required' | 'not-evaluated';
-export const CONFIGURATION_STATUS_LABEL: Record<ConfigurationStatus, string> = { 'meets-requirements': 'Meets Requirements', 'action-required': 'Action Required', 'not-evaluated': 'Not Evaluated' };
-
-/**
- * Programme Configuration Status of one programme-linked activity: whether it is set up to satisfy the
- * programme's mandatory requirements. A configuration check, not a legal or regulatory compliance claim.
- */
-export function activityConfigurationStatus(state: AppState, activity: ActivityConfig, programme: VerificationProgramme): { status: ConfigurationStatus; checks: { label: string; ok: boolean; detail?: string }[] } {
-  if (programme.status === 'draft' || activity.status === 'draft') return { status: 'not-evaluated', checks: [] };
-  const policy = activityPolicy(state, activity);
-  const req = programme.requirements;
-  const own = policy.own;
-  const src = policy.effective.identitySource;
-  const integrationProblem = src.kind === 'external' ? sourceProblem(policy.integration, policy.effective.method) : null;
-  const checks = [
-    { label: 'Required identity source configured', ok: own.identitySource.kind === req.identitySource.kind && (req.identitySource.kind === 'local' || (own.identitySource.kind === 'external' && own.identitySource.integrationId === req.identitySource.integrationId)) },
-    { label: 'Required verification method applied', ok: req.method !== 'face' || own.method === 'face' },
-    { label: 'Mandatory liveness enabled', ok: req.liveness !== 'required' || own.liveness === 'required' },
-    { label: 'Integration available', ok: !integrationProblem, ...(integrationProblem ? { detail: integrationProblem } : {}) },
-    { label: 'Activity active', ok: activity.status === 'active' },
-  ];
-  return { status: checks.every((c) => c.ok) ? 'meets-requirements' : 'action-required', checks };
-}
+/* ---------------- Shared activity results ---------------- */
 
 export interface ParticipantSummary {
   organizationId: string;
   name: string;
   participation: string;
-  activities: ActivityConfig[];
-  activeActivities: number;
+  verifiers: number;
   summary: Summary;
   lastActivity?: string;
-  configuration: ConfigurationStatus;
 }
 
-/** Programme-linked transactions of the programme's participants (never their other activities). */
-export function programmeTransactions(state: AppState, programme: VerificationProgramme, period: Period = {}, organizationId?: string): VerificationAttempt[] {
-  const participants = new Set(programme.participants.map((p) => p.organizationId).concat(programme.scope === 'own' ? [programme.ownerOrganizationId] : []));
-  return state.data.verificationAttempts.filter((a) => a.programmeId === programme.id && participants.has(a.organizationId) && (!organizationId || a.organizationId === organizationId)
-    && a.status !== 'in-progress' && inPeriod(a.completedAt ?? a.startedAt, period));
+/**
+ * Transactions of a shared activity, for its owner: those performed by the owner and by its participating
+ * organizations for this activity only (never their other activities or records).
+ */
+export function sharedActivityTransactions(state: AppState, activity: ActivityConfig, period: Period = {}, organizationId?: string): VerificationAttempt[] {
+  return state.data.verificationAttempts.filter((a) => a.activityId === activity.id && (a.organizationId === activity.organizationId || a.activityOwnerId === activity.organizationId)
+    && (!organizationId || a.organizationId === organizationId) && a.status !== 'in-progress' && inPeriod(a.completedAt ?? a.startedAt, period));
 }
 
-/** Programme exceptions: those routed to the programme's reviewers. Local exceptions stay with their organization. */
-export function programmeExceptions(state: AppState, programme: VerificationProgramme, organizationId?: string): VerificationException[] {
-  return exceptionsOf(state).filter((e) => e.programmeId === programme.id && e.route === 'programme' && (!organizationId || e.organizationId === organizationId));
+/** Exceptions of a shared activity visible to its owner: those it reviews, and its own. */
+export function sharedActivityExceptions(state: AppState, activity: ActivityConfig, organizationId?: string): VerificationException[] {
+  return exceptionsOf(state).filter((e) => e.activityId === activity.id && (e.reviewOrganizationId === activity.organizationId || e.organizationId === activity.organizationId)
+    && (!organizationId || e.organizationId === organizationId));
 }
 
-export function oversight(state: AppState, programme: VerificationProgramme, period: Period = {}) {
-  const orgIds = programme.scope === 'own' ? [programme.ownerOrganizationId] : programme.participants.map((p) => p.organizationId);
+/** Results of a shared activity by organization, for its owner. */
+export function sharedResults(state: AppState, activity: ActivityConfig, period: Period = {}) {
+  const orgIds = [activity.organizationId, ...(activity.sharing?.participants ?? []).map((p) => p.organizationId)];
   const rows: ParticipantSummary[] = orgIds.map((orgId) => {
-    const activities = state.data.activityConfigs.filter((a) => a.organizationId === orgId && a.programmeId === programme.id);
-    const tx = programmeTransactions(state, programme, period, orgId);
-    const statuses = activities.map((a) => activityConfigurationStatus(state, a, programme).status);
-    const configuration: ConfigurationStatus = !statuses.length || statuses.every((x) => x === 'not-evaluated') ? 'not-evaluated' : statuses.includes('action-required') ? 'action-required' : 'meets-requirements';
+    const tx = sharedActivityTransactions(state, activity, period, orgId);
     return {
       organizationId: orgId, name: state.data.organizations.find((o) => o.id === orgId)?.name ?? orgId,
-      participation: participation(programme, orgId) ?? 'removed', activities, activeActivities: activities.filter((a) => a.status === 'active').length,
-      summary: summarize(state, tx), lastActivity: tx.map((a) => a.completedAt ?? a.startedAt).sort().pop(), configuration,
+      participation: participation(activity, orgId) ?? 'removed',
+      verifiers: state.data.verifierAssignments.filter((v) => v.activityId === activity.id && v.organizationId === orgId && v.status === 'active').length,
+      summary: summarize(state, tx), lastActivity: tx.map((a) => a.completedAt ?? a.startedAt).sort().pop(),
     };
   });
-  const all = programmeTransactions(state, programme, period);
-  const exceptions = programmeExceptions(state, programme);
+  const exceptions = sharedActivityExceptions(state, activity);
   return {
-    rows, summary: summarize(state, all),
-    participating: programme.participants.filter((p) => p.status === 'active').length + (programme.scope === 'own' ? 1 : 0),
-    activeActivities: rows.reduce((n, r) => n + r.activeActivities, 0),
+    rows, summary: summarize(state, sharedActivityTransactions(state, activity, period)),
+    participating: (activity.sharing?.participants ?? []).filter((p) => p.status === 'active').length,
     exceptions: { total: exceptions.length, unresolved: exceptions.filter(isUnresolved).length },
   };
 }

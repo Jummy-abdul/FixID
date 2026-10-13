@@ -36,7 +36,7 @@ export function StatusApiDemoPage() {
       <PageHeader title="Verification Status API (simulated)" description="How an authorized integrating system would read a verification’s current status. Development demonstration only." />
       <p className="mb-6 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
         <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-        <span>Simulated: requests run in this browser against prototype data. There’s no public endpoint and no real client authentication; the calling client is a registered demonstration identity with no secret. Responses aren’t production evidence. A client may read only its own organization’s transactions, or programme-linked transactions of a programme its organization owns; anything else returns 404.</span>
+        <span>Simulated: requests run in this browser against prototype data. There’s no public endpoint and no real client authentication; the calling client is a registered demonstration identity with no secret. Responses aren’t production evidence. A client may read only its own organization’s transactions, or transactions that participating organizations performed for a shared activity its organization owns; anything else returns 404.</span>
       </p>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="space-y-4 px-5 py-5">

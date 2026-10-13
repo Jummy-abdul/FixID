@@ -18,7 +18,7 @@ type Result = { ok: true; state: AppState; exception: VerificationException } | 
 export const exceptionsOf = (state: AppState) => state.data.verificationExceptions ?? [];
 export const exceptionFor = (state: AppState, id: string) => exceptionsOf(state).find((e) => e.id === id);
 
-/** Exceptions an organization's users may see: its own transactions', and those routed to it for programme review. */
+/** Exceptions an organization's users may see: its own transactions', and those of its shared activities routed to it for review. */
 export function exceptionsVisibleTo(state: AppState, organizationId: string): VerificationException[] {
   const perms = actorPermissions(state, organizationId);
   if (!perms.has('exceptions.view') && !perms.has('exceptions.review')) return [];
@@ -30,7 +30,7 @@ export function reviewProblem(state: AppState, organizationId: string, e: Verifi
   if (!e) return 'This exception wasn’t found.';
   const rec = actorRecord(state, organizationId);
   if (!rec || rec.status !== 'active') return 'You aren’t an administrator of this organization.';
-  if (e.reviewOrganizationId !== organizationId) return e.route === 'programme' ? 'This exception is reviewed by the programme’s reviewers.' : 'This exception is reviewed by its own organization.';
+  if (e.reviewOrganizationId !== organizationId) return e.route === 'owner' ? 'This exception is reviewed by the organization that owns the shared activity.' : 'This exception is reviewed by its own organization.';
   if (!actorPermissions(state, organizationId).has('exceptions.review')) return 'Your role can’t review exceptions.';
   return null;
 }
@@ -72,10 +72,13 @@ function write(state: AppState, e: VerificationException, ev: ExceptionEvent, su
 
 const eventId = (e: VerificationException) => `${e.id}-H${e.history.length + 1}`;
 
-/** Where an exception is reviewed: the programme owner when the programme escalates exceptions, otherwise locally. */
-export function routeFor(state: AppState, attempt: Pick<VerificationAttempt, 'organizationId' | 'programmeId'>): Pick<VerificationException, 'route' | 'reviewOrganizationId'> {
-  const programme = attempt.programmeId ? (state.data.verificationProgrammes ?? []).find((p) => p.id === attempt.programmeId) : undefined;
-  return programme?.requirements.escalateToProgramme ? { route: 'programme', reviewOrganizationId: programme.ownerOrganizationId } : { route: 'local', reviewOrganizationId: attempt.organizationId };
+/**
+ * Where an exception is reviewed: a shared activity's owner reviews exceptions from the organizations taking
+ * part (it controls the activity's requirements); otherwise the transaction's own organization.
+ */
+export function routeFor(_state: AppState, attempt: Pick<VerificationAttempt, 'organizationId' | 'activityOwnerId'>): Pick<VerificationException, 'route' | 'reviewOrganizationId'> {
+  return attempt.activityOwnerId && attempt.activityOwnerId !== attempt.organizationId
+    ? { route: 'owner', reviewOrganizationId: attempt.activityOwnerId } : { route: 'local', reviewOrganizationId: attempt.organizationId };
 }
 
 /**
@@ -89,7 +92,7 @@ export function raiseException(state: AppState, attemptId: string, at: string, o
   const { reason, detail } = reasonFor(a, opts.referred);
   const route = routeFor(state, a);
   const e: VerificationException = {
-    id: `EXC-${String(max + 1).padStart(5, '0')}`, organizationId: a.organizationId, ...(a.programmeId ? { programmeId: a.programmeId } : {}),
+    id: `EXC-${String(max + 1).padStart(5, '0')}`, organizationId: a.organizationId, ...(a.activityOwnerId ? { activityOwnerId: a.activityOwnerId } : {}),
     transactionId: a.id, activityId: a.activityId, activityName: a.activityName, reason, reasonDetail: detail, ...route,
     status: 'open', createdAt: at, updatedAt: at, history: [], reverificationTransactionIds: [],
   };
@@ -98,7 +101,7 @@ export function raiseException(state: AppState, attemptId: string, at: string, o
     id: `${e.id}-H1`, at, action: 'created', actorId: opts.referred ? a.verifierId : 'system', actorName: opts.referred ? a.verifierName : 'Activity policy',
     actorOrganizationId: a.organizationId, toStatus: 'open', comment: detail, transactionId: a.id,
   };
-  return write(withLink, e, ev, `Exception ${e.id} was raised for transaction ${a.id} (${a.activityName}) and placed in the ${route.route === 'programme' ? 'programme review queue' : 'organization’s review queue'}.`,
+  return write(withLink, e, ev, `Exception ${e.id} was raised for transaction ${a.id} (${a.activityName}) and placed in the ${route.route === 'owner' ? 'activity owner’s review queue' : 'organization’s review queue'}.`,
     { organizationIds: [a.organizationId, route.reviewOrganizationId] });
 }
 
@@ -327,8 +330,8 @@ export function applyStatusRequestAudit(state: AppState, input: { clientId?: str
   const org = state.data.organizations.find((o) => o.id === orgId);
   if (!org) return state;
   const a = state.data.verificationAttempts.find((x) => x.id === input.transactionId.trim());
-  const programme = a?.programmeId ? (state.data.verificationProgrammes ?? []).find((p) => p.id === a.programmeId) : undefined;
-  const ok = !!a && (a.organizationId === org.id || (programme?.ownerOrganizationId === org.id && programme.status !== 'draft'));
+  // Its own transactions, or (shared activities it owns) those its participants performed.
+  const ok = !!a && (a.organizationId === org.id || a.activityOwnerId === org.id);
   return appendAudit(state, [{
     organizationId: org.id, action: ok ? 'api.status-requested' : 'api.status-denied', actor: `${org.name} integration client (simulated)`, actorType: 'integration',
     actorId: input.clientId, actorOrganizationId: org.id, ...(ok && a!.organizationId !== org.id ? { targetOrganizationId: a!.organizationId } : {}),

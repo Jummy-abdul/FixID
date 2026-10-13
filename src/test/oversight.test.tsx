@@ -5,7 +5,7 @@ import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_SESSION } from '@/auth/authCore';
 import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C } from '@/data/demoPersonas';
-import { DEMO_PROGRAMME_B } from '@/data/seed';
+import { DEMO_SHARED_ACTIVITY } from '@/data/seed';
 import { permissionsFor } from '@/domain/roles';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
@@ -13,12 +13,12 @@ import {
   applyAssignException, applyCloseException, applyExceptionNote, applyResolveException, applyStartReview, exceptionFor, exceptionsVisibleTo,
 } from '@/store/exceptionOps';
 import { loadState } from '@/store/persistence';
-import { activityConfigurationStatus, oversight, programmeTransactions, toCsv } from '@/store/reporting';
+import { sharedActivityTransactions, sharedResults, toCsv } from '@/store/reporting';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
 import { createVerificationService } from '@/verification/engine';
 
 const AT = new Date().toISOString();
-const STAFF = `${ORG_B1}_va_staff_entry`;
+const STAFF = DEMO_SHARED_ACTIVITY;
 const DELEGATE = `${ORG_C}_va_visitor_checkin`;
 const SPEAKER = `${ORG_C}_va_restricted_lounge`;
 const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error((r as unknown as { error: string }).error); return r as Extract<T, { ok: true }>; };
@@ -73,9 +73,9 @@ describe('exception creation and routing', () => {
     for (const k of ['D07', 'D09', 'D05', 'D06']) expect(byKey(k).exceptionId).toBeUndefined();
   });
 
-  it('routes by policy: programme escalation goes to the owner’s reviewers; independent activities stay local', () => {
+  it('routes by owner: shared activities’ exceptions go to the owner’s reviewers; own activities stay local', () => {
     const s = createInitialState(new Date());
-    expect(exc(s, 'identity-mismatch', ORG_B1)).toMatchObject({ route: 'programme', reviewOrganizationId: ORG_B, programmeId: DEMO_PROGRAMME_B, status: 'open' });
+    expect(exc(s, 'identity-mismatch', ORG_B1)).toMatchObject({ route: 'owner', reviewOrganizationId: ORG_B, activityOwnerId: ORG_B, status: 'open' });
     expect(exc(s, 'identity-mismatch', ORG_C)).toMatchObject({ route: 'local', reviewOrganizationId: ORG_C, status: 'open' });
     expect(exc(s, 'eligibility-not-met', ORG_B1)).toMatchObject({ status: 'in-review', assignedReviewerName: 'Victor Hale' });
   });
@@ -97,7 +97,7 @@ describe('review workflow', () => {
   it('only authorized reviewers in the reviewing organization can act; participants and auditors are read-only', () => {
     const s = createInitialState(new Date());
     const e = exc(s, 'identity-mismatch', ORG_B1);
-    // The participant can see the programme exception but not resolve it.
+    // The participant can see the exception from its own transaction but not resolve it.
     const b1 = as('acct_demo_b1_admin', ORG_B1, s);
     expect(exceptionsVisibleTo(b1, ORG_B1).map((x) => x.id)).toContain(e.id);
     expect(applyResolveException(b1, { organizationId: ORG_B1, exceptionId: e.id, outcome: 'verification-not-confirmed', reason: 'x', at: AT })).toMatchObject({ ok: false });
@@ -175,7 +175,7 @@ describe('Verification Status API (simulated)', () => {
     const pending = as(`client_${ORG_B1}`, 'D02');
     expect(pending).toMatchObject({ httpStatus: 200, body: { status: 'PENDING_REVIEW', decision: 'PENDING_REVIEW', identityMatch: 'NO_MATCH' } });
     expect(JSON.stringify(pending.body)).not.toMatch(/DEMO-10001|Sample Person/);
-    // The programme owner's client has programme-level access.
+    // The shared activity owner's client can read transactions of its shared activity.
     expect(as(`client_${ORG_B}`, 'D02').httpStatus).toBe(200);
     const e = exc(s, 'identity-mismatch', ORG_B1);
     s = ok(applyResolveException(s, { organizationId: ORG_B, exceptionId: e.id, outcome: 'verification-not-confirmed', reason: 'Not confirmed.', at: AT })).state;
@@ -202,31 +202,20 @@ describe('Verification Status API (simulated)', () => {
   });
 });
 
-describe('programme oversight and reporting', () => {
-  it('Scenario E: summaries count only programme-linked transactions of participants', () => {
+describe('shared activity results and reporting', () => {
+  it('Scenario E: the owner’s results count only its shared activity, by organization', () => {
     const s = createInitialState(new Date());
-    const p = s.data.verificationProgrammes.find((x) => x.id === DEMO_PROGRAMME_B)!;
-    const o = oversight(s, p);
-    expect(o.rows.map((r) => [r.organizationId, r.summary.attempts, r.summary.completed, r.summary.pendingReview])).toEqual([[ORG_B1, 3, 1, 2], [ORG_B2, 2, 1, 0]]);
-    expect(o.summary.unableToComplete).toBe(1);
-    // Transactions of the participants' independent activities are excluded.
-    expect(programmeTransactions(s, p).every((a) => a.programmeId === p.id)).toBe(true);
-    expect(o.rows.every((r) => r.configuration === 'meets-requirements')).toBe(true);
-  });
-
-  it('configuration status reflects actual requirements', () => {
-    const s = createInitialState(new Date());
-    const p = s.data.verificationProgrammes.find((x) => x.id === DEMO_PROGRAMME_B)!;
     const act = s.data.activityConfigs.find((a) => a.id === STAFF)!;
-    expect(activityConfigurationStatus(s, act, p).status).toBe('meets-requirements');
-    const weakened = { ...act, verification: { ...act.verification!, liveness: 'optional' as const } };
-    expect(activityConfigurationStatus(s, weakened, p)).toMatchObject({ status: 'action-required' });
-    expect(activityConfigurationStatus(s, { ...act, status: 'inactive' }, p).status).toBe('action-required');
+    const o = sharedResults(s, act);
+    expect(o.rows.filter((r) => r.summary.attempts > 0).map((r) => [r.organizationId, r.summary.attempts, r.summary.completed, r.summary.pendingReview])).toEqual([[ORG_B1, 3, 1, 2], [ORG_B2, 2, 1, 0]]);
+    expect(o.summary.unableToComplete).toBe(1);
+    // Transactions of the participants' own activities are excluded.
+    expect(sharedActivityTransactions(s, act).every((a) => a.activityId === STAFF)).toBe(true);
   });
 
-  it('a suspended programme doesn’t start new verification attempts', () => {
+  it('a suspended participant doesn’t start new verification attempts', () => {
     let s = victor();
-    s = reducer(s, { type: 'programmes/transition', organizationId: ORG_B, programmeId: DEMO_PROGRAMME_B, transition: 'suspend', at: AT });
+    s = reducer(s, { type: 'sharing/participant', organizationId: ORG_B, activityId: STAFF, participantId: ORG_B1, status: 'suspended', at: AT });
     const h = harness(tomi(s));
     expect(h.service.startAttempt(ORG_B1, STAFF)).toMatchObject({ ok: false });
   });
@@ -240,7 +229,7 @@ describe('screens', () => {
   it('lists exceptions for the programme owner with the required columns and filters, and resolves one', async () => {
     const user = renderApp('/exceptions', victor(), 'acct_demo_b_admin');
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Exception', 'Transaction', 'Activity', 'Organization', 'Programme', 'Reason', 'Status', 'Assigned Reviewer', 'Created', 'Last Updated', 'Actions']);
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Exception', 'Transaction', 'Activity', 'Organization', 'Reviewed by', 'Reason', 'Status', 'Assigned Reviewer', 'Created', 'Last Updated', 'Actions']);
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     await user.selectOptions(screen.getByLabelText('Reason'), 'identity-mismatch');
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2);
@@ -287,16 +276,16 @@ describe('screens', () => {
     expect(document.body.textContent).not.toContain('Visitor Check-in');
   });
 
-  it('programme oversight drill-down shows programme scope only and is refused to non-owners', async () => {
-    renderApp(`/programmes/${DEMO_PROGRAMME_B}/organizations/${ORG_B1}`, victor(), 'acct_demo_b_admin');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Meridian Harbourside' })).toBeInTheDocument();
-    expect(screen.getByRole('main')).toHaveTextContent('Harbourside Staff Entry');
+  it('the owner sees its shared activity’s results by organization; a participant sees only its own', async () => {
+    renderApp(`/verification-activities/${STAFF}?tab=organizations`, victor(), 'acct_demo_b_admin');
+    const table = await screen.findByRole('table');
+    expect(table).toHaveTextContent('Meridian Harbourside');
     // No people, references or other activities.
     expect(screen.getByRole('main')).not.toHaveTextContent(/DEMO-1000|Sample Person|Visitor Identity Check|Annual Staff Conference/);
-    // A participant's administrator (programme view, not owner) gets nothing about the sibling organization.
-    cleanupAndRender(`/programmes/${DEMO_PROGRAMME_B}/organizations/${ORG_B2}`, as('acct_demo_b1_admin', ORG_B1), 'acct_demo_b1_admin');
-    expect(await screen.findByRole('heading', { name: 'Not available' })).toBeInTheDocument();
-    expect(screen.getByRole('main')).not.toHaveTextContent('Eastgate Contractor Check');
+    // A participant's administrator sees the requirements and its own verifications, nothing about the sibling organization.
+    cleanupAndRender(`/verification-activities/${STAFF}`, as('acct_demo_b1_admin', ORG_B1), 'acct_demo_b1_admin');
+    expect(await screen.findByText(/Set by Meridian Group/)).toBeInTheDocument();
+    expect(screen.getByRole('main')).not.toHaveTextContent('Meridian Eastgate');
   });
 
   it('the dashboard shows verification operations from stored records', async () => {

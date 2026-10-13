@@ -6,11 +6,10 @@ import { EXCEPTION_REASON_LABEL, type ExceptionReason } from '@/domain/exception
 import { DECISION_LABEL, ELIGIBILITY_STATUS_LABEL, MATCH_LABEL } from '@/domain/transactions';
 import { formatDate } from '@/lib/dates';
 import { exceptionsVisibleTo } from '@/store/exceptionOps';
-import { participation } from '@/store/programmeOps';
-import { activityBreakdown, exceptionSummary, organizationTransactions, oversight, programmeExceptions, programmeTransactions, summarize, toCsv, type Period, type Summary } from '@/store/reporting';
+import { activityBreakdown, exceptionSummary, organizationTransactions, sharedActivityExceptions, sharedActivityTransactions, sharedResults, summarize, toCsv, type Period, type Summary } from '@/store/reporting';
 import { useSession, useStore } from '@/store/AppStore';
 
-type Tab = 'organization' | 'programme' | 'exceptions';
+type Tab = 'organization' | 'shared' | 'exceptions';
 const PERIODS = { '7d': 7, '30d': 30, '90d': 90, all: 0 } as const;
 
 /** Downloads aggregate rows as CSV. Never people, references, identity attributes or biometric data. */
@@ -33,20 +32,20 @@ function outcomeRows(s: Summary): (string | number)[][] {
 
 /**
  * Operational reports for the current workspace, from stored records. Organization and exception reports
- * cover this organization (plus exceptions routed to it); the programme report covers programmes it owns,
- * across their participants, programme-linked records only. Exports contain aggregates only.
+ * cover this organization (plus exceptions routed to it); the shared activity report covers shared activities
+ * it owns, across their participating organizations, for those activities only. Exports contain aggregates only.
  */
 export function ReportsPage() {
   const { organization } = useSession();
   const { state } = useStore();
   const { can } = useAuthorization();
   const toast = useToast();
-  const owned = (state.data.verificationProgrammes ?? []).filter((p) => participation(p, organization.id) === 'owner' && p.status !== 'draft');
+  const owned = state.data.activityConfigs.filter((a) => a.organizationId === organization.id && a.sharing && a.status !== 'draft');
   const showExceptions = can('exceptions.view') || can('exceptions.review');
-  const tabs = [{ value: 'organization' as Tab, label: 'Organization verification report' }, ...(owned.length ? [{ value: 'programme' as Tab, label: 'Programme report' }] : []), ...(showExceptions ? [{ value: 'exceptions' as Tab, label: 'Exception report' }] : [])];
+  const tabs = [{ value: 'organization' as Tab, label: 'Organization verification report' }, ...(owned.length ? [{ value: 'shared' as Tab, label: 'Shared activity report' }] : []), ...(showExceptions ? [{ value: 'exceptions' as Tab, label: 'Exception report' }] : [])];
   const [tab, setTab] = useState<Tab>('organization');
   const [periodKey, setPeriodKey] = useState<keyof typeof PERIODS>('30d');
-  const [programmeId, setProgrammeId] = useState(owned[0]?.id ?? '');
+  const [sharedId, setSharedId] = useState(owned[0]?.id ?? '');
   const now = useMemo(() => new Date(), []);
   const period: Period = PERIODS[periodKey] ? { from: new Date(now.getTime() - PERIODS[periodKey] * 86_400_000).toISOString(), to: now.toISOString() } : {};
   const periodLabel = period.from ? `${formatDate(period.from)} – ${formatDate(now.toISOString())}` : 'All time';
@@ -63,27 +62,26 @@ export function ReportsPage() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
       <div className="mt-6">
         {tab === 'organization' && <OrganizationReport period={period} periodLabel={periodLabel} onExport={exported} />}
-        {tab === 'programme' && owned.length > 0 && (() => {
-          const p = owned.find((x) => x.id === programmeId) ?? owned[0];
-          const o = oversight(state, p, period);
-          const tx = programmeTransactions(state, p, period);
-          const ex = programmeExceptions(state, p);
-          const acts = activityBreakdown(state, tx);
-          const name = `programme-report-${p.id}.csv`;
+        {tab === 'shared' && owned.length > 0 && (() => {
+          const a = owned.find((x) => x.id === sharedId) ?? owned[0];
+          const o = sharedResults(state, a, period);
+          const ex = sharedActivityExceptions(state, a);
+          const tx = sharedActivityTransactions(state, a, period);
+          const name = `shared-activity-report-${a.id}.csv`;
           return (
-            <section aria-label="Programme report" className="space-y-6">
+            <section aria-label="Shared activity report" className="space-y-6">
               <div className="flex flex-wrap items-center gap-3">
-                {owned.length > 1 && <FilterSelect label="Programme" value={p.id} onChange={setProgrammeId} options={owned.map((x) => ({ value: x.id, label: x.name }))} />}
-                <span className="flex-1 text-sm text-slate-600">Programme: <span className="font-medium text-slate-900">{p.name}</span></span>
+                {owned.length > 1 && <FilterSelect label="Shared activity" value={a.id} onChange={setSharedId} options={owned.map((x) => ({ value: x.id, label: x.name }))} />}
+                <span className="flex-1 text-sm text-slate-600">Shared activity: <span className="font-medium text-slate-900">{a.name}</span></span>
                 <Button variant="secondary" icon={<Download className="h-4 w-4" />} onClick={() => {
-                  download(name, [['Programme', p.name], ['Reporting period', periodLabel], ['Participating organizations', o.participating], ...outcomeRows(o.summary), ['Exceptions', ex.length], ['Unresolved exceptions', ex.filter((e) => !['resolved', 'closed'].includes(e.status)).length], [], ['Organization', 'Attempts', 'Completed', 'Pending review', 'Unable to complete'], ...o.rows.map((r) => [r.name, r.summary.attempts, r.summary.completed, r.summary.pendingReview, r.summary.unableToComplete]), [], ['Activity', 'Organization', 'Attempts', 'Allowed', 'Denied', 'Pending review'], ...acts.map((a) => [a.activityName, orgName(a.organizationId), a.attempts, a.allowed, a.denied, a.pendingReview])]);
+                  download(name, [['Shared activity', a.name], ['Reporting period', periodLabel], ['Participating organizations', o.participating], ...outcomeRows(o.summary), ['Exceptions', ex.length], ['Unresolved exceptions', o.exceptions.unresolved], [], ['Organization', 'Attempts', 'Completed', 'Pending review', 'Unable to complete'], ...o.rows.map((r) => [r.name, r.summary.attempts, r.summary.completed, r.summary.pendingReview, r.summary.unableToComplete])]);
                   exported(name);
                 }}>Export CSV</Button>
               </div>
               <Figures s={o.summary} extra={[{ label: 'Participating Organizations', value: o.participating }, { label: 'Exceptions', value: ex.length }, { label: 'Unresolved Exceptions', value: o.exceptions.unresolved }]} />
               <Card>
-                <CardHeader title="Participating organizations" />
-                <DataTable rows={o.rows} rowKey={(r) => r.organizationId} columns={[
+                <CardHeader title="By organization" description="This activity’s transactions only. Participating organizations’ other records aren’t included." />
+                <DataTable rows={o.rows.filter((r) => r.summary.attempts > 0 || r.participation === 'active' || r.participation === 'owner')} rowKey={(r) => r.organizationId} columns={[
                   { key: 'org', header: 'Organization', cell: (r) => r.name },
                   { key: 'att', header: 'Attempts', cell: (r) => r.summary.attempts },
                   { key: 'done', header: 'Completed', cell: (r) => r.summary.completed },
@@ -91,7 +89,7 @@ export function ReportsPage() {
                   { key: 'unable', header: 'Unable to Complete', cell: (r) => r.summary.unableToComplete },
                 ]} />
               </Card>
-              <ActivityTable rows={acts} orgName={orgName} />
+              <p className="text-xs text-slate-500">{tx.length} transactions in the reporting period.</p>
             </section>
           );
         })()}

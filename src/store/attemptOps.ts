@@ -2,7 +2,7 @@ import type { AuditEvent, CheckRun, VerificationAttempt, VerificationClientRef }
 import { authorizeVerifier, checkById, evaluateOutcome, splitResults } from '@/domain/verification';
 import { actorPermissions as actorPermissionsFor, actorRecord } from './adminOps';
 import type { AppState } from './state';
-import { activityPolicy } from './programmeOps';
+import { activityPolicy } from './sharingOps';
 import { localTransactionFields } from './transactionOps';
 import { reverificationProblem } from './exceptionOps';
 import { LOCATION_LABEL, evaluateLocation, formatCoordinate } from '@/domain/location';
@@ -68,7 +68,7 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
     const problem = reverificationProblem(state, input.reverificationOf, activity.id);
     if (problem) return { ok: false, error: problem, code: 'invalid-configuration' };
   }
-  // The identity source, integration and programme come from the authoritative configuration, never the verifier.
+  // The identity source and integration come from the authoritative configuration, never the verifier.
   const policy = activityPolicy(state, activity);
   const external = policy.effective.identitySource.kind === 'external';
   const attempt: VerificationAttempt = {
@@ -80,7 +80,7 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
     checks: external ? [] : version.checks.map((c) => ({ checkId: c.id, type: c.type, requirement: c.requirement, status: 'pending', explanation: 'Not run yet.', providerId: c.providerId })),
     reasons: [], simulated: false,
     identitySource: external ? 'external' : 'local', stage: 'initiated',
-    ...(policy.programme ? { programmeId: policy.programme.id } : {}),
+    ...(activity.sharing ? { activityOwnerId: activity.organizationId } : {}),
     ...(external && policy.integration ? { integrationId: policy.integration.id, serviceName: policy.integration.name } : {}),
     // A retry links to the transaction it follows; that result is never changed.
     ...(input.reverificationOf ? { reverificationOf: input.reverificationOf } : {}),

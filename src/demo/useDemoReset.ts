@@ -8,7 +8,7 @@ import { clearScenarioRuns } from './runs';
 /** What a demo reset restores, and what it keeps. Shown before anyone confirms. */
 export const RESET_EXPLANATION = {
   restores: [
-    'The seeded demonstration organizations (A, B with B1 and B2, C, and the new organization) and their people, groups, credentials, activities, programmes, integrations, transactions, exceptions and audit events.',
+    'The seeded demonstration organizations (A, B with B1 and B2, C, and the new organization) and their people, groups, credentials, activities (including shared activities and invitations), integrations, transactions, exceptions and audit events.',
     'The simulated identity service’s outage switch and saved scenario runs.',
   ],
   keeps: [
