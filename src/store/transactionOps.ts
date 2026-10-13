@@ -190,8 +190,12 @@ export function applyEndExternal(state: AppState, input: { attemptId: string; at
   let next: VerificationAttempt = {
     ...a, status: 'completed', completedAt: input.at, stage: s === 'NOT_FOUND' ? 'failed' : 'unable-to-complete',
     match: { status: 'not-evaluated', simulated: false }, liveness: { status: 'not-performed', required: policy.livenessRequired, simulated: false },
-    eligibilityStatus: 'not-evaluated', decision: 'unable-to-decide', decisionExplanation: `${reason} Verification could not be completed.`, failureReason: reason,
-    outcome: 'unable-to-verify', verificationResult: 'unable-to-verify', eligibilityResult: 'unable', accessDecision: 'review-required', accessReasons: [reason],
+    // No record found means the person isn't verified. An unavailable source is a technical issue: no decision is made.
+    ...(s === 'NOT_FOUND'
+      ? { eligibilityStatus: 'not-evaluated' as const, decision: 'deny' as const, decisionExplanation: `${reason} The person was not verified.`, failureReason: reason,
+        outcome: 'not-verified' as const, verificationResult: 'not-verified' as const, eligibilityResult: 'unable' as const, accessDecision: 'not-permitted' as const, accessReasons: [reason] }
+      : { eligibilityStatus: 'not-evaluated' as const, decision: 'unable-to-decide' as const, decisionExplanation: `${reason} Verification could not be completed.`, failureReason: reason,
+        outcome: 'unable-to-verify' as const, verificationResult: 'unable-to-verify' as const, eligibilityResult: 'unable' as const, accessDecision: 'review-required' as const, accessReasons: [reason] }),
     reasons: [reason], simulated: !!a.lookup?.simulated,
   };
   next = { ...next, checks: externalChecks(next, input.at) };

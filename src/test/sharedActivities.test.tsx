@@ -10,7 +10,7 @@ import { defaultSettings, type VerificationSettings } from '@/domain/activitySet
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
 import { applyActivate, applySaveActivity, type ActivityForm } from '@/store/activityOps';
-import { exceptionsVisibleTo } from '@/store/exceptionOps';
+import { applyAssignException, applyResolveException, exceptionsVisibleTo } from '@/store/exceptionOps';
 import { sharedActivityTransactions, sharedResults } from '@/store/reporting';
 import { activityFor, applyAssignSharedVerifiers, applyRespondToInvitation, availableSources, configFromSettings, participation, sharedWith } from '@/store/sharingOps';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
@@ -151,10 +151,34 @@ describe('end-to-end: own and shared activities', () => {
     // The owner sees nothing else of A: not its own activities' transactions or exceptions.
     expect(exceptionsVisibleTo(owner, ORG_C).some((e) => e.organizationId === ORG_A && e.activityId !== 'shared_visit')).toBe(false);
 
+    // 13–14. The owner reviews the exception; the decision updates both organizations' figures and the original result stays.
+    const before = sharedResults(owner, act).rows.find((r) => r.organizationId === ORG_A)!.summary;
+    const reviewer = recordOf(owner, ORG_C, JORDAN);
+    let reviewed = ok(applyAssignException(owner, { organizationId: ORG_C, exceptionId: exc.id, reviewerId: reviewer, at: AT })).state;
+    expect(applyResolveException(reviewed, { organizationId: ORG_C, exceptionId: exc.id, outcome: 'verification-confirmed', reason: 'Looks fine', at: AT })).toMatchObject({ ok: false });
+    reviewed = ok(applyResolveException(reviewed, { organizationId: ORG_C, exceptionId: exc.id, outcome: 'verification-not-confirmed', reason: 'Face did not match.', at: AT })).state;
+    const after = sharedResults(reviewed, act).rows.find((r) => r.organizationId === ORG_A)!.summary;
+    expect([after.pendingReview, after.denied]).toEqual([before.pendingReview - 1, before.denied + 1]);
+    const tx = reviewed.data.verificationAttempts.find((x) => x.id === mismatch.id)!;
+    expect(tx).toMatchObject({ decision: 'pending-review', match: { status: 'no-match' }, reviewDisposition: { decision: 'deny', outcome: 'verification-not-confirmed' } });
+    // The participant sees the reviewed outcome of its own transaction, but can't review it.
+    expect(exceptionsVisibleTo(as(ESTHER, ORG_A, reviewed), ORG_A).find((e) => e.id === exc.id)).toMatchObject({ status: 'resolved' });
+    expect(applyResolveException(as(ESTHER, ORG_A, h.state), { organizationId: ORG_A, exceptionId: exc.id, outcome: 'verification-not-confirmed', reason: 'x', at: AT })).toMatchObject({ ok: false });
+
     // 8. A still creates and uses its own independent activity, with its own FixID records.
     const own = create(a, ORG_A, 'a_own', form(a, ORG_A, 'Reception Check', { ...defaultSettings(), method: 'record', liveness: 'not-applicable' }, { verifierIds: [recordOf(a, ORG_A, ESTHER)] }));
     expect(own.data.activityConfigs.find((x) => x.id === 'a_own')).toMatchObject({ organizationId: ORG_A, status: 'active' });
     expect(activityFor(as(JORDAN, ORG_C, own), ORG_C, 'a_own')).toBeUndefined();
+  });
+
+  it('only verifiers the participating organization assigned can verify, even with the activity URL', async () => {
+    // Lina is an administrator of a participating organization but isn't assigned as a verifier.
+    const h = harness(as('acct_demo_b1_admin', ORG_B1, createInitialState(new Date())));
+    expect(h.service.startAttempt(ORG_B1, DEMO_SHARED_ACTIVITY)).toMatchObject({ ok: false, code: 'not-assigned' });
+    // An organization that hasn't accepted can't verify, assign staff or see the owner's transactions.
+    const c = as(JORDAN, ORG_C, createInitialState(new Date()));
+    expect(applyAssignSharedVerifiers(c, { organizationId: ORG_C, activityId: DEMO_SHARED_ACTIVITY, verifierIds: [recordOf(c, ORG_C, HALIMA)], at: AT })).toMatchObject({ ok: false });
+    expect(reducer(c, { type: 'sharing/assignVerifiers', organizationId: ORG_C, activityId: DEMO_SHARED_ACTIVITY, verifierIds: [recordOf(c, ORG_C, HALIMA)], at: AT })).toBe(c);
   });
 
   it('the owner suspends a participant: new verifications stop, history stays', async () => {
@@ -196,43 +220,70 @@ describe('screens', () => {
     expect(within(nav).getByRole('link', { name: /Verification Activities/ })).toBeInTheDocument();
   });
 
-  it('creates an activity for the organization’s own use in one short form', async () => {
+  it('starts with one question, then a short form for the organization’s own use', async () => {
     const user = renderAs('/verification-activities/new', JORDAN);
-    await screen.findByRole('heading', { name: 'Create verification activity' }, { timeout: 4000 });
+    await screen.findByRole('heading', { name: 'Create activity' }, { timeout: 4000 });
+    expect(screen.getByRole('heading', { name: 'What do you want to do?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /For my organization/ }));
     expect(screen.queryByText(/Local eligible population|External source eligibility|Reference list eligibility/)).not.toBeInTheDocument();
     expect(screen.queryByText('Participating organizations')).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Activity name'), 'Front Desk Check');
     await user.click(screen.getByRole('radio', { name: 'Brightwater Identity Service' }));
-    await user.click(screen.getByRole('button', { name: 'Create activity' }));
+    await user.click(screen.getByRole('button', { name: 'Create Activity' }));
     expect(await screen.findByRole('heading', { name: /Front Desk Check/ }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getAllByText('For my organization').length).toBeGreaterThan(0);
   });
 
-  it('creates a shared activity: connected sources only, then participating organizations', async () => {
+  it('creates a shared activity with just details, a source and organizations; checks come from the source', async () => {
     const user = renderAs('/verification-activities/new', JORDAN);
-    await screen.findByRole('heading', { name: 'Create verification activity' }, { timeout: 4000 });
-    await user.type(screen.getByLabelText('Activity name'), 'Partner Check');
-    await user.click(screen.getByRole('radio', { name: /For other organizations/ }));
+    await user.click(await screen.findByRole('radio', { name: /For other organizations/ }, { timeout: 4000 }));
+    // No checks, verifiers or other settings to configure.
+    expect(screen.queryByRole('heading', { name: /Checks/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Who can verify/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('More options')).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: 'FixID records' })).not.toBeInTheDocument();
-    // The only suitable source is preselected.
+    await user.type(screen.getByLabelText('Activity name'), 'Partner Check');
+    // The only suitable source is preselected; its checks are reused.
     expect(screen.getByRole('radio', { name: 'Brightwater Identity Service' })).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Create activity' }));
+    expect(screen.getByRole('heading', { name: 'Review' }).closest('div')!).toHaveTextContent('ChecksIdentifier, face match, liveness');
+    await user.click(screen.getByRole('button', { name: 'Create Activity' }));
     expect(await screen.findByText('Choose at least one organization to take part.')).toBeInTheDocument();
     await user.click(within(screen.getByRole('group', { name: 'Participating organizations' })).getByRole('checkbox', { name: /Northbridge Group/ }));
-    await user.click(screen.getByRole('button', { name: 'Create activity' }));
-    await user.click(await screen.findByRole('tab', { name: /Participating Organizations/ }, { timeout: 4000 }));
+    await user.click(screen.getByRole('button', { name: 'Create Activity' }));
+    // The owner's dashboard, calculated from stored transactions (none yet).
+    const summary = await screen.findByRole('region', { name: 'Activity summary' }, { timeout: 4000 });
+    expect(summary).toHaveTextContent('Total attempts0');
+    expect(screen.getByText('No verifications yet')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Organizations/ }));
     const row = screen.getAllByRole('row').find((r) => within(r).queryAllByText('Northbridge Group').length > 0)!;
     expect(within(row).getByText('Invited')).toBeInTheDocument();
   });
 
-  it('the invited organization accepts in its own workspace, assigns its staff, and can’t edit the activity', async () => {
+  it('the invited organization accepts in its own workspace, assigns its verifiers, and can’t edit the activity', async () => {
     const user = renderAs('/verification-activities', JORDAN);
-    const list = await screen.findByRole('list', { name: 'Shared with your organization' }, { timeout: 4000 });
-    expect(within(list).getByText('From Meridian Group')).toBeInTheDocument();
-    await user.click(within(list).getByRole('button', { name: /Accept/ }));
-    await user.click(await screen.findByRole('link', { name: /Manage staff/ }));
-    expect(await screen.findByText('Set by Meridian Group. Your organization can’t change them.')).toBeInTheDocument();
+    await user.click(await screen.findByRole('tab', { name: /Invited Activities/ }, { timeout: 4000 }));
+    const row = screen.getAllByRole('row').find((r) => within(r).queryAllByText('Group Staff Entry').length > 0)!;
+    expect(row).toHaveTextContent('Meridian Group');
+    expect(row).toHaveTextContent('Invited');
+    await user.click(within(row).getByRole('button', { name: /Accept/ }));
+    await user.click(await screen.findByRole('link', { name: /Assign verifiers/ }));
+    expect(await screen.findByText('Set by Meridian Group.')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
-    expect(screen.getByText('Your staff for this activity')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Verifiers' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Your results' })).toHaveTextContent('Total attempts0');
+  });
+  it('the owner’s dashboard opens filtered transactions from a figure or an organization', async () => {
+    const user = renderAs(`/verification-activities/${DEMO_SHARED_ACTIVITY}`, 'acct_demo_b_admin');
+    const summary = await screen.findByRole('region', { name: 'Activity summary' }, { timeout: 4000 });
+    // Seeded transactions: B1 three (1 verified, 2 pending review), B2 two (1 verified, 1 unable to verify).
+    expect(summary).toHaveTextContent('Total attempts5');
+    expect(summary).toHaveTextContent('Verified2');
+    expect(summary).toHaveTextContent('Pending review2');
+    expect(summary).toHaveTextContent('Unable to verify1');
+    await user.click(within(summary).getByRole('link', { name: /Pending review/ }));
+    expect(await screen.findByLabelText('Outcome')).toHaveValue('pending-review');
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.textContent?.includes('Meridian Harbourside'))).toBe(true);
   });
 });

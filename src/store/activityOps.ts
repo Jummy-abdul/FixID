@@ -202,7 +202,7 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   const removedParticipants = (sharing?.participants ?? []).filter((p) => p.status === 'removed' && existing?.sharing?.participants.some((x) => x.organizationId === p.organizationId && x.status !== 'removed'));
   const sharingEvents: NewEvent[] = [
     ...(invited.length ? [{ action: 'verification-activity.participants-invited' as const, summary: `${by} invited ${invited.map((p) => orgName(p.organizationId)).join(', ')} to take part in ${form.name.trim()}.` }] : []),
-    ...removedParticipants.map((p) => ({ action: 'verification-activity.participant-changed' as const, summary: `${by} removed ${orgName(p.organizationId)} from ${form.name.trim()}. Its earlier records are kept.`, changes: [{ field: 'Participation', from: 'Participating', to: 'Removed' }] })),
+    ...removedParticipants.map((p) => ({ action: 'verification-activity.participant-changed' as const, summary: `${by} removed ${orgName(p.organizationId)} from ${form.name.trim()}. Its earlier records are kept.`, changes: [{ field: 'Participation', from: 'Accepted', to: 'Removed' }] })),
   ];
   const sharingChanged = sharingEvents.length > 0;
   const verificationFields = form.verification ? { verification: form.verification } : existing?.verification ? { verification: existing.verification } : {};

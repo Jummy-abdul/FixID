@@ -71,8 +71,8 @@ export const EXCEPTION_REASON_LABEL: Record<ExceptionReason, string> = {
   'eligibility-not-met': 'Eligibility not met', 'missing-evidence': 'Missing required evidence', 'service-failure': 'Verification service failure', other: 'Other review condition',
 };
 export const RESOLUTION_LABEL: Record<ResolutionOutcome, string> = {
-  'verification-confirmed': 'Verification Confirmed', 'verification-not-confirmed': 'Verification Not Confirmed',
-  'reverification-required': 'Reverification Required', 'unable-to-resolve': 'Unable to Resolve',
+  'verification-confirmed': 'Approve', 'verification-not-confirmed': 'Reject',
+  'reverification-required': 'Return for a new check', 'unable-to-resolve': 'Unable to resolve',
 };
 export const EXCEPTION_ACTION_LABEL: Record<ExceptionAction, string> = {
   created: 'Exception created', assigned: 'Reviewer assigned', 'review-started': 'Review started', 'note-added': 'Review note added',

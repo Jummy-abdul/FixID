@@ -386,7 +386,7 @@ export function rulesSummary(version: Pick<ActivityVersion, 'checks' | 'outcome'
 }
 
 export const OUTCOME_LABEL: Record<string, string> = {
-  verified: 'Verified', 'not-verified': 'Not Verified', 'unable-to-verify': 'Unable to Verify', 'pending-review': 'Pending Review',
+  verified: 'Verified', 'not-verified': 'Not verified', 'unable-to-verify': 'Unable to verify', 'pending-review': 'Pending review',
 };
 
 /* ------------------------------------------------------------------ */

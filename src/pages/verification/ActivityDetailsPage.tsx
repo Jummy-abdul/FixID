@@ -23,12 +23,11 @@ import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { activityFor, activityPolicy, audienceOf } from '@/store/sharingOps';
 import { sharedActivityTransactions, summarize } from '@/store/reporting';
 import { AUDIENCE_LABEL } from '@/domain/activitySettings';
-import { ParticipatingOrganizationsTab, SharedActivityParticipantView } from './SharedActivityPanels';
+import { ActivityExceptionsTab, ActivityTransactionsTab, ParticipatingOrganizationsTab, SharedActivityDashboard, SharedActivityParticipantView } from './SharedActivityPanels';
 import { NotFoundPage } from '../NotFoundPage';
-import { AttemptsTable } from './VerificationHistoryPage';
 import { activityPath } from './paths';
 
-type TabId = 'overview' | 'organizations' | 'participants' | 'history';
+type TabId = 'overview' | 'organizations' | 'participants' | 'transactions' | 'exceptions';
 
 export function ActivityDetailsPage() {
   const { activityId } = useParams();
@@ -67,11 +66,13 @@ function Details({ activity }: { activity: ActivityConfig }) {
   const shared = audienceOf(activity) === 'shared';
   const tabs = [
     { value: 'overview' as const, label: 'Overview' },
-    ...(shared ? [{ value: 'organizations' as const, label: 'Participating Organizations', count: (activity.sharing?.participants ?? []).filter((p) => p.status === 'active' || p.status === 'invited').length }] : []),
+    ...(shared ? [{ value: 'organizations' as const, label: 'Organizations', count: (activity.sharing?.participants ?? []).filter((p) => p.status === 'active' || p.status === 'invited').length }] : []),
     ...(usesParticipants ? [{ value: 'participants' as const, label: 'People', count: eligible }] : []),
-    ...(can('verification.results.view') ? [{ value: 'history' as const, label: 'Verification History', count: attempts.length }] : []),
+    ...(can('verification.results.view') ? [{ value: 'transactions' as const, label: 'Transactions', count: attempts.filter((a) => a.status !== 'in-progress').length }] : []),
+    ...(can('exceptions.view') || can('exceptions.review') ? [{ value: 'exceptions' as const, label: 'Exceptions' }] : []),
   ];
-  const selected: TabId = tabs.some((t) => t.value === tab) ? (tab as TabId) : 'overview';
+  const requested = tab === 'history' ? 'transactions' : tab;
+  const selected: TabId = tabs.some((t) => t.value === requested) ? (requested as TabId) : 'overview';
 
   const run = () => {
     const kind = pending;
@@ -110,7 +111,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity.name}<ActivityStatusBadge status={activity.status} /></h1>
-          <p className="mt-1 max-w-2xl text-slate-500">{activity.purpose || activity.description || 'No purpose given.'}</p>
+          {(activity.description || activity.purpose) && <p className="mt-1 max-w-2xl text-slate-500">{activity.description || activity.purpose}</p>}
           <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-slate-700">
             {activity.locationCheck?.enabled && <div className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Location check</dt><dd>Location check on{activity.locationCheck.label ? ` · ${activity.locationCheck.label.split(',')[0]}` : ''}</dd></div>}
             {when && <div className="flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Schedule</dt><dd>{when}{activity.schedule?.enforced ? ' · verification only in this window' : ''}</dd></div>}
@@ -140,15 +141,11 @@ function Details({ activity }: { activity: ActivityConfig }) {
 
       <Tabs<TabId> value={selected} onChange={(v) => setTab(v)} tabs={tabs} />
       <div className="mt-6" role="tabpanel" aria-label={tabs.find((t) => t.value === selected)?.label}>
-        {selected === 'overview' && <Overview activity={activity} warnings={problems.warnings} />}
+        {selected === 'overview' && (shared ? <div className="space-y-6"><SharedActivityDashboard activity={activity} /><Overview activity={activity} warnings={problems.warnings} compact /></div> : <Overview activity={activity} warnings={problems.warnings} />)}
         {selected === 'organizations' && <ParticipatingOrganizationsTab activity={activity} />}
         {selected === 'participants' && <ParticipantsTab activity={activity} uses={usesParticipants} />}
-        {selected === 'history' && (
-          <Card>
-            <p className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">Verification attempts for this activity{shared ? ', including those performed by participating organizations' : ''}. Configuration changes are in the Audit Log.</p>
-            <AttemptsTable rows={attempts} hideActivity />
-          </Card>
-        )}
+        {selected === 'transactions' && <ActivityTransactionsTab activity={activity} />}
+        {selected === 'exceptions' && <ActivityExceptionsTab activity={activity} />}
       </div>
 
       {pending && (
@@ -170,7 +167,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
  * An operational summary for the administrator: who can be verified, who verifies, where, and progress
  * so far from actual records. How checks and providers work is FixID's concern and isn't shown here.
  */
-function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: string[] }) {
+function Overview({ activity, warnings, compact }: { activity: ActivityConfig; warnings: string[]; compact?: boolean }) {
   const { state } = useStore();
   const { organization } = useSession();
   const org = useOrgData();
@@ -184,27 +181,31 @@ function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: 
   const users = p.memberIds.map((id) => org.memberById.get(id)?.displayName ?? 'Removed user');
   const list = (xs: string[]) => (xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} and ${xs.length - 5} more`);
   // Only issues an administrator can act on.
-  const actionable = warnings.filter((w) => w === NO_VERIFIER_WARNING);
+  // A shared activity is verified by its participating organizations' staff, so the owner needn't assign anyone.
+  const actionable = activity.sharing ? [] : warnings.filter((w) => w === NO_VERIFIER_WARNING);
   const policy = activityPolicy(state, activity);
   // For a shared activity, the owner counts every participating organization's transactions for it.
   const results = summarize(state, sharedActivityTransactions(state, activity));
   return (
     <div className="space-y-6">
-      <section aria-label="Activity summary" className="grid gap-4 sm:grid-cols-3">
+      {!compact && (
+      <section aria-label="Activity summary" className={cn('grid gap-4', usesList ? 'sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4')}>
         {(usesList ? [
           ['Eligible people', progress.eligible],
           ['Verified people', progress.verified],
           ['Entries granted', progress.granted],
         ] : [
-          ['Verifications', results.attempts],
+          ['Total attempts', results.attempts],
           ['Verified', results.allowed],
-          ['Not verified or pending', results.denied + results.pendingReview + results.unableToComplete],
+          ['Not verified', results.denied],
+          ['Pending review', results.pendingReview],
         ]).map(([label, value]) => (
           <Card key={label} className="p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p></Card>
         ))}
       </section>
+      )}
       {actionable.length > 0 && <IssuesList blockers={[]} warnings={actionable} warningsTitle="No verifier assigned" />}
-      <Card className="px-6 py-5">
+      {!compact && <Card className="px-6 py-5">
         <h2 className="text-sm font-semibold text-slate-900">Activity details</h2>
         <dl className="mt-3 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
           {usesList && <div><dt className="text-slate-500">Who can be verified</dt><dd className="mt-0.5 text-slate-900">
@@ -220,10 +221,10 @@ function Overview({ activity, warnings }: { activity: ActivityConfig; warnings: 
           <div><dt className="text-slate-500">For</dt><dd className="mt-0.5 text-slate-900">{AUDIENCE_LABEL[audienceOf(activity)]}</dd></div>
           <div><dt className="text-slate-500">Last updated</dt><dd className="mt-0.5 text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
         </dl>
-      </Card>
+      </Card>}
       <Card className="px-6 py-5">
         <h2 className="text-sm font-semibold text-slate-900">Verification settings</h2>
-        {activity.sharing && <p className="mt-1 text-xs text-slate-500">These apply to every participating organization. Only your organization can change them.</p>}
+        {activity.sharing && <p className="mt-1 text-xs text-slate-500">Applies to every participating organization.</p>}
         <div className="mt-3"><ActivitySettingsSummary settings={policy.effective} integration={policy.integration} /></div>
       </Card>
       {loc?.enabled && validCoordinates(loc.lat, loc.lng) && maps.available && (

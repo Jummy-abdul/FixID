@@ -36,7 +36,7 @@ export function ExceptionsPage() {
 
   return (
     <>
-      <PageHeader title="Exceptions" description="Verification transactions that need authorized review. Original verification results are kept as recorded; reviewers record a separate determination." />
+      <PageHeader title="Exceptions" description="Verifications that need review." />
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
           <SearchInput value={q} onChange={setQ} placeholder="Search exception, transaction or activity" className="sm:w-72" label="Search exceptions" />

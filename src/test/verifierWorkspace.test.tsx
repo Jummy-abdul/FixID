@@ -421,7 +421,7 @@ describe('screens', () => {
     await user.click(within(table).getByRole('button', { name: 'Not verified' }));
     expect(within(table).queryByText(enrolled.displayName)).toBeNull();
     // Verification History keeps the same results.
-    await user.click(screen.getByRole('tab', { name: /Verification History/ }));
+    await user.click(screen.getByRole('tab', { name: /Transactions/ }));
     const historyRow = (await screen.findAllByRole('row')).find((r) => r.textContent?.includes(enrolled.displayName.split(' ')[0]) && r.textContent?.includes('Entered'));
     expect(historyRow).toBeDefined();
   });

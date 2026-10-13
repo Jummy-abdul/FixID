@@ -238,12 +238,12 @@ describe('screens', () => {
     await user.click(screen.getByRole('button', { name: 'Assign to me' }));
     await user.click(screen.getByRole('button', { name: 'Start Review' }));
     expect(screen.getByLabelText('Exception overview')).toHaveTextContent('In Review');
-    await user.selectOptions(screen.getByLabelText('Resolution outcome'), 'verification-confirmed');
+    await user.selectOptions(screen.getByLabelText('Decision'), 'verification-confirmed');
     expect(screen.getByText(/can’t be overridden/)).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Resolution outcome'), 'verification-not-confirmed');
-    await user.type(screen.getByLabelText('Resolution reason'), 'Identity could not be confirmed.');
-    await user.click(screen.getByRole('button', { name: 'Record Resolution' }));
-    await waitFor(() => expect(screen.getByLabelText('Resolution')).toHaveTextContent('Verification Not Confirmed'));
+    await user.selectOptions(screen.getByLabelText('Decision'), 'verification-not-confirmed');
+    await user.type(screen.getByLabelText('Reason'), 'Identity could not be confirmed.');
+    await user.click(screen.getByRole('button', { name: 'Record decision' }));
+    await waitFor(() => expect(screen.getByLabelText('Resolution')).toHaveTextContent('Reject'));
     expect(screen.getByLabelText('Verification information')).toHaveTextContent('Identity match resultNo match');
     expect(loadState()!.data.audit.some((a) => a.action === 'exception.resolved')).toBe(true);
   });

@@ -141,7 +141,7 @@ describe('Journey B: external identity verification', () => {
     const blocked = await h.service.completeExternal(a.id, { captured: true, demo: { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' } }, { submissionId: 'x' });
     expect(blocked).toMatchObject({ ok: false, error: 'Find the identity before continuing.' });
     const ended = h.service.endExternal(a.id);
-    expect(ended).toMatchObject({ ok: true, attempt: { decision: 'unable-to-decide', stage: 'failed', failureReason: 'No identity record was found for the reference provided.', match: { status: 'not-evaluated' } } });
+    expect(ended).toMatchObject({ ok: true, attempt: { decision: 'deny', stage: 'failed', failureReason: 'No identity record was found for the reference provided.', match: { status: 'not-evaluated' } } });
   });
 
   it('the reference can be corrected after Not Found; each lookup is counted on the same transaction', async () => {
@@ -327,7 +327,7 @@ describe('screens', () => {
     await user.click(screen.getByRole('radio', { name: 'Match' }));
     await user.click(screen.getByRole('button', { name: 'Verify Identity' }));
     const outcome = await screen.findByRole('region', { name: 'Verification outcome' }, { timeout: 4000 });
-    expect(outcome).toHaveTextContent('Allow');
+    expect(outcome).toHaveTextContent('Verified');
     expect(outcome).toHaveTextContent('Simulated Result');
     expect(outcome).toHaveTextContent('Identity VerificationIdentity matched');
     expect(outcome).toHaveTextContent('EligibilityEligible');
@@ -341,7 +341,7 @@ describe('screens', () => {
     const a = await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' });
     renderApp(`/verify/attempts/${a.id}`, h.state, 'acct_demo_b1_verifier');
     const outcome = await screen.findByRole('region', { name: 'Verification outcome' });
-    expect(outcome).toHaveTextContent('Pending Review');
+    expect(outcome).toHaveTextContent('Pending review');
     // The outcome banner itself is violet; green is reserved for Allow.
     expect(outcome.firstElementChild!.className).toMatch(/violet/);
     expect(outcome.firstElementChild!.className).not.toMatch(/emerald/);
@@ -356,8 +356,8 @@ describe('screens', () => {
     const rows = await screen.findAllByRole('row');
     const extRow = rows.find((r) => r.textContent?.includes(ext.id))!;
     expect(extRow).toHaveTextContent('Brightwater Identity Service');
-    expect(extRow).toHaveTextContent('Allow');
-    expect(rows.some((r) => r.textContent?.includes('FixID Local Records') && r.textContent.includes('Deny'))).toBe(true);
+    expect(extRow).toHaveTextContent('Verified');
+    expect(rows.some((r) => r.textContent?.includes('FixID Local Records') && r.textContent.includes('Not verified'))).toBe(true);
     await user.click(within(extRow).getByRole('link', { name: `View details for ${ext.id}` }));
     const tx = await screen.findByLabelText('Verification transaction');
     expect(tx).toHaveTextContent('External Reference IDDEMO-10001');
@@ -378,11 +378,11 @@ describe('screens', () => {
   it('the shared activity owner sees counts by organization, not participants’ references', async () => {
     const h = harness(tomi());
     await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-MATCH' });
-    renderApp(`/verification-activities/${STAFF}?tab=organizations`, as('acct_demo_b_admin', ORG_B, h.state), 'acct_demo_b_admin');
+    renderApp(`/verification-activities/${STAFF}`, as('acct_demo_b_admin', ORG_B, h.state), 'acct_demo_b_admin');
     const table = await screen.findByRole('table');
     const row = within(table).getAllByRole('row').find((r) => r.textContent?.includes('Meridian Harbourside'))!;
-    // Three seeded demonstration transactions plus this one: verifications, verified, pending review.
-    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(3, 6)).toEqual(['4', '2', '2']);
+    // Three seeded demonstration transactions plus this one: total, verified, not verified, pending review.
+    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(1, 5)).toEqual(['4', '2', '0', '2']);
     expect(document.body.textContent).not.toContain('DEMO-10001');
   });
 });

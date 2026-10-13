@@ -56,7 +56,7 @@ describe('#007 neutral placeholders', () => {
     expect(screen.getByPlaceholderText('Enter a brief description of this group')).toBeInTheDocument();
     expect(screen.getByRole('dialog')).not.toHaveTextContent(/engineering|department/i);
     unmount();
-    renderApp('/verification-activities/new', base());
+    renderApp('/verification-activities/new?type=own', base());
     expect(screen.getByPlaceholderText('Enter activity name')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Describe the purpose of this verification activity')).toBeInTheDocument();
     expect(screen.getByRole('main')).not.toHaveTextContent(/\bexam\b|examination|CSC|student/i);
@@ -77,7 +77,7 @@ describe('#008 no Verifier Workspace shortcuts', () => {
 describe('#009 / #010 activity drafts and verifiers', () => {
   it('keeps a new activity as a draft through a trip to invite an administrator, and continues where it stopped', async () => {
     const s = base();
-    const { user } = renderApp('/verification-activities/new', s);
+    const { user } = renderApp('/verification-activities/new?type=own', s);
     await user.type(screen.getByLabelText('Activity name'), 'Volunteer Briefing');
     await user.type(screen.getByLabelText(/Short description/), 'Entry to the volunteer briefing');
     // The administrator creating it is preselected as its verifier.
@@ -124,13 +124,13 @@ describe('#009 / #010 activity drafts and verifiers', () => {
 
   it('shows only the missing-verifier warning, and only when nobody is assigned', async () => {
     const s = base();
-    const { user } = renderApp('/verification-activities/new', s);
+    const { user } = renderApp('/verification-activities/new?type=own', s);
     await user.type(screen.getByLabelText('Activity name'), 'Gate Check');
-    const review = screen.getByRole('heading', { name: 'Review and create' }).closest('div')!;
+    const review = screen.getByRole('heading', { name: 'Review' }).closest('div')!;
     expect(review).not.toHaveTextContent(/biometric|provider|integration/i);
     expect(review).not.toHaveTextContent('No verifier assigned');
     await user.click(screen.getByRole('button', { name: `Unassign ${me(s).name}` }));
-    const again = screen.getByRole('heading', { name: 'Review and create' }).closest('div')!;
+    const again = screen.getByRole('heading', { name: 'Review' }).closest('div')!;
     expect(again).toHaveTextContent('No verifier assigned');
     expect(again).toHaveTextContent('Assign at least one verifier to allow verification for this activity.');
     expect(again).not.toHaveTextContent('Worth checking');
@@ -165,7 +165,7 @@ describe('#012 simple Activity Overview', () => {
     expect(main).toHaveTextContent('Assigned verifiers');
     expect(main).toHaveTextContent('Location check');
     expect(main).toHaveTextContent('Last updated');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'People', 'Verification History']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'People', 'Transactions', 'Exceptions']);
   });
 });
 

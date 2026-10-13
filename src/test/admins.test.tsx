@@ -431,7 +431,7 @@ describe('invitations, permissions and revoked access', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'My Dashboard' }, { timeout: 3000 })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Dashboard', 'My Verification Activities', 'My Verification History']);
-    expect(screen.getByText(/You aren’t assigned to any verification activities yet/)).toBeInTheDocument();
+    expect(screen.getByText(/No activities assigned to you yet/)).toBeInTheDocument();
     await user.click(within(nav).getByRole('link', { name: 'My Verification Activities' }));
     expect(await screen.findByText('No verification activities assigned to you.')).toBeInTheDocument();
   }, 20_000);

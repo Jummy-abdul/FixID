@@ -38,7 +38,7 @@ export function VerifierHome() {
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">My Verification Activities</h1>
-      <p className="mt-1 text-slate-500">Choose the activity, then verify each person in front of you. They don’t need to scan or present anything unless the activity asks for a credential.</p>
+      <p className="mt-1 text-slate-500">Choose an activity to start.</p>
 
       {readOnly && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Role preview is read-only, so verifications can’t be performed. Exit the preview to verify.</p>}
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
@@ -47,7 +47,7 @@ export function VerifierHome() {
         {!canExecute ? <NoExecute />
           : activities.length === 0 ? (
             <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No verification activities assigned to you."
-              description="You can verify people only for active activities you’re assigned to. An administrator assigns verifiers in an activity’s Participants & Verifiers step." /></Card>
+              description="Ask an administrator to assign you to an activity." /></Card>
           ) : (
             <div className="space-y-4">
               {activities.length > 4 && <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities" />}
@@ -117,7 +117,7 @@ function NoExecute() {
   return (
     <Card>
       <EmptyState icon={<ShieldOff className="h-5 w-5" />} title="Your role doesn’t include performing verifications"
-        description="Verifications are performed by Verifiers and Organization Admins. Ask an Organization Admin to change your role." />
+        description="Ask an administrator to change your role." />
     </Card>
   );
 }
@@ -133,7 +133,7 @@ export function VerifierHistoryPage() {
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">My Verification History</h1>
-      <p className="mt-1 text-slate-500">Verifications you performed. Other verifiers’ records aren’t shown.</p>
+      <p className="mt-1 text-slate-500">Verifications you performed.</p>
       <div className="mt-6">
         {mine.length === 0 ? (
           <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No verifications yet" description="Verifications you perform appear here." /></Card>
@@ -183,7 +183,7 @@ export function VerifierDashboard() {
       </div>
       {assigned.length === 0 ? (
         <p className="mt-6 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-inset ring-slate-200">
-          You aren’t assigned to any verification activities yet. An administrator assigns verifiers when they set up an activity.
+          No activities assigned to you yet.
         </p>
       ) : (
         <section className="mt-8" aria-labelledby="assigned-heading">

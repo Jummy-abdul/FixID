@@ -278,7 +278,7 @@ export const SCENARIOS: ScenarioDefinition[] = [
     initialData: 'Visitor Check-in and its simulated service (DEMO-20001 returns Not Found).', organizationStructure: 'Organization C.', users: [ACCOUNTS.cVerifier],
     activity: 'Visitor Check-in', identitySource: 'Brightwater Identity Service (external)', integration: 'SIMULATED', eligibility: 'External source',
     controls: ['Lookup must find one identity before capture'], expectedOutcome: 'Not Found shown; the attempt is ended and recorded as unresolved.',
-    expectedTransactionState: 'Failed (lookup Not Found), decision Unable to Decide.', permissionBoundaries: ['No local Person is created.'],
+    expectedTransactionState: 'Failed (lookup Not Found), decision Not verified.', permissionBoundaries: ['No local Person is created.'],
     steps: [
       { title: 'Start and look up an unknown reference', account: ACCOUNTS.cVerifier, route: `/verify/activities/${VISITOR}`, instructions: 'Start Verification → DEMO-20001 → Find Identity. Read the message.' },
       { title: 'End the attempt', account: ACCOUNTS.cVerifier, instructions: 'Choose End Verification and confirm (or correct the reference to see a successful lookup instead).' },
@@ -310,9 +310,9 @@ export const SCENARIOS: ScenarioDefinition[] = [
     permissionBoundaries: ['Only Organization C reviewers can act on the exception.', 'Confirming requires a successful reverification.'],
     steps: [
       { title: 'Produce a mismatch', account: ACCOUNTS.cVerifier, route: `/verify/activities/${LOUNGE}`, instructions: 'DEMO-10001 → Continue → simulated capture → Liveness Passed → Matching No match → Verify Identity. Note the Pending Review result.' },
-      { title: 'Review the exception', account: ACCOUNTS.cAdmin, route: '/exceptions?status=unresolved', instructions: 'Open the new Identity mismatch exception → Assign to me → Start Review → Add Review Note → Record Resolution: Reverification Required.' },
+      { title: 'Review the exception', account: ACCOUNTS.cAdmin, route: '/exceptions?status=unresolved', instructions: 'Open the new Identity mismatch exception → Assign to me → Start Review → Add Review Note → Record decision: Return for a new check.' },
       { title: 'Reverify', account: ACCOUNTS.cVerifier, route: '/verify/history', instructions: 'Open the original transaction → Start Reverification → DEMO-10001, Passed + Match.' },
-      { title: 'Resolve', account: ACCOUNTS.cAdmin, route: '/exceptions', instructions: 'Open the exception → Record Resolution: Verification Confirmed → Close Exception.' },
+      { title: 'Resolve', account: ACCOUNTS.cAdmin, route: '/exceptions', instructions: 'Open the exception → Record decision: Approve → Close Exception.' },
     ],
     resetBehavior: 'Reset Demo Data removes the transactions and exception.',
     prerequisites: (s) => activityExists(s, LOUNGE, 'Restricted Lounge Access'),
@@ -504,7 +504,7 @@ export const SCENARIOS: ScenarioDefinition[] = [
     steps: [
       { title: 'Create a review case', account: ACCOUNTS.b1Verifier, route: `/verify/activities/${STAFF}`, instructions: 'DEMO-10001 → Passed + No match → Verify Identity.' },
       { title: 'Status before review', account: ACCOUNTS.b1Admin, route: '/developer/status-api', instructions: 'Choose the new transaction and Request status: PENDING_REVIEW.' },
-      { title: 'Review as the owner’s exception reviewer', account: ACCOUNTS.reviewer, route: '/exceptions?status=unresolved', instructions: 'Open the exception → Assign to me → Record Resolution: Verification Not Confirmed.' },
+      { title: 'Review as the owner’s exception reviewer', account: ACCOUNTS.reviewer, route: '/exceptions?status=unresolved', instructions: 'Open the exception → Assign to me → Record decision: Reject.' },
       { title: 'Status after review', account: ACCOUNTS.b1Admin, route: '/developer/status-api', instructions: 'Request status again; also try “No client” and another organization’s client.' },
     ],
     resetBehavior: 'Reset Demo Data removes the transaction and exception.',

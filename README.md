@@ -346,14 +346,12 @@ Verification Programmes were merged into Verification Activities. There is one c
 - **For my organization:** your staff verify people for your own purposes.
 - **For other organizations (shared activity):** one activity record, owned and configured by your organization. The organizations you choose get an invitation in their **own existing FixID workspace**. Nobody registers again, and nobody copies the activity. They accept, assign their **own** staff, and run the same activity.
 
-**Creating an activity** is one short page (`ActivityEditorPage`). Conditional fields keep it short:
+**Creating an activity** starts with one question, *What do you want to do?* (`ActivityEditorPage`):
 
-1. Activity name and an optional short description.
-2. Who it's for (fixed once created).
-3. Identity source. Only sources available to the organization are shown: *FixID records*, and its active connected sources from Settings → Integrations. A single suitable source is preselected. A shared activity needs a connected source, so participants never see the owner's own records.
-4. Participating organizations (shared activities only).
-5. Required checks: face match, liveness, and what happens when a check fails (*Mark as not verified* or *Send for review*). If the source is unavailable, no decision is made; the person isn't treated as invalid.
-6. Who can verify, then **Review and create** (or **Save as draft**).
+- **For other organizations:** activity details (name, optional description), identity source and participating organizations, then a short review and **Create Activity**. The checks come from the identity source: face match and liveness when the source can match faces; problems go to review. Nothing else is asked, and participating organizations assign their own verifiers.
+- **For my organization:** details, identity source, checks (face match, liveness, and whether a failed check is *Not verified* or *Pending review*), and who can verify.
+
+Only sources available to the organization are offered, and a single suitable one is preselected. `?type=shared|own` skips the first question.
 
 *More options* holds the optional extras: limiting who can be verified (FixID records only) and the location check. Eligibility isn't configured any more. A connected source's record status decides it behind the scenes; with FixID records anyone registered can be checked unless the activity limits it. A valid-looking identifier only lets the person be checked; it never marks them as verified.
 
@@ -364,7 +362,19 @@ Verification Programmes were merged into Verification Activities. There is one c
 - **What the owner sees:** this activity's results by organization (*Participating Organizations* tab, dashboard, *Shared activity report*, Verification History with a *Performed by* filter). It reviews the activity's exceptions (route `owner`). The simulated status API answers the owner's client for these transactions only. It never sees participants' other activities, people, records or exceptions.
 - **Independence:** participating doesn't change an organization's workspace. It keeps managing its own administrators, users and settings, and creates its own activities.
 
-**Navigation:** one *Verification Activities* item. Its page lists your activities and, above them, *Shared with your organization* (invitations with Accept and Decline, and participations). Old `/programmes` links redirect there.
+**Navigation:** one *Verification Activities* item, with two tabs:
+- **My Activities:** activities your organization created.
+- **Invited Activities:** activities shared with you, with Invited, Accepted or Declined status, Accept and Decline, and *Assign verifiers*.
+
+Old `/programmes` links redirect there.
+
+**Outcomes:** *Verified*, *Not verified* (including an identifier with no record), *Pending review*, and *Unable to verify* (the source is unavailable, a technical issue rather than a mismatch). Review decisions are *Approve*, *Reject*, *Return for a new check* and *Unable to resolve*. The original result is kept beside the decision.
+
+**Owner's activity page** (all figures come from stored transactions):
+- **Overview:** cards for participating organizations, total attempts, verified, not verified, pending review and unable to verify, plus results by organization. Each card and each row opens the matching transactions.
+- **Organizations, Transactions and Exceptions** tabs.
+
+**Participating organization's page:** accept the invitation, assign verifiers, and see its own results and transactions.
 
 **Data:** stored browser data from before this change (state version 9) is reseeded once (version 10). Demo scenario B is now the shared activity *Group Staff Entry*:
 - It is owned by Meridian Group and uses *Group Identity Service*.

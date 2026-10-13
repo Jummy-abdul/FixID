@@ -29,7 +29,7 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader title="Audit Log" description="Administrative, integration and security-sensitive activity in this organization. Records are append-only." />
+      <PageHeader title="Audit Log" description="Changes and sensitive actions in this organization." />
       <p className="mb-4 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
         No one can edit or delete audit entries through FixID. This log is stored in this browser’s local storage, so it is illustrative and not tamper-resistant audit evidence; no cryptographic immutability is claimed.
       </p>

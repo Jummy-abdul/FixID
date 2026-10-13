@@ -234,7 +234,7 @@ export function applyResolveException(state: AppState, input: { organizationId: 
     organizationIds: [e.reviewOrganizationId, e.organizationId],
     changes: [
       { field: 'Exception status', from: EXCEPTION_STATUS_LABEL[e.status], to: EXCEPTION_STATUS_LABEL[to] },
-      ...(!reverify ? [{ field: 'Transaction disposition', from: 'Pending Review', to: { allow: 'Allow', deny: 'Deny', 'unable-to-decide': 'Unable to Decide', 'pending-review': 'Pending Review' }[disposition] }] : []),
+      ...(!reverify ? [{ field: 'Transaction disposition', from: 'Pending review', to: DECISION_WORDS[disposition] }] : []),
     ],
   });
   if (!reverify) {
@@ -281,7 +281,7 @@ export function currentDecision(a: Pick<VerificationAttempt, 'decision' | 'revie
   return a.decision;
 }
 
-const DECISION_WORDS = { allow: 'Allow', deny: 'Deny', 'pending-review': 'Pending Review', 'unable-to-decide': 'Unable to Decide' } as const;
+const DECISION_WORDS = { allow: 'Verified', deny: 'Not verified', 'pending-review': 'Pending review', 'unable-to-decide': 'Unable to verify' } as const;
 
 /** Audit events for a transaction's lifecycle: started, completed (with its decision) and cancelled. No personal data. */
 export function auditTransactionChange(prev: AppState, next: AppState, attemptId: string, at: string): AppState {

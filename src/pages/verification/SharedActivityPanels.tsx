@@ -1,15 +1,21 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Check, ChevronRight, ScanFace, X } from 'lucide-react';
-import { Badge, Button, ButtonLink, Card, CardHeader, ConfirmDialog, DataTable, StatCard, useToast } from '@/components/ui';
+import { Badge, Button, ButtonLink, Card, CardHeader, ConfirmDialog, DataTable, EmptyState, FilterSelect, StatCard, useToast } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
 import { ActivityStatusBadge, VerifierPicker } from '@/components/verification/parts';
 import { ActivitySettingsSummary } from '@/components/verification/RequirementsSummary';
 import { PARTICIPATION_LABEL, type ParticipationStatus } from '@/domain/activitySettings';
-import type { ActivityConfig } from '@/domain/types';
+import type { ActivityConfig, VerificationAttempt } from '@/domain/types';
+import { EXCEPTION_REASON_LABEL, RESOLUTION_LABEL } from '@/domain/exceptions';
+import { DECISION_LABEL, stageOf } from '@/domain/transactions';
+import { useQueryState } from '@/hooks/useQueryState';
+import { currentDecision, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
+import type { AppState } from '@/store/state';
+import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
 import { activeAssignments } from '@/domain/verification';
 import { formatDateTime } from '@/lib/dates';
-import { sharedResults } from '@/store/reporting';
+import { sharedResults, summarize } from '@/store/reporting';
 import { activityPolicy, participation } from '@/store/sharingOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
 import { AttemptsTable } from './VerificationHistoryPage';
@@ -22,10 +28,55 @@ export const ParticipationBadge = ({ status }: { status: ParticipationStatus | '
   <Badge tone={TONE[status]}>{status === 'owner' ? 'Owner' : PARTICIPATION_LABEL[status]}</Badge>
 );
 
+type Outcome = 'allow' | 'deny' | 'pending-review' | 'unable-to-decide';
+/** A transaction's current outcome (after any review), counted the same way as the summary figures. */
+function outcomeOf(state: AppState, a: VerificationAttempt): Outcome | undefined {
+  const d = a.status === 'completed' ? currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined) : undefined;
+  if (d === 'unable-to-decide' || stageOf(a) === 'unable-to-complete') return 'unable-to-decide';
+  return d;
+}
+
 /**
- * The owner's view of a shared activity's participants: their status, whether they've assigned staff, and
- * this activity's results by organization. Nothing about their other activities, people or records.
+ * The owner's dashboard for a shared activity: figures across participating organizations and results by
+ * organization, all counted from stored transactions. Each figure opens the matching transactions.
  */
+export function SharedActivityDashboard({ activity }: { activity: ActivityConfig }) {
+  const { state } = useStore();
+  const r = sharedResults(state, activity);
+  const s = r.summary;
+  const base = `${activityPath(activity.id)}?tab=transactions`;
+  return (
+    <div className="space-y-6">
+      <section aria-label="Activity summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Participating organizations" value={r.participating} to={`${activityPath(activity.id)}?tab=organizations`} />
+        <StatCard label="Total attempts" value={s.attempts} to={base} />
+        <StatCard label="Verified" value={s.allowed} tone="emerald" to={`${base}&outcome=allow`} />
+        <StatCard label="Not verified" value={s.denied} to={`${base}&outcome=deny`} />
+        <StatCard label="Pending review" value={s.pendingReview} tone="violet" to={`${base}&outcome=pending-review`} />
+        <StatCard label="Unable to verify" value={s.unableToComplete} tone="amber" to={`${base}&outcome=unable-to-decide`} />
+      </section>
+      <Card>
+        <CardHeader title="Results by organization" />
+        {s.attempts === 0 ? <EmptyState title="No verifications yet" /> : (
+          <DataTable
+            rows={r.rows.filter((x) => x.summary.attempts > 0 || x.participation === 'active')}
+            rowKey={(x) => x.organizationId}
+            rowHref={(x) => `${base}&org=${x.organizationId}`}
+            columns={[
+              { key: 'org', header: 'Organization', cell: (x) => <Link to={`${base}&org=${x.organizationId}`} className="font-medium text-slate-900 hover:text-brand-700">{x.name}</Link> },
+              { key: 'total', header: 'Total attempts', cell: (x) => <span className="tabular-nums">{x.summary.attempts}</span> },
+              { key: 'allowed', header: 'Verified', cell: (x) => <span className="tabular-nums">{x.summary.allowed}</span> },
+              { key: 'denied', header: 'Not verified', cell: (x) => <span className="tabular-nums">{x.summary.denied}</span> },
+              { key: 'review', header: 'Pending review', cell: (x) => <span className="tabular-nums">{x.summary.pendingReview}</span> },
+            ]}
+          />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/** The owner manages participation: who's invited, who accepted, and suspending or removing an organization. */
 export function ParticipatingOrganizationsTab({ activity }: { activity: ActivityConfig }) {
   const { state } = useStore();
   const { organization } = useSession();
@@ -33,58 +84,98 @@ export function ParticipatingOrganizationsTab({ activity }: { activity: Activity
   const { setParticipantStatus } = useActions();
   const toast = useToast();
   const [pending, setPending] = useState<{ orgId: string; name: string; status: 'active' | 'suspended' | 'removed' } | null>(null);
-  const r = sharedResults(state, activity);
   const canEdit = can('verification.activities.edit');
+  const rows = (activity.sharing?.participants ?? []).filter((p) => p.status !== 'removed').map((p) => ({
+    ...p, name: state.data.organizations.find((o) => o.id === p.organizationId)?.name ?? p.organizationId,
+    verifiers: state.data.verifierAssignments.filter((v) => v.activityId === activity.id && v.organizationId === p.organizationId && v.status === 'active').length,
+  }));
   const apply = () => {
     if (!pending) return;
     const res = setParticipantStatus(organization.id, activity.id, pending.orgId, pending.status);
     setPending(null);
     if (!res.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: res.error });
-    toast({ tone: 'success', title: { active: 'Participation resumed', suspended: 'Participation suspended', removed: 'Organization removed' }[pending.status], description: pending.name });
+    toast({ tone: 'success', title: { active: 'Resumed', suspended: 'Suspended', removed: 'Removed' }[pending.status], description: pending.name });
   };
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Organizations taking part" value={r.participating} />
-        <StatCard label="Verifications" value={r.summary.attempts} />
-        <StatCard label="Verified" value={r.summary.allowed} tone="emerald" />
-        <StatCard label="Open exceptions" value={r.exceptions.unresolved} hint={`${r.exceptions.total} in total`} tone="violet" to={`/exceptions?activity=${activity.id}`} />
-      </div>
-      <Card>
-        <CardHeader title="Participating organizations"
-          description="Each organization runs this activity from its own workspace with its own staff. You see only this activity’s results, never their other activities, people or records."
-          action={canEdit ? <ButtonLink to={`${activityPath(activity.id)}/edit`} variant="secondary" size="sm">Invite organizations</ButtonLink> : undefined} />
-        <DataTable
-          rows={r.rows}
-          rowKey={(x) => x.organizationId}
-          columns={[
-            { key: 'org', header: 'Organization', cell: (x) => <span className="font-medium text-slate-900">{x.name}</span> },
-            { key: 'status', header: 'Status', cell: (x) => <ParticipationBadge status={x.participation as ParticipationStatus | 'owner'} /> },
-            { key: 'staff', header: 'Staff assigned', cell: (x) => <span className="tabular-nums">{x.verifiers}</span> },
-            { key: 'attempts', header: 'Verifications', cell: (x) => <span className="tabular-nums">{x.summary.attempts}</span> },
-            { key: 'allowed', header: 'Verified', cell: (x) => <span className="tabular-nums">{x.summary.allowed}</span> },
-            { key: 'review', header: 'Pending review', cell: (x) => <span className="tabular-nums">{x.summary.pendingReview}</span> },
-            { key: 'last', header: 'Last verification', cell: (x) => <span className="whitespace-nowrap text-slate-500">{x.lastActivity ? formatDateTime(x.lastActivity) : '—'}</span> },
-            {
-              key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', cell: (x) => (canEdit && x.participation !== 'owner' && (x.participation === 'active' || x.participation === 'suspended' || x.participation === 'invited') ? (
-                <span className="inline-flex gap-2">
-                  {x.participation === 'active' && <Button size="sm" variant="ghost" onClick={() => setPending({ orgId: x.organizationId, name: x.name, status: 'suspended' })}>Suspend<span className="sr-only"> {x.name}</span></Button>}
-                  {x.participation === 'suspended' && <Button size="sm" variant="ghost" onClick={() => setPending({ orgId: x.organizationId, name: x.name, status: 'active' })}>Resume<span className="sr-only"> {x.name}</span></Button>}
-                  <Button size="sm" variant="ghost" onClick={() => setPending({ orgId: x.organizationId, name: x.name, status: 'removed' })}>Remove<span className="sr-only"> {x.name}</span></Button>
-                </span>
-              ) : null),
-            },
-          ]}
-        />
-      </Card>
+    <Card>
+      <CardHeader title="Participating organizations" action={canEdit ? <ButtonLink to={`${activityPath(activity.id)}/edit`} variant="secondary" size="sm">Invite organizations</ButtonLink> : undefined} />
+      <DataTable
+        rows={rows}
+        rowKey={(x) => x.organizationId}
+        empty={<EmptyState title="No organizations invited" />}
+        columns={[
+          { key: 'org', header: 'Organization', cell: (x) => <span className="font-medium text-slate-900">{x.name}</span> },
+          { key: 'status', header: 'Status', cell: (x) => <ParticipationBadge status={x.status} /> },
+          { key: 'staff', header: 'Verifiers', cell: (x) => <span className="tabular-nums">{x.verifiers}</span> },
+          {
+            key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', cell: (x) => (canEdit && x.status !== 'declined' ? (
+              <span className="inline-flex gap-2">
+                {x.status === 'active' && <Button size="sm" variant="ghost" onClick={() => setPending({ orgId: x.organizationId, name: x.name, status: 'suspended' })}>Suspend<span className="sr-only"> {x.name}</span></Button>}
+                {x.status === 'suspended' && <Button size="sm" variant="ghost" onClick={() => setPending({ orgId: x.organizationId, name: x.name, status: 'active' })}>Resume<span className="sr-only"> {x.name}</span></Button>}
+                <Button size="sm" variant="ghost" onClick={() => setPending({ orgId: x.organizationId, name: x.name, status: 'removed' })}>Remove<span className="sr-only"> {x.name}</span></Button>
+              </span>
+            ) : null),
+          },
+        ]}
+      />
       {pending && (
         <ConfirmDialog open tone={pending.status === 'active' ? 'primary' : 'danger'} onCancel={() => setPending(null)} onConfirm={apply}
           title={{ active: `Resume ${pending.name}?`, suspended: `Suspend ${pending.name}?`, removed: `Remove ${pending.name}?` }[pending.status]}
           confirmLabel={{ active: 'Resume', suspended: 'Suspend', removed: 'Remove' }[pending.status]}
-          description={pending.status === 'active' ? 'Its assigned staff can verify for this activity again.'
-            : `Its staff can’t start new verifications for this activity. Its earlier records are kept${pending.status === 'removed' ? '; you can invite it again by editing the activity' : ''}.`} />
+          description={pending.status === 'active' ? 'Its verifiers can verify again.' : 'Its verifiers can’t start new verifications. Earlier records are kept.'} />
       )}
-    </div>
+    </Card>
+  );
+}
+
+const OUTCOME_OPTIONS = [{ value: 'all', label: 'All outcomes' }, ...(['allow', 'deny', 'pending-review', 'unable-to-decide'] as const).map((d) => ({ value: d, label: DECISION_LABEL[d] }))];
+
+/**
+ * Transactions of an activity, filterable by organization and outcome. The owner sees every organization's
+ * transactions for this activity; a participating organization only its own.
+ */
+export function ActivityTransactionsTab({ activity, onlyOrganizationId }: { activity: ActivityConfig; onlyOrganizationId?: string }) {
+  const { state } = useStore();
+  const [org, setOrg] = useQueryState('org', 'all');
+  const [outcome, setOutcome] = useQueryState('outcome', 'all');
+  const all = state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.status !== 'in-progress' && (!onlyOrganizationId || a.organizationId === onlyOrganizationId));
+  const orgs = [...new Set(all.map((a) => a.organizationId))];
+  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
+  const rows = all.filter((a) => (org === 'all' || a.organizationId === org) && (outcome === 'all' || outcomeOf(state, a) === outcome));
+  return (
+    <Card>
+      <div className="flex flex-wrap gap-3 border-b border-slate-100 p-4">
+        {!onlyOrganizationId && orgs.length > 1 && <FilterSelect label="Organization" value={org} onChange={setOrg} options={[{ value: 'all', label: 'All organizations' }, ...orgs.map((id) => ({ value: id, label: orgName(id) }))]} />}
+        <FilterSelect label="Outcome" value={outcome} onChange={setOutcome} options={OUTCOME_OPTIONS} />
+      </div>
+      <AttemptsTable rows={rows} hideActivity orgName={onlyOrganizationId ? undefined : orgName} />
+    </Card>
+  );
+}
+
+/** Exceptions for this activity that the organization may see. */
+export function ActivityExceptionsTab({ activity }: { activity: ActivityConfig }) {
+  const { state } = useStore();
+  const { organization } = useSession();
+  const list = exceptionsVisibleTo(state, organization.id).filter((e) => e.activityId === activity.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
+  return (
+    <Card>
+      <DataTable
+        rows={list}
+        rowKey={(e) => e.id}
+        rowHref={(e) => `/exceptions/${e.id}`}
+        empty={<EmptyState title="No exceptions" />}
+        columns={[
+          { key: 'id', header: 'Exception', cell: (e) => <Link to={`/exceptions/${e.id}`} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> },
+          { key: 'org', header: 'Organization', cell: (e) => orgName(e.organizationId) },
+          { key: 'reason', header: 'Reason', cell: (e) => EXCEPTION_REASON_LABEL[e.reason] },
+          { key: 'status', header: 'Status', cell: (e) => <ExceptionStatusBadge status={e.status} /> },
+          { key: 'decision', header: 'Decision', cell: (e) => (e.resolution ? RESOLUTION_LABEL[e.resolution.outcome] : <span className="text-slate-400">—</span>) },
+          { key: 'created', header: 'Created', cell: (e) => <span className="whitespace-nowrap text-slate-500">{formatDateTime(e.createdAt)}</span> },
+        ]}
+      />
+    </Card>
   );
 }
 
@@ -104,19 +195,19 @@ export function SharedActivityParticipantView({ activity }: { activity: Activity
   const policy = activityPolicy(state, activity);
   const assigned = activeAssignments(state.data, organization.id, activity.id).map((v) => v.administratorId);
   const [staff, setStaff] = useState<string[] | null>(null);
-  const mine = state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.organizationId === organization.id);
+  const mineSummary = summarize(state, state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.organizationId === organization.id && a.status !== 'in-progress'));
   const canAssign = can('verification.verifiers.assign');
 
   const respond = (accept: boolean) => {
     const r = respondToInvitation(organization.id, activity.id, accept);
     if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
-    toast({ tone: 'success', title: accept ? 'Invitation accepted' : 'Invitation declined', description: accept ? 'Assign your staff below to start verifying.' : activity.name });
+    toast({ tone: 'success', title: accept ? 'Invitation accepted' : 'Invitation declined', description: accept ? 'Now assign verifiers.' : activity.name });
   };
   const saveStaff = () => {
     const r = assignSharedVerifiers(organization.id, activity.id, staff ?? assigned);
     if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
     setStaff(null);
-    toast({ tone: 'success', title: 'Staff updated', description: activity.name });
+    toast({ tone: 'success', title: 'Verifiers updated', description: activity.name });
   };
 
   return (
@@ -140,40 +231,45 @@ export function SharedActivityParticipantView({ activity }: { activity: Activity
       {status === 'invited' && (
         <Card className="mb-6 flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">{owner} invited {organization.name} to take part</h2>
-            <p className="text-sm text-slate-500">You’ll run this activity with your own staff. {owner} sees this activity’s results, not your other activities, people or records.</p>
+            <h2 className="text-base font-semibold text-slate-900">{owner} invited you to this activity</h2>
+            <p className="text-sm text-slate-500">{owner} sees only this activity’s results.</p>
           </div>
           {can('verification.activities.edit') ? (
             <div className="flex gap-2">
               <Button icon={<Check className="h-4 w-4" />} onClick={() => respond(true)}>Accept</Button>
               <Button variant="secondary" icon={<X className="h-4 w-4" />} onClick={() => respond(false)}>Decline</Button>
             </div>
-          ) : <p className="text-sm text-slate-500">An Organization Admin can accept it.</p>}
+          ) : <p className="text-sm text-slate-500">An administrator can accept it.</p>}
         </Card>
       )}
-      {status === 'suspended' && <p className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">{owner} has suspended your organization’s participation. New verifications can’t start.</p>}
+      {status === 'suspended' && <p className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Suspended by {owner}.</p>}
 
       <div className="space-y-6">
         <Card className="px-6 py-5">
           <h2 className="text-sm font-semibold text-slate-900">Requirements</h2>
-          <p className="mt-1 text-xs text-slate-500">Set by {owner}. Your organization can’t change them.</p>
+          <p className="mt-1 text-xs text-slate-500">Set by {owner}.</p>
           <div className="mt-3"><ActivitySettingsSummary settings={policy.effective} integration={policy.integration} ownerName={owner} /></div>
         </Card>
 
         {status === 'active' && (
           <Card className="px-6 py-5">
-            <h2 className="text-sm font-semibold text-slate-900">Your staff for this activity</h2>
-            <p className="mt-1 text-sm text-slate-500">Only {organization.name}’s staff can be chosen. They verify from {organization.name}’s workspace.</p>
+            <h2 className="text-sm font-semibold text-slate-900">Verifiers</h2>
             <div className="mt-3"><VerifierPicker value={staff ?? assigned} onChange={setStaff} readOnly={!canAssign} /></div>
-            {canAssign && staff && <div className="mt-3 flex justify-end gap-2"><Button variant="secondary" onClick={() => setStaff(null)}>Cancel</Button><Button onClick={saveStaff}>Save staff</Button></div>}
+            {canAssign && staff && <div className="mt-3 flex justify-end gap-2"><Button variant="secondary" onClick={() => setStaff(null)}>Cancel</Button><Button onClick={saveStaff}>Save verifiers</Button></div>}
           </Card>
         )}
 
-        {can('verification.results.view') && (
-          <Card>
-            <p className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">{organization.name}’s verifications for this activity.</p>
-            <AttemptsTable rows={mine} hideActivity />
-          </Card>
+        {can('verification.results.view') && status !== 'invited' && (
+          <section aria-label="Your results" className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-900">Your results</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatCard label="Total attempts" value={mineSummary.attempts} />
+              <StatCard label="Verified" value={mineSummary.allowed} tone="emerald" />
+              <StatCard label="Not verified" value={mineSummary.denied} />
+              <StatCard label="Pending review" value={mineSummary.pendingReview} tone="violet" />
+            </div>
+            <ActivityTransactionsTab activity={activity} onlyOrganizationId={organization.id} />
+          </section>
         )}
       </div>
     </>

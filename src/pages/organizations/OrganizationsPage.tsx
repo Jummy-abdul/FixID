@@ -52,7 +52,7 @@ export function OrganizationsPage() {
 
   return (
     <>
-      <PageHeader title="Organizations" description={`How ${organization.name} relates to other organizations. Each organization is its own workspace with its own administrators and records.`} />
+      <PageHeader title="Organizations" description="Organizations related to yours. Each has its own workspace." />
       {parent && parentOrg ? (
         <Card>
           <CardHeader title="Parent organization" description="This organization is a sub-organization." />

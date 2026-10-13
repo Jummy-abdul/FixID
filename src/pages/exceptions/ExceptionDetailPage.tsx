@@ -158,9 +158,9 @@ function Detail({ e }: { e: VerificationException }) {
             <h2 className="text-sm font-semibold text-slate-900">Resolution</h2>
             {e.resolution ? (
               <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2" aria-label="Resolution">
-                <Row label="Resolution outcome">{RESOLUTION_LABEL[e.resolution.outcome]}</Row>
+                <Row label="Decision">{RESOLUTION_LABEL[e.resolution.outcome]}</Row>
                 <Row label="Final disposition">{e.resolution.disposition === 'pending-review' ? 'Pending (reverification)' : <DecisionBadge decision={e.resolution.disposition} />}</Row>
-                <Row label="Resolution reason">{e.resolution.reason}</Row>
+                <Row label="Reason">{e.resolution.reason}</Row>
                 <Row label="Recorded">{formatDateTime(e.resolution.at)} by {e.resolution.by}</Row>
               </dl>
             ) : <p className="mt-2 text-sm text-slate-500">No resolution has been recorded.</p>}
@@ -204,16 +204,16 @@ function Detail({ e }: { e: VerificationException }) {
             )}
             {isUnresolved(e) && (
               <Card className="space-y-3 px-5 py-5">
-                <h2 className="text-sm font-semibold text-slate-900">Record Resolution</h2>
-                <Field label="Resolution outcome">{(p) => (
+                <h2 className="text-sm font-semibold text-slate-900">Decision</h2>
+                <Field label="Decision">{(p) => (
                   <Select {...p} value={outcome} onChange={(x) => setOutcome(x.target.value as ResolutionOutcome)}>
                     {OUTCOMES.map((o) => <option key={o} value={o}>{RESOLUTION_LABEL[o]}</option>)}
                   </Select>
                 )}</Field>
                 {resolutionBlock && <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">{resolutionBlock}</p>}
-                <Field label="Resolution reason">{(p) => <Textarea {...p} rows={2} value={reason} onChange={(x) => setReason(x.target.value)} />}</Field>
-                <p className="text-xs text-slate-500">Your determination is recorded beside the original results. It doesn’t change the identity match, liveness or eligibility results.</p>
-                <Button disabled={!reason.trim() || !!resolutionBlock} onClick={() => done(actions.resolveException(organization.id, e.id, outcome, reason), 'Resolution recorded', () => setReason(''))}>Record Resolution</Button>
+                <Field label="Reason">{(p) => <Textarea {...p} rows={2} value={reason} onChange={(x) => setReason(x.target.value)} />}</Field>
+                <p className="text-xs text-slate-500">The original result is kept.</p>
+                <Button disabled={!reason.trim() || !!resolutionBlock} onClick={() => done(actions.resolveException(organization.id, e.id, outcome, reason), 'Resolution recorded', () => setReason(''))}>Record decision</Button>
               </Card>
             )}
             {e.status === 'resolved' && (

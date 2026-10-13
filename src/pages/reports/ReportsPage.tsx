@@ -54,7 +54,7 @@ export function ReportsPage() {
 
   return (
     <>
-      <PageHeader title="Reports" description="Verification and exception reports from recorded transactions. Exports contain aggregate figures only." />
+      <PageHeader title="Reports" description="Exports contain totals only." />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <FilterSelect label="Reporting period" value={periodKey} onChange={(v) => setPeriodKey(v as keyof typeof PERIODS)} options={[{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: '90d', label: 'Last 90 days' }, { value: 'all', label: 'All time' }]} />
         <span className="text-sm text-slate-500">Reporting period: {periodLabel}</span>

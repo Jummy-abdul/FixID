@@ -83,9 +83,10 @@ const LEGACY_OUTCOME = { allow: 'verified', deny: 'not-verified', indeterminate:
 const LEGACY_ACCESS = { allow: 'permitted', deny: 'not-permitted', indeterminate: 'review-required' } as const;
 const LEGACY_DECISION = { allow: 'allow', deny: 'deny', indeterminate: 'unable-to-decide' } as const;
 
-export function AttemptsTable({ rows, hideActivity }: { rows: VerificationAttempt[]; hideActivity?: boolean }) {
-  const sorted = useMemo(() => [...rows].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).map((a) => fromAttempt(a)), [rows]);
-  return <HistoryTable rows={sorted} hide={hideActivity ? ['activity', 'organization'] : ['organization']} empty={<EmptyState title="No verifications yet" description="Verifications appear here once a verifier performs this activity." />} />;
+export function AttemptsTable({ rows, hideActivity, orgName }: { rows: VerificationAttempt[]; hideActivity?: boolean; orgName?: (id: string) => string }) {
+  const sorted = useMemo(() => [...rows].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).map((a) => fromAttempt(a, orgName?.(a.organizationId) ?? '')), [rows, orgName]);
+  const hide = [...(hideActivity ? ['activity'] : []), ...(orgName ? [] : ['organization'])];
+  return <HistoryTable rows={sorted} hide={hide} empty={<EmptyState title="No verifications yet" />} />;
 }
 
 function HistoryTable({ rows, hide = [], empty }: { rows: HistoryRow[]; hide?: string[]; empty: ReactNode }) {

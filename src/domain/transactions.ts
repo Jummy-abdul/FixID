@@ -31,12 +31,12 @@ export type EligibilityStatus = 'eligible' | 'ineligible' | 'unknown' | 'not-req
 
 export const STAGE_LABEL: Record<TransactionStage, string> = {
   initiated: 'Initiated', 'lookup-completed': 'Lookup completed', 'capture-pending': 'Capture pending', matching: 'Matching',
-  'eligibility-check': 'Eligibility check', 'pending-review': 'Pending Review', completed: 'Completed', failed: 'Failed',
+  'eligibility-check': 'Eligibility check', 'pending-review': 'Pending review', completed: 'Completed', failed: 'Failed',
   cancelled: 'Cancelled', 'unable-to-complete': 'Unable to complete',
 };
-export const DECISION_LABEL: Record<ActivityDecision, string> = { allow: 'Allow', deny: 'Deny', 'pending-review': 'Pending Review', 'unable-to-decide': 'Unable to Decide' };
+export const DECISION_LABEL: Record<ActivityDecision, string> = { allow: 'Verified', deny: 'Not verified', 'pending-review': 'Pending review', 'unable-to-decide': 'Unable to verify' };
 export const MATCH_LABEL: Record<IdentityMatchStatus, string> = {
-  match: 'Identity matched', 'no-match': 'No match', inconclusive: 'Inconclusive', unavailable: 'Service unavailable', error: 'Error',
+  match: 'Identity matched', 'no-match': 'No match', inconclusive: 'Inconclusive', unavailable: 'Source unavailable', error: 'Error',
   'record-confirmed': 'Record confirmed (no biometric match required)', 'not-required': 'Not required', 'not-evaluated': 'Not evaluated',
 };
 export const LIVENESS_STATUS_LABEL: Record<LivenessStatus, string> = {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Building2, ChevronRight, Lock, UserPlus, Users } from 'lucide-react';
 import { Button, Card, Field, Input, Textarea, useToast } from '@/components/ui';
 import { NoAccess, useAuthorization } from '@/auth/authorization';
@@ -9,7 +9,7 @@ import { IssuesList, VerifierPicker } from '@/components/verification/parts';
 import { locationConfigProblem, type LocationCheckConfig } from '@/domain/location';
 import type { ActivityConfig } from '@/domain/types';
 import { DEFAULT_ELIGIBILITY_ATTRIBUTE, DEFAULT_ELIGIBLE_VALUES } from '@/domain/transactions';
-import { AUDIENCE_LABEL, defaultSettings, type ActivityAudience, type VerificationSettings } from '@/domain/activitySettings';
+import { AUDIENCE_LABEL, PARTICIPATION_LABEL, defaultSettings, type ActivityAudience, type VerificationSettings } from '@/domain/activitySettings';
 import { activeAssignments, currentVersion, eligibleVerifiers, identityUnavailable } from '@/domain/verification';
 import { cn } from '@/lib/cn';
 import { NO_VERIFIER_WARNING, nameProblem, type ActivityForm } from '@/store/activityOps';
@@ -17,6 +17,7 @@ import {
   activityPolicyProblems, audienceOf, availableSources, configFromSettings, invitableOrganizations, participantProblems, settingsEditable, settingsFromVersion,
 } from '@/store/sharingOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
+import { checksLabel } from '@/components/verification/RequirementsSummary';
 import { NotFoundPage } from '../NotFoundPage';
 import { activityPath } from './paths';
 
@@ -66,13 +67,14 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const { saveActivity, activateActivity } = useActions();
   const toast = useToast();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const isNew = !activity;
   const version = activity ? currentVersion(state.data, activity) : undefined;
   const editable = settingsEditable(version);
   const existing = activity ? activity.verification ?? settingsFromVersion(version) : undefined;
 
   const [f, setF] = useState<FormState>(() => {
-    const audience: ActivityAudience = activity ? audienceOf(activity) : 'own';
+    const audience: ActivityAudience = activity ? audienceOf(activity) : params.get('type') === 'shared' ? 'shared' : 'own';
     const sources = availableSources(state, organization.id, audience);
     const s = existing ?? defaultSettings();
     return {
@@ -89,6 +91,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
       location: toDraft(activity?.locationCheck),
     };
   });
+  // New activities start with one question: who it's for. `?type=shared|own` answers it up front.
+  const [chosen, setChosen] = useState(!isNew || params.get('type') === 'shared' || params.get('type') === 'own');
   const [busy, setBusy] = useState<'draft' | 'create' | null>(null);
   const [problems, setProblems] = useState<string[] | null>(null);
   const [showErrors, setShowErrors] = useState(false);
@@ -106,7 +110,10 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
     const src = sources.find((y) => y.id === x.sourceId);
     if (!src) return null;
     const base = existing ?? defaultSettings();
-    const face = x.faceMatch && src.capabilities.includes('matching');
+    // A shared activity takes its checks from the identity source: face match and liveness when the source
+    // can match faces; problems go to review. Nothing else is asked.
+    const shared = x.audience === 'shared';
+    const face = (shared || x.faceMatch) && src.capabilities.includes('matching');
     const sameSource = !!existing && sourceKey(existing.identitySource) === src.id;
     // Eligibility isn't asked: a connected source's record status decides it; FixID records check anyone
     // registered unless "More options" limits who can be verified. An earlier reference list is kept.
@@ -115,8 +122,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
         : { approach: x.people.groupIds.length || x.people.memberIds.length ? 'local-population' : 'none' };
     return {
       ...base, identitySource: src.source, method: face ? 'face' : 'record',
-      liveness: face ? (x.liveness ? 'required' : 'optional') : 'not-applicable',
-      exceptions: x.onFailure, eligibility,
+      liveness: face ? (shared || x.liveness ? 'required' : 'optional') : 'not-applicable',
+      exceptions: shared ? (existing && audienceOf(activity!) === 'shared' ? existing.exceptions : 'review') : x.onFailure, eligibility,
     };
   };
   const settings = settingsOf(f);
@@ -129,7 +136,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
     const identifierConfigId = version?.checks.find((c) => c.params.identifierConfigId)?.params.identifierConfigId;
     const gen = changed && s ? configFromSettings(s, organization, () => `new_${++n}`, identifierConfigId) : null;
     const common = {
-      name: x.name, description: x.description, purpose: x.description, verifierIds: x.verifierIds,
+      // Participating organizations assign their own verifiers to a shared activity.
+      name: x.name, description: x.description, purpose: x.description, verifierIds: x.audience === 'shared' && isNew ? [] : x.verifierIds,
       participants: x.people, locationCheck: toConfig(x.location),
       ...(isNew ? { audience: x.audience } : {}), ...(x.audience === 'shared' ? { participantIds: x.participantIds } : {}),
       ...(editable && s ? { verification: s } : {}),
@@ -199,14 +207,15 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   };
 
   if (isNew ? !can('verification.activities.create') : !canDetails) return <NoAccess />;
-  const live = activity && activity.status !== 'draft';
   const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
   const participantStatus = (id: string) => activity?.sharing?.participants.find((p) => p.organizationId === id)?.status;
-  const chooseAudience = (audience: ActivityAudience) => setF((x) => {
-    const list = availableSources(state, organization.id, audience);
-    return { ...x, audience, sourceId: list.some((s) => s.id === x.sourceId) ? x.sourceId : list.length === 1 ? list[0].id : '' };
-  });
-  const step = (k: 'participants' | 'checks' | 'verifiers') => ({ participants: 4, checks: f.audience === 'shared' ? 5 : 4, verifiers: f.audience === 'shared' ? 6 : 5 }[k]);
+  const chooseAudience = (audience: ActivityAudience) => {
+    setF((x) => {
+      const list = availableSources(state, organization.id, audience);
+      return { ...x, audience, sourceId: list.some((s) => s.id === x.sourceId) ? x.sourceId : list.length === 1 ? list[0].id : '' };
+    });
+    setChosen(true);
+  };
 
   return (
     <>
@@ -216,38 +225,41 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
         {activity ? <><Link to={activityPath(activity.id)} className="truncate hover:text-slate-800">{activity.name}</Link><ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /><span className="text-slate-700">Edit</span></>
           : <span className="text-slate-700">Create activity</span>}
       </nav>
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity ? `Edit ${activity.name}` : 'Create verification activity'}</h1>
-      {live && <p className="mt-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">Changes apply as soon as you save. Earlier verifications keep the settings they used.</p>}
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity ? `Edit ${activity.name}` : 'Create activity'}</h1>
 
+      {!chosen ? (
+        <section className="mt-6 max-w-3xl" aria-label="What do you want to do?">
+          <h2 className="text-base font-semibold text-slate-900">What do you want to do?</h2>
+          <div role="radiogroup" aria-label="What do you want to do?" className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Choice selected={false} onSelect={() => chooseAudience('shared')} icon={<Building2 className="h-5 w-5" />}
+              title={AUDIENCE_LABEL.shared} body="Invite organizations to verify people for you." />
+            <Choice selected={false} onSelect={() => chooseAudience('own')} icon={<Users className="h-5 w-5" />}
+              title={AUDIENCE_LABEL.own} body="Verify people with your own staff." />
+          </div>
+        </section>
+      ) : (
       <form className="mt-6 max-w-3xl space-y-5" onSubmit={(e) => { e.preventDefault(); void save(true); }} noValidate>
-        <Section n={1} title="Activity name">
+        <p className="flex items-center gap-2 text-sm text-slate-600">
+          {isNew ? <>{f.audience === 'shared' ? <Building2 className="h-4 w-4" aria-hidden="true" /> : <Users className="h-4 w-4" aria-hidden="true" />}{AUDIENCE_LABEL[f.audience]}
+            <button type="button" onClick={() => setChosen(false)} className="font-medium text-brand-600 hover:text-brand-700">Change</button></>
+            : <><Lock className="h-4 w-4 text-slate-400" aria-hidden="true" />{AUDIENCE_LABEL[f.audience]}</>}
+        </p>
+
+        <Section n={1} title="Activity details">
           <Field label="Activity name" error={showErrors && name ? name : undefined}>
             {(p) => <Input {...p} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Enter activity name" maxLength={80} readOnly={!canDetails} />}
           </Field>
-          <Field label="Short description" hint="Optional. Shown to verifiers and, for a shared activity, to participating organizations.">
+          <Field label="Short description (optional)">
             {(p) => <Textarea {...p} rows={2} placeholder="Describe the purpose of this verification activity" value={f.description} onChange={(e) => set('description', e.target.value)} readOnly={!canDetails} />}
           </Field>
         </Section>
 
-        <Section n={2} title="Who is this activity for?">
-          {isNew ? (
-            <div role="radiogroup" aria-label="Who is this activity for?" className="grid gap-3 sm:grid-cols-2">
-              <Choice selected={f.audience === 'own'} onSelect={() => chooseAudience('own')} icon={<Users className="h-5 w-5" />}
-                title={AUDIENCE_LABEL.own} body="Your staff verify people for your organization’s own purposes." />
-              <Choice selected={f.audience === 'shared'} onSelect={() => chooseAudience('shared')} icon={<Building2 className="h-5 w-5" />}
-                title={AUDIENCE_LABEL.shared} body="Other organizations run this activity from their own FixID workspaces, with the requirements you set." />
-            </div>
-          ) : (
-            <p className="flex items-center gap-2 text-sm text-slate-700"><Lock className="h-4 w-4 text-slate-400" aria-hidden="true" />{AUDIENCE_LABEL[f.audience]}. This is set when the activity is created.</p>
-          )}
-        </Section>
-
-        <Section n={3} title="Identity source" description="Where FixID checks the identifier a verifier enters. Sources are connected in Settings → Integrations.">
+        <Section n={2} title="Identity source">
           {!editable ? (
-            <p className="text-sm text-slate-600">This activity uses an earlier credential-based configuration, which is kept as it is.</p>
+            <p className="text-sm text-slate-600">Kept as configured.</p>
           ) : sources.length === 0 ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-              No connected identity source is available. <Link to="/settings?tab=integrations" className="font-semibold underline">Connect one in Settings</Link>.
+              No identity source available. <Link to="/settings?tab=integrations" className="font-semibold underline">Connect one in Settings</Link>.
             </p>
           ) : (
             <div role="radiogroup" aria-label="Identity source" className="space-y-2">
@@ -257,14 +269,13 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
                   <span><span className="block font-medium text-slate-900">{s.label}</span><span className="text-slate-500">{s.detail}</span></span>
                 </label>
               ))}
-              {f.audience === 'shared' && <p className="text-xs text-slate-500">Shared activities use a connected source, so participating organizations never see your own FixID records.</p>}
             </div>
           )}
           {showErrors && editable && sources.length > 0 && !source && <p className="text-sm text-red-700">Choose an identity source.</p>}
         </Section>
 
-        {f.audience === 'shared' && (
-          <Section n={step('participants')} title="Participating organizations" description="Each one gets an invitation in its own FixID workspace and runs this activity with its own staff. They can’t change its requirements or see your other data.">
+        {f.audience === 'shared' ? (
+          <Section n={3} title="Participating organizations">
             <fieldset aria-label="Participating organizations" className="grid gap-2 sm:grid-cols-2">
               {orgs.map((o) => {
                 const st = participantStatus(o.id);
@@ -275,81 +286,80 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
                         onChange={(e) => set('participantIds', e.target.checked ? [...f.participantIds, o.id] : f.participantIds.filter((x) => x !== o.id))} />
                       {o.name}
                     </span>
-                    {st && st !== 'removed' && st !== 'declined' && <span className="text-xs text-slate-500">{st === 'active' ? 'Taking part' : st === 'invited' ? 'Invited' : 'Suspended'}</span>}
+                    {st && st !== 'removed' && st !== 'declined' && <span className="text-xs text-slate-500">{PARTICIPATION_LABEL[st]}</span>}
                   </label>
                 );
               })}
             </fieldset>
+            <p className="text-xs text-slate-500">Each organization assigns its own verifiers.</p>
           </Section>
+        ) : (
+          <>
+            <Section n={3} title="Checks">
+              {!editable ? <p className="text-sm text-slate-600">Kept as configured.</p> : (
+                <div className="space-y-3 text-sm">
+                  <label className="flex items-start gap-3">
+                    <input type="checkbox" className="mt-0.5" checked={f.faceMatch && faceAvailable} disabled={!canDetails || !faceAvailable} onChange={(e) => set('faceMatch', e.target.checked)} />
+                    <span><span className="font-medium text-slate-900">Match the person’s face</span>{!faceAvailable && <span className="block text-slate-500">Not offered by this source.</span>}</span>
+                  </label>
+                  {f.faceMatch && faceAvailable && (
+                    <label className="ml-7 flex items-start gap-3">
+                      <input type="checkbox" className="mt-0.5" checked={f.liveness} disabled={!canDetails} onChange={(e) => set('liveness', e.target.checked)} />
+                      <span className="font-medium text-slate-900">Confirm a live person is present</span>
+                    </label>
+                  )}
+                  <div>
+                    <p className="font-medium text-slate-900">When a check fails</p>
+                    <div role="radiogroup" aria-label="When a check fails" className="mt-1 flex flex-wrap gap-4">
+                      {([['unsuccessful', 'Not verified'], ['review', 'Pending review']] as const).map(([v, label]) => (
+                        <label key={v} className="flex items-center gap-2"><input type="radio" name="onFailure" checked={f.onFailure === v} disabled={!canDetails} onChange={() => set('onFailure', v)} />{label}</label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Section>
+
+            <Section n={4} title="Who can verify">
+              <VerifierPicker value={f.verifierIds} onChange={(v) => set('verifierIds', v)} readOnly={!canAssign} />
+              {can('administrators.invite') && (isNew || activity?.status === 'draft') && (
+                <Button type="button" variant="ghost" size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => void inviteAdministrator()}>Invite Administrator</Button>
+              )}
+            </Section>
+
+            <details className="rounded-xl border border-slate-200 bg-white px-5 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-slate-700">More options</summary>
+              <div className="mt-4 space-y-5">
+                {settings?.identitySource.kind === 'local' && (
+                  <div>
+                    <p className="mb-2 text-sm font-medium text-slate-900">Limit who can be verified (optional)</p>
+                    <ParticipantsPicker value={f.people} onChange={(p) => set('people', p)} readOnly={!canDetails} />
+                  </div>
+                )}
+                <LocationCheckEditor value={f.location} onChange={(v) => set('location', v)} readOnly={!canDetails} error={showErrors ? location : null} />
+              </div>
+            </details>
+          </>
         )}
 
-        <Section n={step('checks')} title="Required checks" description={f.audience === 'shared' ? 'These apply to every participating organization.' : undefined}>
-          {!editable ? <p className="text-sm text-slate-600">Kept as configured.</p> : (
-            <div className="space-y-3 text-sm">
-              <p className="text-slate-700">FixID always checks the identifier against the identity source. A valid-looking identifier isn’t enough: the person is only verified when the checks below pass.</p>
-              <label className="flex items-start gap-3">
-                <input type="checkbox" className="mt-0.5" checked={f.faceMatch && faceAvailable} disabled={!canDetails || !faceAvailable} onChange={(e) => set('faceMatch', e.target.checked)} />
-                <span><span className="font-medium text-slate-900">Match the person’s face</span><span className="block text-slate-500">{faceAvailable ? 'Compare a live photo with the identity record.' : 'This identity source offers record lookup only.'} Without it, the verifier confirms stated details instead.</span></span>
-              </label>
-              {f.faceMatch && faceAvailable && (
-                <label className="ml-7 flex items-start gap-3">
-                  <input type="checkbox" className="mt-0.5" checked={f.liveness} disabled={!canDetails} onChange={(e) => set('liveness', e.target.checked)} />
-                  <span><span className="font-medium text-slate-900">Confirm a live person is present</span><span className="block text-slate-500">A liveness check before the face match. Recommended.</span></span>
-                </label>
-              )}
-              <div>
-                <p className="font-medium text-slate-900">When a check fails or can’t be completed</p>
-                <div role="radiogroup" aria-label="When a check fails" className="mt-1 flex flex-wrap gap-4">
-                  {([['unsuccessful', 'Mark as not verified'], ['review', 'Send for review']] as const).map(([v, label]) => (
-                    <label key={v} className="flex items-center gap-2"><input type="radio" name="onFailure" checked={f.onFailure === v} disabled={!canDetails} onChange={() => set('onFailure', v)} />{label}</label>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-slate-500">If the identity source is unavailable, no decision is made: the person isn’t treated as invalid.</p>
-              </div>
-            </div>
-          )}
-        </Section>
-
-        <Section n={step('verifiers')} title="Who can verify" description={f.audience === 'shared' ? 'Your own staff (optional). Participating organizations assign their own staff.' : 'Staff who perform verifications for this activity.'}>
-          <VerifierPicker value={f.verifierIds} onChange={(v) => set('verifierIds', v)} readOnly={!canAssign} />
-          {can('administrators.invite') && (isNew || activity?.status === 'draft') && (
-            <Button type="button" variant="ghost" size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => void inviteAdministrator()}>Invite Administrator</Button>
-          )}
-        </Section>
-
-        <details className="rounded-xl border border-slate-200 bg-white px-5 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700">More options</summary>
-          <div className="mt-4 space-y-5">
-            {settings?.identitySource.kind === 'local' && (
-              <div>
-                <p className="text-sm font-medium text-slate-900">Limit who can be verified (optional)</p>
-                <p className="mb-2 text-sm text-slate-500">By default, anyone registered in your FixID records can be checked. Choose groups or people to allow only them.</p>
-                <ParticipantsPicker value={f.people} onChange={(p) => set('people', p)} readOnly={!canDetails} />
-              </div>
-            )}
-            <LocationCheckEditor value={f.location} onChange={(v) => set('location', v)} readOnly={!canDetails} error={showErrors ? location : null} />
-          </div>
-        </details>
-
         <Card className="p-5">
-          <h2 className="text-base font-semibold text-slate-900">Review and create</h2>
+          <h2 className="text-base font-semibold text-slate-900">Review</h2>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
             <Row label="Name">{f.name.trim() || '—'}</Row>
-            <Row label="For">{AUDIENCE_LABEL[f.audience]}</Row>
             <Row label="Identity source">{source?.label ?? (editable ? '—' : 'Kept as configured')}</Row>
             {f.audience === 'shared' && <Row label="Participating organizations">{f.participantIds.map(orgName).join(', ') || '—'}</Row>}
-            <Row label="Checks">{settings ? ['Identifier', ...(settings.method === 'face' ? ['face match', ...(settings.liveness === 'required' ? ['liveness'] : [])] : ['stated details'])].join(', ') : '—'}</Row>
-            <Row label="Failures">{f.onFailure === 'review' ? 'Sent for review' : 'Marked as not verified'}</Row>
+            <Row label="Checks">{settings ? checksLabel(settings) : '—'}</Row>
           </dl>
           {showErrors && (missing.length > 0 || problems) && <div className="mt-4"><IssuesList blockers={problems ?? missing} warnings={[]} title="Before you continue" /></div>}
           {/* Nobody can verify an activity for the organization's own use until someone is assigned. */}
           {f.audience === 'own' && f.verifierIds.length === 0 && <div className="mt-4"><IssuesList blockers={[]} warnings={[NO_VERIFIER_WARNING]} warningsTitle="No verifier assigned" /></div>}
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             {(isNew || activity?.status === 'draft') && <Button type="button" variant="secondary" loading={busy === 'draft'} disabled={!!busy} onClick={() => void save(false)}>Save as draft</Button>}
-            <Button type="submit" loading={busy === 'create'} disabled={!!busy}>{isNew ? 'Create activity' : activity?.status === 'active' ? 'Save changes' : 'Save and activate'}</Button>
+            <Button type="submit" loading={busy === 'create'} disabled={!!busy}>{isNew ? 'Create Activity' : activity?.status === 'active' ? 'Save changes' : 'Save and activate'}</Button>
           </div>
         </Card>
       </form>
+      )}
     </>
   );
 }

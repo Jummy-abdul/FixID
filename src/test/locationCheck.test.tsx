@@ -205,7 +205,7 @@ describe('screens', () => {
 
   it('searches for a place with a connected map provider and selects it', async () => {
     const maps: MapsService = { available: true, providerName: 'Test Maps', tileUrl: '', attribution: '', searchPlaces: async () => [{ label: 'Main Hall, City Centre', lat: 6.5, lng: 3.4 }] };
-    const user = renderApp('/verification-activities/new', base(), { ...createDefaultServices(), maps });
+    const user = renderApp('/verification-activities/new?type=own', base(), { ...createDefaultServices(), maps });
     await user.click(screen.getByRole('switch', { name: /Enable Location Check/ }));
     const settings = screen.getByRole('region', { name: 'Location settings' });
     expect(within(settings).getByRole('application', { name: 'Activity location map' })).toBeInTheDocument();
@@ -214,7 +214,7 @@ describe('screens', () => {
     // The search sits inside the editor's form, so it mustn't be a form of its own (browsers would submit the editor).
     expect(settings.querySelector('form')).toBeNull();
     await user.type(within(settings).getByLabelText('Search for a location or address'), 'Main Hall{Enter}');
-    expect(screen.getByRole('heading', { name: 'Create verification activity' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Create activity' })).toBeInTheDocument();
     await user.click(await within(settings).findByRole('button', { name: 'Main Hall, City Centre' }));
     expect(within(settings).getByLabelText('Selected location')).toHaveTextContent('Main Hall, City Centre6.50000, 3.40000 · within 100 m');
   });

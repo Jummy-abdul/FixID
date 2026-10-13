@@ -68,7 +68,7 @@ export type ActivityAudience = 'own' | 'shared';
 
 /* ---------------- Labels ---------------- */
 
-export const PARTICIPATION_LABEL: Record<ParticipationStatus, string> = { invited: 'Invited', active: 'Participating', declined: 'Declined', suspended: 'Suspended', removed: 'Removed' };
+export const PARTICIPATION_LABEL: Record<ParticipationStatus, string> = { invited: 'Invited', active: 'Accepted', declined: 'Declined', suspended: 'Suspended', removed: 'Removed' };
 export const AUDIENCE_LABEL: Record<ActivityAudience, string> = { own: 'For my organization', shared: 'For other organizations' };
 export const METHOD_LABEL: Record<VerificationMethod, string> = { face: 'Identifier and face match', record: 'Identifier and stated details' };
 export const LIVENESS_LABEL: Record<LivenessRequirement, string> = { required: 'Required', optional: 'Optional', 'not-applicable': 'Not applicable' };

@@ -158,7 +158,7 @@ describe('screens', () => {
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Annual Staff Conference'))!;
     // Identity match, eligibility and the decision are separate columns.
     expect(row).toHaveTextContent('FixID Local Records');
-    expect(row).toHaveTextContent('Allow');
+    expect(row).toHaveTextContent('Verified');
     expect(row).toHaveTextContent('Not recorded');
     await user.click(row);
     expect(await screen.findByRole('heading', { level: 1, name: a.id })).toBeInTheDocument();
