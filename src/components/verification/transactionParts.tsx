@@ -23,7 +23,7 @@ const ELIGIBILITY_TONE: Record<EligibilityStatus, 'success' | 'danger' | 'warnin
 };
 const STAGE_TONE: Record<TransactionStage, 'success' | 'danger' | 'warning' | 'neutral' | 'violet' | 'info'> = {
   initiated: 'info', 'lookup-completed': 'info', 'capture-pending': 'info', matching: 'info', 'eligibility-check': 'info',
-  'pending-review': 'violet', completed: 'success', failed: 'danger', cancelled: 'neutral', 'unable-to-complete': 'warning',
+  'pending-review': 'violet', completed: 'success', failed: 'danger', cancelled: 'neutral', 'unable-to-complete': 'warning', incomplete: 'neutral',
 };
 
 export const DecisionBadge = ({ decision }: { decision?: ActivityDecision }) => (decision ? <Badge tone={DECISION_TONE[decision]} dot>{DECISION_LABEL[decision]}</Badge> : <span className="text-slate-400">—</span>);

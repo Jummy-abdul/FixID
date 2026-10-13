@@ -63,6 +63,10 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
   const version = state.data.activityVersions.find((v) => v.id === activity.activeVersionId);
   if (!version || version.checks.length === 0) return { ok: false, error: 'This activity’s configuration can’t be used right now. Ask an administrator to review it.', code: 'invalid-configuration' };
   const admin = state.data.administrators.find((a) => a.id === auth.adminId)!;
+  // Starting again (a repeated click, a retry of the same result) resumes the verifier's own untouched, unexpired
+  // attempt instead of recording a second transaction for the same work.
+  const open = openAttemptFor(state, { ...input, verifierId: admin.id });
+  if (open) return { ok: true, state, attempt: open };
   // A reverification must be one an exception reviewer requested, for the same activity.
   if (input.reverificationOf) {
     const problem = reverificationProblem(state, input.reverificationOf, activity.id);
@@ -87,6 +91,13 @@ export function applyStartAttempt(state: AppState, input: { organizationId: stri
     ...(input.retryOf && state.data.verificationAttempts.some((p) => p.id === input.retryOf && p.activityId === activity.id && p.status !== 'in-progress') ? { retryOf: input.retryOf } : {}),
   };
   return { ok: true, state: replaceAttempt(state, attempt), attempt };
+}
+
+/** The verifier's own untouched, unexpired attempt for the same work, which a repeated start resumes. */
+export function openAttemptFor(state: AppState, input: { organizationId: string; activityId: string; verifierId: string; at: string; retryOf?: string; reverificationOf?: string }) {
+  return state.data.verificationAttempts.find((a) => a.organizationId === input.organizationId && a.activityId === input.activityId
+    && a.verifierId === input.verifierId && a.status === 'in-progress' && a.stage === 'initiated' && !a.subject && !a.lookup
+    && new Date(a.expiresAt) > new Date(input.at) && (a.retryOf ?? '') === (input.retryOf ?? '') && (a.reverificationOf ?? '') === (input.reverificationOf ?? ''));
 }
 
 /** Only the verifier who started an in-progress, unexpired attempt can change it, and only while still authorized. */
@@ -158,11 +169,12 @@ export function applyCancelAttempt(state: AppState, input: { attemptId: string; 
 }
 
 /** Marks unfinished attempts past their expiry as interrupted. Results already recorded are untouched. */
-export function applyExpireAttempts(state: AppState, input: { organizationId: string; at: string }): AppState {
+/** Marks interrupted attempts past their time limit as incomplete; without an organization, across the workspace. */
+export function applyExpireAttempts(state: AppState, input: { organizationId?: string; at: string }): AppState {
   const now = new Date(input.at);
   let changed = false;
   const attempts = state.data.verificationAttempts.map((a) => {
-    if (a.organizationId !== input.organizationId || a.status !== 'in-progress' || new Date(a.expiresAt) >= now) return a;
+    if ((input.organizationId && a.organizationId !== input.organizationId) || a.status !== 'in-progress' || new Date(a.expiresAt) >= now) return a;
     changed = true;
     return {
       ...a, status: 'expired' as const, completedAt: a.expiresAt, reasons: ['Interrupted: the verification wasn’t finished before it expired.'],

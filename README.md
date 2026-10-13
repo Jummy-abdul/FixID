@@ -211,7 +211,7 @@ Verifiers can submit for review but can't resolve. Custom roles honour whichever
 **Verification Status API — simulated** (`src/services/statusApi/statusApi.ts`; development page `/developer/status-api`, linked from Verification History in demo builds only):
 - **Endpoint:** illustrates `GET /api/verifications/{transactionId}/status`.
 - **Response fields:** `transactionId`, `status`, `identityMatch`, `eligibility`, `decision`, `programmeId` when permitted, `activityId`, `updatedAt`, `simulated: true`, `simulatedEvidence`, and `originalDecision` with `review` after a review.
-- **Statuses:** IN_PROGRESS, PENDING_REVIEW, COMPLETED, UNABLE_TO_COMPLETE, FAILED, CANCELLED. While an exception is unresolved the decision is PENDING_REVIEW, never ALLOW.
+- **Statuses:** IN_PROGRESS, PENDING_REVIEW, COMPLETED, UNABLE_TO_COMPLETE, INCOMPLETE, FAILED, CANCELLED. INCOMPLETE is an attempt interrupted before a result and timed out; it isn't a verification outcome. While an exception is unresolved the decision is PENDING_REVIEW, never ALLOW.
 - **Authorization:**
   - The calling client must belong to the transaction's organization, or to the owner of its programme.
   - Unknown and unauthorized IDs both return 404; no client returns 401.
@@ -391,6 +391,17 @@ Old `/programmes` links redirect there.
 - The owner can't delegate review to a participant.
 - Access rules are enforced in the browser prototype only, not as production-grade security.
 - Earlier sections below mention programmes; read "programme" there as "shared activity" and "programme owner" as "activity owner".
+
+### Shared-activity rules
+
+- **Invitations:** an authorized owner can invite any active organization registered on FixID. No parent-child relationship is needed. Invitations stay in FixID; there are no email invitations.
+- **Exception decisions:** only the activity owner records decisions on a shared activity's exceptions. The organization that ran the verification can see the exception and its decision. It can also answer the owner's *Request Information* (the "Provide information" card, shown while the exception is Awaiting Information). It can't assign, request information or decide.
+- **Incomplete attempts:** an attempt is recorded when the verifier starts it.
+  - If it isn't finished within 15 minutes, it becomes **Incomplete**.
+  - An Incomplete attempt counts in Total attempts but never as Verified, Not verified, Pending review or Unable to verify. In the status API it appears as `INCOMPLETE`.
+  - Starting again while the verifier's last attempt is still untouched resumes that attempt instead of creating a second one.
+  - Repeated submissions with the same submission ID are idempotent.
+  - In this prototype, the timeout is applied in the browser: on load, every minute, and when a verifier starts or opens an attempt. Production needs a server-side job.
 
 ## Production gaps (prototype vs. production)
 

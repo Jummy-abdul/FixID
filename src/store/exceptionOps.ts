@@ -35,6 +35,20 @@ export function reviewProblem(state: AppState, organizationId: string, e: Verifi
   return null;
 }
 
+/**
+ * Why the organization that performed a shared-activity transaction can't add information to its exception, or
+ * null. It can only answer the owner's information request; decisions stay with the owner.
+ */
+export function informationProblem(state: AppState, organizationId: string, e: VerificationException | undefined): string | null {
+  if (!e) return 'This exception wasn’t found.';
+  if (e.route !== 'owner' || e.organizationId !== organizationId || e.reviewOrganizationId === organizationId) return reviewProblem(state, organizationId, e);
+  const rec = actorRecord(state, organizationId);
+  if (!rec || rec.status !== 'active') return 'You aren’t an administrator of this organization.';
+  if (!actorPermissions(state, organizationId).has('exceptions.review')) return 'Your role can’t respond to exceptions.';
+  if (e.status !== 'awaiting-information') return 'Information can be added when the activity owner requests it.';
+  return null;
+}
+
 /** Administrators who may be assigned an exception: active, in the reviewing organization, with review permission. */
 export function reviewersFor(state: AppState, e: Pick<VerificationException, 'reviewOrganizationId'>) {
   return state.data.administrators.filter((a) => a.organizationId === e.reviewOrganizationId && a.status === 'active' && adminPermissions(state, a).has('exceptions.review'));
@@ -172,7 +186,9 @@ export function applyStartReview(state: AppState, input: { organizationId: strin
 /** A timestamped review note, optionally with supporting evidence references. Allowed until the exception is closed. */
 export function applyExceptionNote(state: AppState, input: { organizationId: string; exceptionId: string; comment: string; evidenceRefs?: string[]; at: string }): Result {
   const e = exceptionFor(state, input.exceptionId);
-  const problem = reviewProblem(state, input.organizationId, e);
+  // The reviewing organization adds review notes; the performing organization of a shared activity answers information requests.
+  const responding = !!e && e.reviewOrganizationId !== input.organizationId;
+  const problem = responding ? informationProblem(state, input.organizationId, e) : reviewProblem(state, input.organizationId, e);
   if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
   if (e.status === 'closed') return { ok: false, error: 'A closed exception can’t be changed.' };
   const comment = input.comment.trim();
@@ -180,7 +196,8 @@ export function applyExceptionNote(state: AppState, input: { organizationId: str
   const refs = (input.evidenceRefs ?? []).map((r) => r.trim()).filter(Boolean).slice(0, 10);
   const who = actor(state, input.organizationId);
   const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'note-added', ...who, comment: comment.slice(0, 2000), ...(refs.length ? { evidenceRefs: refs } : {}) };
-  const s = write(state, e, ev, `${who.actorName} added a review note to exception ${e.id}.`, { organizationIds: [e.reviewOrganizationId] });
+  const s = write(state, e, ev, responding ? `${who.actorName} provided information for exception ${e.id}.` : `${who.actorName} added a review note to exception ${e.id}.`,
+    { organizationIds: responding ? [e.reviewOrganizationId, e.organizationId] : [e.reviewOrganizationId] });
   return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
 }
 

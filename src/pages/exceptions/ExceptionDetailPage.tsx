@@ -8,7 +8,7 @@ import {
   type ResolutionOutcome, type VerificationException,
 } from '@/domain/exceptions';
 import { formatDateTime } from '@/lib/dates';
-import { exceptionFor, exceptionsVisibleTo, resolutionProblem, reviewProblem, reviewersFor } from '@/store/exceptionOps';
+import { exceptionFor, exceptionsVisibleTo, informationProblem, resolutionProblem, reviewProblem, reviewersFor } from '@/store/exceptionOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { ExceptionStatusBadge } from './ExceptionsPage';
@@ -60,6 +60,8 @@ function Detail({ e }: { e: VerificationException }) {
   const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
   const cannot = reviewProblem(state, organization.id, e);
   const canReview = !cannot;
+  // A participating organization answers the owner's information request; it never records the decision.
+  const canInform = !canReview && !informationProblem(state, organization.id, e);
   const reviewers = reviewersFor(state, e);
   const me = state.data.administrators.find((a) => a.organizationId === organization.id && a.userId === state.data.admin.id);
   const resolutionBlock = resolutionProblem(state, e, outcome);
@@ -81,7 +83,7 @@ function Detail({ e }: { e: VerificationException }) {
         description={`${EXCEPTION_REASON_LABEL[e.reason]} · ${e.activityName}`} />
       {!canReview && (
         <p className="mb-6 flex gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />Read-only. {cannot}
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{canInform ? 'The activity owner records the decision.' : <>Read-only. {cannot}</>}
         </p>
       )}
       <div className="grid gap-6 lg:grid-cols-3">
@@ -166,6 +168,15 @@ function Detail({ e }: { e: VerificationException }) {
           </Card>
         </div>
 
+        {canInform && (
+          <div className="space-y-6">
+            <Card className="space-y-3 px-5 py-5">
+              <h2 className="text-sm font-semibold text-slate-900">Provide information</h2>
+              <Field label="Information">{(p) => <Textarea {...p} rows={3} value={note} onChange={(x) => setNote(x.target.value)} />}</Field>
+              <Button variant="secondary" disabled={!note.trim()} onClick={() => done(actions.addExceptionNote(organization.id, e.id, note, []), 'Information sent', () => setNote(''))}>Send</Button>
+            </Card>
+          </div>
+        )}
         {canReview && (
           <div className="space-y-6">
             {isUnresolved(e) && (

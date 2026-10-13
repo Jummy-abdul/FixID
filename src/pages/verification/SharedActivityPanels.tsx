@@ -8,7 +8,7 @@ import { ActivitySettingsSummary } from '@/components/verification/RequirementsS
 import { PARTICIPATION_LABEL, type ParticipationStatus } from '@/domain/activitySettings';
 import type { ActivityConfig, VerificationAttempt } from '@/domain/types';
 import { EXCEPTION_REASON_LABEL, RESOLUTION_LABEL } from '@/domain/exceptions';
-import { DECISION_LABEL, stageOf } from '@/domain/transactions';
+import { DECISION_LABEL, STAGE_LABEL, stageOf } from '@/domain/transactions';
 import { useQueryState } from '@/hooks/useQueryState';
 import { currentDecision, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
 import type { AppState } from '@/store/state';
@@ -28,10 +28,11 @@ export const ParticipationBadge = ({ status }: { status: ParticipationStatus | '
   <Badge tone={TONE[status]}>{status === 'owner' ? 'Owner' : PARTICIPATION_LABEL[status]}</Badge>
 );
 
-type Outcome = 'allow' | 'deny' | 'pending-review' | 'unable-to-decide';
+type Outcome = 'allow' | 'deny' | 'pending-review' | 'unable-to-decide' | 'incomplete';
 /** A transaction's current outcome (after any review), counted the same way as the summary figures. */
 function outcomeOf(state: AppState, a: VerificationAttempt): Outcome | undefined {
   const d = a.status === 'completed' ? currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined) : undefined;
+  if (stageOf(a) === 'incomplete') return 'incomplete';
   if (d === 'unable-to-decide' || stageOf(a) === 'unable-to-complete') return 'unable-to-decide';
   return d;
 }
@@ -49,7 +50,7 @@ export function SharedActivityDashboard({ activity }: { activity: ActivityConfig
     <div className="space-y-6">
       <section aria-label="Activity summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Participating organizations" value={r.participating} to={`${activityPath(activity.id)}?tab=organizations`} />
-        <StatCard label="Total attempts" value={s.attempts} to={base} />
+        <StatCard label="Total attempts" value={s.attempts} to={base} hint={s.incomplete ? `${s.incomplete} incomplete` : undefined} />
         <StatCard label="Verified" value={s.allowed} tone="emerald" to={`${base}&outcome=allow`} />
         <StatCard label="Not verified" value={s.denied} to={`${base}&outcome=deny`} />
         <StatCard label="Pending review" value={s.pendingReview} tone="violet" to={`${base}&outcome=pending-review`} />
@@ -128,7 +129,7 @@ export function ParticipatingOrganizationsTab({ activity }: { activity: Activity
   );
 }
 
-const OUTCOME_OPTIONS = [{ value: 'all', label: 'All outcomes' }, ...(['allow', 'deny', 'pending-review', 'unable-to-decide'] as const).map((d) => ({ value: d, label: DECISION_LABEL[d] }))];
+const OUTCOME_OPTIONS = [{ value: 'all', label: 'All outcomes' }, ...(['allow', 'deny', 'pending-review', 'unable-to-decide'] as const).map((d) => ({ value: d, label: DECISION_LABEL[d] })), { value: 'incomplete', label: STAGE_LABEL.incomplete }];
 
 /**
  * Transactions of an activity, filterable by organization and outcome. The owner sees every organization's
@@ -265,7 +266,7 @@ export function SharedActivityParticipantView({ activity }: { activity: Activity
           <section aria-label="Your results" className="space-y-3">
             <h2 className="text-sm font-semibold text-slate-900">Your results</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <StatCard label="Total attempts" value={mineSummary.attempts} />
+              <StatCard label="Total attempts" value={mineSummary.attempts} hint={mineSummary.incomplete ? `${mineSummary.incomplete} incomplete` : undefined} />
               <StatCard label="Verified" value={mineSummary.allowed} tone="emerald" />
               <StatCard label="Not verified" value={mineSummary.denied} />
               <StatCard label="Pending review" value={mineSummary.pendingReview} tone="violet" />

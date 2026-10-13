@@ -10,9 +10,11 @@ import { defaultSettings, type VerificationSettings } from '@/domain/activitySet
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
 import { applyActivate, applySaveActivity, type ActivityForm } from '@/store/activityOps';
-import { applyAssignException, applyResolveException, exceptionsVisibleTo } from '@/store/exceptionOps';
-import { sharedActivityTransactions, sharedResults } from '@/store/reporting';
-import { activityFor, applyAssignSharedVerifiers, applyRespondToInvitation, availableSources, configFromSettings, participation, sharedWith } from '@/store/sharingOps';
+import { applyAssignException, applyExceptionNote, applyRequestInformation, applyResolveException, exceptionsVisibleTo } from '@/store/exceptionOps';
+import { stageOf } from '@/domain/transactions';
+import { ATTEMPT_TTL_MS } from '@/store/attemptOps';
+import { sharedActivityTransactions, sharedResults, summarize } from '@/store/reporting';
+import { activityFor, applyAssignSharedVerifiers, invitableOrganizations, applyRespondToInvitation, availableSources, configFromSettings, participation, sharedWith } from '@/store/sharingOps';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
 import { createVerificationService } from '@/verification/engine';
 
@@ -198,6 +200,72 @@ describe('end-to-end: own and shared activities', () => {
     expect(applyRespondToInvitation(as(ESTHER, ORG_A, s), { organizationId: ORG_A, activityId: DEMO_SHARED_ACTIVITY, accept: true, at: AT })).toMatchObject({ ok: false });
     s = ok(applyRespondToInvitation(as(JORDAN, ORG_C, s), { organizationId: ORG_C, activityId: DEMO_SHARED_ACTIVITY, accept: false, at: AT })).state;
     expect(activityFor(s, ORG_C, DEMO_SHARED_ACTIVITY)).toBeUndefined();
+  });
+});
+
+describe('final shared-activity rules', () => {
+  /** C owns a shared activity run by A (no relationship between them), with one transaction sent for review. */
+  async function setup() {
+    let s = as(JORDAN, ORG_C, createInitialState(new Date()));
+    s = create(s, ORG_C, 'shared_visit', form(s, ORG_C, 'Partner Visitor Check', external('int_c_delegates'), { audience: 'shared', participantIds: [ORG_A] }));
+    const h = harness(as(ESTHER, ORG_A, s));
+    h.state = ok(applyRespondToInvitation(h.state, { organizationId: ORG_A, activityId: 'shared_visit', accept: true, at: AT })).state;
+    h.state = ok(applyAssignSharedVerifiers(h.state, { organizationId: ORG_A, activityId: 'shared_visit', verifierIds: [recordOf(h.state, ORG_A, ESTHER)], at: AT })).state;
+    return h;
+  }
+
+  it('any active registered organization can be invited, without a parent-child relationship', async () => {
+    const s = createInitialState(new Date());
+    const related = (x: string, y: string) => (s.data.organizationRelationships ?? []).some((r) => [r.parentOrganizationId, r.childOrganizationId].sort().join() === [x, y].sort().join());
+    expect(related(ORG_C, ORG_A)).toBe(false);
+    expect(invitableOrganizations(s, ORG_C).map((o) => o.id)).toEqual(expect.arrayContaining([ORG_A, ORG_B, ORG_B1]));
+    expect(invitableOrganizations(s, ORG_C).map((o) => o.id)).not.toContain(ORG_C);
+    const h = await setup();
+    expect(participation(h.state.data.activityConfigs.find((x) => x.id === 'shared_visit')!, ORG_A)).toBe('active');
+  });
+
+  it('the owner decides; the participant sees the decision and can only answer an information request', async () => {
+    const h = await setup();
+    const tx = await verify(h, ORG_A, 'shared_visit', 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' });
+    const a = as(ESTHER, ORG_A, h.state);
+    const exc = exceptionsVisibleTo(a, ORG_A).find((e) => e.transactionId === tx.id)!;
+    expect(exc).toMatchObject({ route: 'owner', reviewOrganizationId: ORG_C });
+    // No decision, assignment or information request from the participant; no information before it's requested.
+    expect(applyResolveException(a, { organizationId: ORG_A, exceptionId: exc.id, outcome: 'verification-confirmed', reason: 'x', at: AT })).toMatchObject({ ok: false });
+    expect(applyAssignException(a, { organizationId: ORG_A, exceptionId: exc.id, reviewerId: recordOf(a, ORG_A, ESTHER), at: AT })).toMatchObject({ ok: false });
+    expect(applyRequestInformation(a, { organizationId: ORG_A, exceptionId: exc.id, comment: 'x', at: AT })).toMatchObject({ ok: false });
+    expect(applyExceptionNote(a, { organizationId: ORG_A, exceptionId: exc.id, comment: 'x', at: AT })).toMatchObject({ ok: false });
+    // The owner asks; the participant answers; the owner decides.
+    let s = ok(applyRequestInformation(as(JORDAN, ORG_C, h.state), { organizationId: ORG_C, exceptionId: exc.id, comment: 'Was ID shown?', at: AT })).state;
+    s = ok(applyExceptionNote(as(ESTHER, ORG_A, s), { organizationId: ORG_A, exceptionId: exc.id, comment: 'Yes, a staff card.', at: AT })).state;
+    const answered = exceptionsVisibleTo(as(JORDAN, ORG_C, s), ORG_C).find((e) => e.id === exc.id)!;
+    expect(answered.history.at(-1)).toMatchObject({ action: 'note-added', comment: 'Yes, a staff card.' });
+    expect(applyResolveException(as(ESTHER, ORG_A, s), { organizationId: ORG_A, exceptionId: exc.id, outcome: 'verification-confirmed', reason: 'x', at: AT })).toMatchObject({ ok: false });
+    s = ok(applyResolveException(as(JORDAN, ORG_C, s), { organizationId: ORG_C, exceptionId: exc.id, outcome: 'verification-not-confirmed', reason: 'Face did not match.', at: AT })).state;
+    expect(exceptionsVisibleTo(as(ESTHER, ORG_A, s), ORG_A).find((e) => e.id === exc.id)!.resolution).toMatchObject({ outcome: 'verification-not-confirmed' });
+  });
+
+  it('an interrupted attempt is recorded, times out as Incomplete and isn’t counted as an outcome; starting again doesn’t duplicate it', async () => {
+    const h = await setup();
+    const first = ok(h.service.startAttempt(ORG_A, 'shared_visit')).attempt;
+    // A repeated start (double click, retry) resumes the same untouched attempt.
+    expect(ok(h.service.startAttempt(ORG_A, 'shared_visit')).attempt.id).toBe(first.id);
+    await h.service.lookupExternal(first.id, 'DEMO-10001');
+    h.state = reducer(h.state, { type: 'verify/expire', at: new Date(Date.now() + ATTEMPT_TTL_MS + 60_000).toISOString() });
+    const expired = h.state.data.verificationAttempts.find((x) => x.id === first.id)!;
+    expect(expired.status).toBe('expired');
+    expect(stageOf(expired)).toBe('incomplete');
+    expect(expired.decision).toBeUndefined();
+    const sum = summarize(h.state, [expired]);
+    expect(sum).toMatchObject({ attempts: 1, incomplete: 1, allowed: 0, denied: 0, pendingReview: 0, unableToComplete: 0, completed: 0 });
+    const owner = as(JORDAN, ORG_C, h.state);
+    expect(sharedResults(owner, owner.data.activityConfigs.find((x) => x.id === 'shared_visit')!).summary).toMatchObject({ incomplete: 1, unableToComplete: 0 });
+    expect(getVerificationStatus(owner, { clientId: `client_${ORG_C}`, transactionId: first.id }).body).toMatchObject({ status: 'INCOMPLETE' });
+    // It can't be finished later, and a new attempt is separate.
+    expect(await h.service.completeExternal(first.id, { captured: true, demo: MATCH }, { submissionId: 'late' })).toMatchObject({ ok: false });
+    const next = await verify(h, ORG_A, 'shared_visit', 'DEMO-10001', MATCH);
+    expect(next.id).not.toBe(first.id);
+    expect(next.decision).toBe('allow');
   });
 });
 

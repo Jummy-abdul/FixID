@@ -5,7 +5,7 @@ import type {
 import { checkById, eligibleParticipants, providersFor } from '@/domain/verification';
 import { actorPermissions, actorRecord } from '@/store/adminOps';
 import { executionUnavailable } from '@/store/sharingOps';
-import { WEB_CLIENT, authorizeExecution, denyProblem, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
+import { WEB_CLIENT, authorizeExecution, denyProblem, openAttemptFor, entryProblem, type AttemptError, type CompleteInput } from '@/store/attemptOps';
 import type { DeviceLocation } from '@/services/location';
 import { effectivePermissions, type Action, type AppState } from '@/store/state';
 import type { IdSwitchService } from '@/services/types';
@@ -468,7 +468,9 @@ export function createVerificationService(deps: ServiceDeps) {
       if (unavailable) return { ok: false, error: unavailable, code: 'inactive' };
       const attemptId = newAttemptId();
       deps.dispatch({ type: 'verify/start', organizationId, activityId, attemptId, at, client, ...(opts.retryOf ? { retryOf: opts.retryOf } : {}), ...(opts.reverificationOf ? { reverificationOf: opts.reverificationOf } : {}) });
-      const attempt = deps.getState().data.verificationAttempts.find((a) => a.id === attemptId);
+      const after = deps.getState();
+      const attempt = after.data.verificationAttempts.find((a) => a.id === attemptId)
+        ?? (auth.ok ? openAttemptFor(after, { organizationId, activityId, verifierId: auth.adminId, at, ...opts }) : undefined);
       if (!attempt && opts.reverificationOf) return { ok: false, error: reverificationProblem(s, opts.reverificationOf, activityId) ?? 'The reverification couldn’t be started.', code: 'operational' };
       return attempt ? { ok: true, attempt } : { ok: false, error: 'The verification couldn’t be started.', code: 'operational' };
     },

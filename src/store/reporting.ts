@@ -27,6 +27,8 @@ export interface Summary {
   denied: number;
   pendingReview: number;
   unableToComplete: number;
+  /** Interrupted and timed out before a result. Counted as attempts, never as an outcome. */
+  incomplete: number;
   cancelled: number;
   byDecision: Record<ActivityDecision | 'none', number>;
   byMatch: Record<string, number>;
@@ -38,7 +40,7 @@ export interface Summary {
 /** Counts by the transaction's current disposition, with original identity and eligibility results kept apart. */
 export function summarize(state: AppState, attempts: VerificationAttempt[]): Summary {
   const s: Summary = {
-    attempts: attempts.length, completed: 0, allowed: 0, denied: 0, pendingReview: 0, unableToComplete: 0, cancelled: 0,
+    attempts: attempts.length, completed: 0, allowed: 0, denied: 0, pendingReview: 0, unableToComplete: 0, incomplete: 0, cancelled: 0,
     byDecision: { allow: 0, deny: 0, 'pending-review': 0, 'unable-to-decide': 0, none: 0 }, byMatch: {}, byEligibility: {}, bySource: { local: 0, external: 0 }, simulated: 0,
   };
   for (const a of attempts) {
@@ -46,6 +48,7 @@ export function summarize(state: AppState, attempts: VerificationAttempt[]): Sum
     const d = a.status === 'completed' ? currentDecision(a, e) : undefined;
     const stage = stageOf(a);
     if (a.status === 'cancelled') s.cancelled += 1;
+    if (stage === 'incomplete') s.incomplete += 1;
     if (d === 'allow') s.allowed += 1;
     if (d === 'deny') s.denied += 1;
     if (d === 'pending-review') s.pendingReview += 1;

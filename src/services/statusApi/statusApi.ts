@@ -22,7 +22,7 @@ export function statusApiClients(state: AppState): StatusApiClient[] {
   return state.data.organizations.map((o) => ({ id: `client_${o.id}`, name: `${o.name} integration client (simulated)`, organizationId: o.id }));
 }
 
-export type TransactionStatusCode = 'IN_PROGRESS' | 'PENDING_REVIEW' | 'COMPLETED' | 'UNABLE_TO_COMPLETE' | 'FAILED' | 'CANCELLED';
+export type TransactionStatusCode = 'IN_PROGRESS' | 'PENDING_REVIEW' | 'COMPLETED' | 'UNABLE_TO_COMPLETE' | 'INCOMPLETE' | 'FAILED' | 'CANCELLED';
 
 export interface StatusResponseBody {
   transactionId: string;
@@ -51,7 +51,7 @@ const upper = (v: string) => v.toUpperCase().replace(/-/g, '_');
 function statusOf(a: VerificationAttempt, pending: boolean, decision?: string): TransactionStatusCode {
   if (a.status === 'in-progress') return 'IN_PROGRESS';
   if (a.status === 'cancelled') return 'CANCELLED';
-  if (a.status === 'expired') return 'UNABLE_TO_COMPLETE';
+  if (a.status === 'expired') return 'INCOMPLETE';
   if (a.status === 'error') return 'FAILED';
   if (pending) return 'PENDING_REVIEW';
   if (decision === 'unable-to-decide') return 'UNABLE_TO_COMPLETE';

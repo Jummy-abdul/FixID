@@ -64,7 +64,7 @@ export function VerificationOperations() {
       {showResults && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatCard label="Active activities" value={activities.filter((a) => a.status === 'active').length} icon={<ListChecks className="h-4 w-4" />} to="/verification-activities" />
-          <StatCard label="Total attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to="/verification-history" />
+          <StatCard label="Total attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to="/verification-history" hint={s.incomplete ? `${s.incomplete} incomplete` : undefined} />
           <StatCard label="Verified" value={s.allowed} tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} to="/verification-history?decision=allow" />
           <StatCard label="Not verified" value={s.denied} icon={<XCircle className="h-4 w-4" />} to="/verification-history?decision=deny" />
           <StatCard label="Pending review" value={s.pendingReview} tone="violet" icon={<ShieldAlert className="h-4 w-4" />} to={showExceptions ? '/exceptions?status=unresolved' : undefined} />

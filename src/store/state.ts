@@ -136,7 +136,7 @@ export type Action =
   | { type: 'verify/refer'; attemptId: string; at: string; reason: string }
   | { type: 'verify/recordEntry'; attemptId: string; at: string }
   | { type: 'verify/denyEntry'; attemptId: string; at: string; reason?: string }
-  | { type: 'verify/expire'; organizationId: string; at: string }
+  | { type: 'verify/expire'; organizationId?: string; at: string }
   | { type: 'verify/denied'; organizationId: string; activityId: string; reason: string; at: string; client: VerificationClientRef }
   | { type: 'organization/verificationDemo'; organizationId: string; enabled: boolean; at: string }
   | { type: 'preview/start'; roleId: RoleId }

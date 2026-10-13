@@ -18,7 +18,9 @@ import type { VerificationAttempt } from './types';
 /** Where a transaction is in its lifecycle. One clear current state; the final states don't overlap. */
 export type TransactionStage =
   | 'initiated' | 'lookup-completed' | 'capture-pending' | 'matching' | 'eligibility-check'
-  | 'pending-review' | 'completed' | 'failed' | 'cancelled' | 'unable-to-complete';
+  | 'pending-review' | 'completed' | 'failed' | 'cancelled' | 'unable-to-complete'
+  /** Interrupted before a result and timed out: not a verification outcome. */
+  | 'incomplete';
 
 export type LivenessStatus = 'passed' | 'failed' | 'inconclusive' | 'unavailable' | 'not-performed' | 'not-required';
 /**
@@ -32,7 +34,7 @@ export type EligibilityStatus = 'eligible' | 'ineligible' | 'unknown' | 'not-req
 export const STAGE_LABEL: Record<TransactionStage, string> = {
   initiated: 'Initiated', 'lookup-completed': 'Lookup completed', 'capture-pending': 'Capture pending', matching: 'Matching',
   'eligibility-check': 'Eligibility check', 'pending-review': 'Pending review', completed: 'Completed', failed: 'Failed',
-  cancelled: 'Cancelled', 'unable-to-complete': 'Unable to complete',
+  cancelled: 'Cancelled', 'unable-to-complete': 'Unable to complete', incomplete: 'Incomplete',
 };
 export const DECISION_LABEL: Record<ActivityDecision, string> = { allow: 'Verified', deny: 'Not verified', 'pending-review': 'Pending review', 'unable-to-decide': 'Unable to verify' };
 export const MATCH_LABEL: Record<IdentityMatchStatus, string> = {
@@ -172,7 +174,7 @@ export function finalStage(decision: ActivityDecision, match: IdentityMatchStatu
 /** The current stage of any attempt, including those recorded before transactions had one. */
 export function stageOf(a: Pick<VerificationAttempt, 'status' | 'stage' | 'decision' | 'outcome'>): TransactionStage {
   if (a.status === 'cancelled') return 'cancelled';
-  if (a.status === 'expired') return 'unable-to-complete';
+  if (a.status === 'expired') return 'incomplete';
   if (a.status === 'error') return 'failed';
   if (a.stage) return a.stage;
   if (a.status === 'in-progress') return 'initiated';

@@ -64,6 +64,14 @@ export function AppStoreProvider({ children, initialState }: { children: ReactNo
     saveState(state);
   }, [state]);
 
+  // Interrupted verifications time out into Incomplete even when nobody returns to them.
+  useEffect(() => {
+    const expire = () => dispatch({ type: 'verify/expire', at: new Date().toISOString() });
+    expire();
+    const timer = setInterval(expire, 60_000);
+    return () => clearInterval(timer);
+  }, [dispatch]);
+
   const getState = useCallback(() => stateRef.current, []);
   const value = useMemo(() => ({ state, dispatch, getState }), [state, getState]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
