@@ -403,6 +403,18 @@ Old `/programmes` links redirect there.
   - Repeated submissions with the same submission ID are idempotent.
   - In this prototype, the timeout is applied in the browser: on load, every minute, and when a verifier starts or opens an attempt. Production needs a server-side job.
 
+### Bulk organization upload
+
+**Organizations → Bulk upload** adds many organizations from a CSV file.
+- **Template:** two columns, `Organization name` and `Administrator email`, with one sample row. These are the only two fields "Add organization" requires. The member label (Member) and time zone (yours) use defaults and can be changed later.
+- **Same rules as "Add organization":** each organization gets its own workspace, a relationship to yours, and a single-use invitation for its administrator. You get no access to its data.
+- **Preview first:** nothing is created until you confirm. The preview shows which rows are ready, already in FixID (matched by name, ignoring case and spacing, and skipped) or need attention, with a reason for each.
+- **Checks:** missing values, invalid emails, duplicate names or administrator emails within the file, and administrator emails already in use. Wrong file type, empty files, files without data rows, unknown columns and unreadable files are rejected with a message.
+- **Import:** rows are checked again when imported, so a duplicate created since the preview is skipped, not created twice. The summary lists created, skipped and failed rows by row number, and you can download it as CSV. One audit event records the counts.
+- **Invitations stay separate:** uploading never invites anyone to an activity. Invite through the shared activity's **Participating organizations** list; when there are more than 8 organizations it has a search and **Select all shown**.
+- **Who can upload:** administrators with *Manage organizations*, in an organization that isn't itself a sub-organization.
+- **Prototype limits:** files are read in the browser and data stays in the browser's local storage, like the rest of the prototype. Duplicate detection by name isn't a substitute for server-side uniqueness checks.
+
 ## Production gaps (prototype vs. production)
 
 What works here is the product flow, end to end, in one browser. These are not production capabilities:

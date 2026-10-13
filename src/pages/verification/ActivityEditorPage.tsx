@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Building2, ChevronRight, Lock, UserPlus, Users } from 'lucide-react';
-import { Button, Card, Field, Input, Textarea, useToast } from '@/components/ui';
+import { Button, Card, Field, Input, SearchInput, Textarea, useToast } from '@/components/ui';
 import { NoAccess, useAuthorization } from '@/auth/authorization';
 import { LocationCheckEditor, type LocationDraft } from '@/components/verification/LocationCheckEditor';
 import { ParticipantsPicker, type Participants } from '@/components/verification/ParticipantsPicker';
@@ -103,6 +103,8 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
   const sources = availableSources(state, organization.id, f.audience);
   const source = sources.find((x) => x.id === f.sourceId);
   const orgs = invitableOrganizations(state, organization.id);
+  const [orgQuery, setOrgQuery] = useState('');
+  const shownOrgs = orgs.filter((o) => !orgQuery.trim() || o.name.toLowerCase().includes(orgQuery.trim().toLowerCase()));
   const faceAvailable = !source || source.capabilities.includes('matching');
 
   /** The settings saved from the form. Settings that aren't asked here keep their stored (or default) values. */
@@ -276,8 +278,17 @@ function Editor({ activity }: { activity?: ActivityConfig }) {
 
         {f.audience === 'shared' ? (
           <Section n={3} title="Participating organizations">
+            {orgs.length > 8 && (
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <SearchInput value={orgQuery} onChange={setOrgQuery} placeholder="Search organizations" label="Search organizations" className="sm:w-72" />
+                {canDetails && shownOrgs.length > 0 && orgQuery.trim() && (
+                  <Button variant="ghost" size="sm" onClick={() => set('participantIds', [...new Set([...f.participantIds, ...shownOrgs.map((o) => o.id)])])}>Select all shown</Button>
+                )}
+                <span className="text-xs text-slate-500">{f.participantIds.length} selected</span>
+              </div>
+            )}
             <fieldset aria-label="Participating organizations" className="grid gap-2 sm:grid-cols-2">
-              {orgs.map((o) => {
+              {shownOrgs.map((o) => {
                 const st = participantStatus(o.id);
                 return (
                   <label key={o.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">

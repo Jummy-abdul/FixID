@@ -28,6 +28,7 @@ import {
 import type { IntegrationFormValues, IntegrationTestRun } from '@/domain/integrations';
 import { runConnectionTest, type TestScenario } from '@/services/integrations/integrationService';
 import { applyCreateSubOrganization, applyResendSubOrganizationInvite, type CreateSubOrganizationInput, type SubOrganizationValues } from './orgOps';
+import { applyBulkCreateOrganizations, type BulkCreateInput, type OrgImportResult } from './orgImport';
 import { newId } from '@/lib/identifiers';
 import {
   applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity,
@@ -272,6 +273,16 @@ export function useActions() {
         };
         const r = run(() => applyCreateSubOrganization(getState(), input), { type: 'organizations/createSub', organizationId: parentOrganizationId, input });
         return r.ok ? { ...r, organizationId: input.ids.organizationId, token: input.token } : r;
+      },
+      /** Creates the uploaded organizations that are ready; returns each row's outcome. */
+      bulkCreateOrganizations: (parentOrganizationId: string, rows: { row: number; name: string; adminEmail: string }[]) => {
+        const input: BulkCreateInput = {
+          parentOrganizationId, at: new Date().toISOString(),
+          rows: rows.map((r) => ({ ...r, token: invitationToken(), ids: { organizationId: `org_${invitationToken().slice(0, 10)}`, administratorId: newId('adm'), relationshipId: newId('rel') } })),
+        };
+        let results: OrgImportResult[] = [];
+        const r = run(() => { const x = applyBulkCreateOrganizations(getState(), input); if (x.ok) results = x.results; return x; }, { type: 'organizations/bulkCreate', organizationId: parentOrganizationId, input });
+        return r.ok ? { ...r, results } : r;
       },
       resendSubOrganizationInvite: (organizationId: string, childOrganizationId: string) => {
         const at = new Date().toISOString();

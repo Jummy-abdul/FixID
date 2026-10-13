@@ -148,7 +148,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(await workspace()).toHaveTextContent('Northbridge Group');
     await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
-    await first.user.click(screen.getAllByRole('button', { name: 'Create Organization' })[0]);
+    await first.user.click(screen.getAllByRole('button', { name: 'Add organization' })[0]);
     const drawer = screen.getByRole('dialog', { name: 'Create organization' });
     // No organization-type choice; required fields are validated.
     expect(within(drawer).queryByText(/type/i)).toBeNull();
@@ -182,7 +182,8 @@ describe('demonstration accounts and role-specific experiences', () => {
     // The new sub-organization's administrator sees its parent, and can't create nested organizations.
     await second.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByLabelText('Parent relationship')).toHaveTextContent('Northbridge Group');
-    expect(screen.queryByRole('button', { name: 'Create Organization' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add organization' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Bulk upload' })).toBeNull();
   }, 30_000);
 
   it('Sub-organization Admin and sibling isolation by direct URL', async () => {
@@ -214,7 +215,8 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Create Organization' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add organization' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Bulk upload' })).toBeNull();
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Settings' }));
     expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles', 'Integrations']);
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();

@@ -485,6 +485,7 @@ export type AuditAction =
   | 'api.status-requested'
   | 'api.status-denied'
   | 'organization.sub-created'
+  | 'organization.bulk-imported'
   | 'organization.sub-invitation-resent'
   | 'sso.saved'
   | 'sso.tested'

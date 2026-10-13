@@ -13,6 +13,7 @@ import {
 } from './integrationOps';
 import type { IntegrationTestRun } from '@/domain/integrations';
 import { applyCreateSubOrganization, applyResendSubOrganizationInvite, type CreateSubOrganizationInput } from './orgOps';
+import { applyBulkCreateOrganizations, type BulkCreateInput } from './orgImport';
 import {
   applyActivateSso, applyDiscardSsoChanges, applyDisableSso, applyLinkSsoIdentity, applySaveSso, applySsoTestResult, applyUnlinkSsoIdentity, type ExternalIdentity, type SsoSaveInput,
 } from './ssoOps';
@@ -89,6 +90,7 @@ export type Action =
   | { type: 'admins/status'; organizationId: string; adminId: string; status: 'active' | 'deactivated'; at: string }
   | { type: 'admins/accept'; adminId: string; userId: string; name: string; at: string; token?: string }
   | { type: 'organizations/createSub'; organizationId: string; input: CreateSubOrganizationInput }
+  | { type: 'organizations/bulkCreate'; organizationId: string; input: BulkCreateInput }
   | { type: 'organizations/resendSubInvite'; organizationId: string; childOrganizationId: string; token: string; at: string }
   | { type: 'sharing/respond'; organizationId: string; activityId: string; accept: boolean; at: string }
   | { type: 'sharing/participant'; organizationId: string; activityId: string; participantId: string; status: 'active' | 'suspended' | 'removed'; at: string }
@@ -172,6 +174,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'admins/roles': ['roles.assign'],
   'admins/status': ['administrators.manage'],
   'organizations/createSub': ['organizations.manage'],
+  'organizations/bulkCreate': ['organizations.manage'],
   'organizations/resendSubInvite': ['organizations.manage'],
   'sharing/respond': ['verification.activities.edit'],
   'sharing/participant': ['verification.activities.edit'],
@@ -497,6 +500,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'admins/status': return orKeep(state, applySetAdminStatus(state, action));
     case 'admins/accept': return orKeep(state, applyAcceptInvite(state, action));
     case 'organizations/createSub': return action.input.parentOrganizationId === action.organizationId ? orKeep(state, applyCreateSubOrganization(state, action.input)) : state;
+    case 'organizations/bulkCreate': return action.input.parentOrganizationId === action.organizationId ? orKeep(state, applyBulkCreateOrganizations(state, action.input)) : state;
     case 'organizations/resendSubInvite': return orKeep(state, applyResendSubOrganizationInvite(state, action));
     case 'sharing/respond': return orKeep(state, applyRespondToInvitation(state, action));
     case 'sharing/participant': return orKeep(state, applyParticipantStatus(state, action));

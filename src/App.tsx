@@ -5,6 +5,7 @@ import { ExceptionDetailPage } from './pages/exceptions/ExceptionDetailPage';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AcceptInvitationPage } from './pages/auth/AcceptInvitationPage';
 import { OrganizationDetailPage, OrganizationsPage } from './pages/organizations/OrganizationsPage';
+import { BulkUploadOrganizationsPage } from './pages/organizations/BulkUploadOrganizationsPage';
 import { PlatformPage } from './pages/platform/PlatformPage';
 import { IntegrationDetailPage } from './pages/settings/IntegrationDetailPage';
 import { DemoProviderPage, SsoCallbackPage, SsoSignInPage } from './pages/auth/SsoPages';
@@ -143,6 +144,7 @@ export function AppRoutes() {
         {/* Verification Programmes were merged into Verification Activities (shared activities). */}
         <Route path="programmes/*" element={<Navigate to="/verification-activities" replace />} />
         <Route path="organizations" element={<RequirePermission permission="organizations.view"><OrganizationsPage /></RequirePermission>} />
+        <Route path="organizations/bulk-upload" element={<RequirePermission permission="organizations.manage"><BulkUploadOrganizationsPage /></RequirePermission>} />
         <Route path="organizations/:orgId" element={<RequirePermission permission="organizations.view"><OrganizationDetailPage /></RequirePermission>} />
         <Route path="settings/integrations/:integrationId" element={<RequirePermission permission="integrations.view"><IntegrationDetailPage /></RequirePermission>} />
         <Route path="audit" element={<RequirePermission permission="audit.view"><AuditPage /></RequirePermission>} />
