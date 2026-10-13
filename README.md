@@ -349,11 +349,18 @@ Verification Programmes were merged into Verification Activities. There is one c
 **Creating an activity** starts with one question, *What do you want to do?* (`ActivityEditorPage`):
 
 - **For other organizations:** activity details (name, optional description), identity source and participating organizations, then a short review and **Create Activity**. The checks come from the identity source: face match and liveness when the source can match faces; problems go to review. Nothing else is asked, and participating organizations assign their own verifiers.
-- **For my organization:** details, identity source, checks (face match, liveness, and whether a failed check is *Not verified* or *Pending review*), and who can verify.
+- **For my organization:** two steps and a review.
+  - *Step 1 of 2* asks for the name and an optional description.
+  - *Step 2 of 2* is one screen with three sections:
+    - **Identity source:** FixID records or a connected service, preselected when there's only one. The checks (face match, liveness, and whether a failed check is *Not verified* or *Pending review*) and an optional *Limit who can be verified* also sit here.
+    - **Who can verify?**
+    - **Location check:** off by default; its fields appear only when it's on.
+  - *Review* summarises everything before **Create Activity**. **Back** keeps what was entered, and the review also offers *Save as draft*.
+  - Editing an activity later, including adding or removing verifiers, uses the single-page form.
 
 Only sources available to the organization are offered, and a single suitable one is preselected. `?type=shared|own` skips the first question.
 
-*More options* holds the optional extras: limiting who can be verified (FixID records only) and the location check. Eligibility isn't configured any more. A connected source's record status decides it behind the scenes; with FixID records anyone registered can be checked unless the activity limits it. A valid-looking identifier only lets the person be checked; it never marks them as verified.
+When editing, *More options* holds the optional extras: limiting who can be verified (FixID records only) and the location check. Eligibility isn't configured any more. A connected source's record status decides it behind the scenes; with FixID records anyone registered can be checked unless the activity limits it. A valid-looking identifier only lets the person be checked; it never marks them as verified.
 
 **Shared activities and permissions** (`src/store/sharingOps.ts`):
 - **Participation:** Invited → Participating (accepted) or Declined; the owner can Suspend, Resume or Remove. Only an invited organization can accept, in its own workspace (`verification.activities.edit`). Every change is audited in both organizations.
@@ -372,7 +379,7 @@ Old `/programmes` links redirect there.
 
 **Owner's activity page** (all figures come from stored transactions):
 - **Overview:** cards for participating organizations, total attempts, verified, not verified, pending review and unable to verify, plus results by organization. Each card and each row opens the matching transactions.
-- **Organizations, Transactions and Exceptions** tabs.
+- **Organizations, Verifications and Exceptions** tabs.
 
 **Participating organization's page:** accept the invitation, assign verifiers, and see its own results and transactions.
 

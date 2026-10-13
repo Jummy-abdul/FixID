@@ -295,8 +295,12 @@ describe('screens', () => {
     await user.click(screen.getByRole('radio', { name: /For my organization/ }));
     expect(screen.queryByText(/Local eligible population|External source eligibility|Reference list eligibility/)).not.toBeInTheDocument();
     expect(screen.queryByText('Participating organizations')).not.toBeInTheDocument();
+    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Activity name'), 'Front Desk Check');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('radio', { name: 'Brightwater Identity Service' }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByLabelText('Activity summary')).toHaveTextContent('Identity sourceBrightwater Identity Service');
     await user.click(screen.getByRole('button', { name: 'Create Activity' }));
     expect(await screen.findByRole('heading', { name: /Front Desk Check/ }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getAllByText('For my organization').length).toBeGreaterThan(0);
@@ -353,5 +357,16 @@ describe('screens', () => {
     const rows = screen.getAllByRole('row').slice(1);
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.textContent?.includes('Meridian Harbourside'))).toBe(true);
+  });
+
+  it('names the records tab Verifications; earlier links still open it, and Exceptions is unchanged', async () => {
+    const user = renderAs(`/verification-activities/${DEMO_SHARED_ACTIVITY}?tab=transactions`, 'acct_demo_b_admin');
+    const tabs = await screen.findAllByRole('tab', {}, { timeout: 4000 });
+    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'Organizations', 'Verifications', 'Exceptions']);
+    expect(screen.getByRole('tab', { name: /Verifications/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: /Transactions/ })).toBeNull();
+    expect(screen.getAllByRole('row').slice(1)).toHaveLength(5);
+    await user.click(screen.getByRole('tab', { name: /Exceptions/ }));
+    expect(screen.getAllByRole('link', { name: /^EXC-/ }).length).toBeGreaterThan(0);
   });
 });

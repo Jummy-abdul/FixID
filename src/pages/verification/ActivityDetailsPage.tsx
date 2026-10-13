@@ -27,7 +27,7 @@ import { ActivityExceptionsTab, ActivityTransactionsTab, ParticipatingOrganizati
 import { NotFoundPage } from '../NotFoundPage';
 import { activityPath } from './paths';
 
-type TabId = 'overview' | 'organizations' | 'participants' | 'transactions' | 'exceptions';
+type TabId = 'overview' | 'organizations' | 'participants' | 'verifications' | 'exceptions';
 
 export function ActivityDetailsPage() {
   const { activityId } = useParams();
@@ -68,10 +68,11 @@ function Details({ activity }: { activity: ActivityConfig }) {
     { value: 'overview' as const, label: 'Overview' },
     ...(shared ? [{ value: 'organizations' as const, label: 'Organizations', count: (activity.sharing?.participants ?? []).filter((p) => p.status === 'active' || p.status === 'invited').length }] : []),
     ...(usesParticipants ? [{ value: 'participants' as const, label: 'People', count: eligible }] : []),
-    ...(can('verification.results.view') ? [{ value: 'transactions' as const, label: 'Transactions', count: attempts.filter((a) => a.status !== 'in-progress').length }] : []),
+    ...(can('verification.results.view') ? [{ value: 'verifications' as const, label: 'Verifications', count: attempts.filter((a) => a.status !== 'in-progress').length }] : []),
     ...(can('exceptions.view') || can('exceptions.review') ? [{ value: 'exceptions' as const, label: 'Exceptions' }] : []),
   ];
-  const requested = tab === 'history' ? 'transactions' : tab;
+  // Earlier links used ?tab=transactions or ?tab=history.
+  const requested = tab === 'history' || tab === 'transactions' ? 'verifications' : tab;
   const selected: TabId = tabs.some((t) => t.value === requested) ? (requested as TabId) : 'overview';
 
   const run = () => {
@@ -144,7 +145,7 @@ function Details({ activity }: { activity: ActivityConfig }) {
         {selected === 'overview' && (shared ? <div className="space-y-6"><SharedActivityDashboard activity={activity} /><Overview activity={activity} warnings={problems.warnings} compact /></div> : <Overview activity={activity} warnings={problems.warnings} />)}
         {selected === 'organizations' && <ParticipatingOrganizationsTab activity={activity} />}
         {selected === 'participants' && <ParticipantsTab activity={activity} uses={usesParticipants} />}
-        {selected === 'transactions' && <ActivityTransactionsTab activity={activity} />}
+        {selected === 'verifications' && <ActivityTransactionsTab activity={activity} />}
         {selected === 'exceptions' && <ActivityExceptionsTab activity={activity} />}
       </div>
 

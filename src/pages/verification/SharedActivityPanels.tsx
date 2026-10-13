@@ -45,7 +45,7 @@ export function SharedActivityDashboard({ activity }: { activity: ActivityConfig
   const { state } = useStore();
   const r = sharedResults(state, activity);
   const s = r.summary;
-  const base = `${activityPath(activity.id)}?tab=transactions`;
+  const base = `${activityPath(activity.id)}?tab=verifications`;
   return (
     <div className="space-y-6">
       <section aria-label="Activity summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -132,8 +132,8 @@ export function ParticipatingOrganizationsTab({ activity }: { activity: Activity
 const OUTCOME_OPTIONS = [{ value: 'all', label: 'All outcomes' }, ...(['allow', 'deny', 'pending-review', 'unable-to-decide'] as const).map((d) => ({ value: d, label: DECISION_LABEL[d] })), { value: 'incomplete', label: STAGE_LABEL.incomplete }];
 
 /**
- * Transactions of an activity, filterable by organization and outcome. The owner sees every organization's
- * transactions for this activity; a participating organization only its own.
+ * The Verifications tab: an activity's verification records, filterable by organization and outcome. The owner
+ * sees every organization's records for this activity; a participating organization only its own.
  */
 export function ActivityTransactionsTab({ activity, onlyOrganizationId }: { activity: ActivityConfig; onlyOrganizationId?: string }) {
   const { state } = useStore();

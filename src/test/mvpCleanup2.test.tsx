@@ -80,6 +80,7 @@ describe('#009 / #010 activity drafts and verifiers', () => {
     const { user } = renderApp('/verification-activities/new?type=own', s);
     await user.type(screen.getByLabelText('Activity name'), 'Volunteer Briefing');
     await user.type(screen.getByLabelText(/Short description/), 'Entry to the volunteer briefing');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     // The administrator creating it is preselected as its verifier.
     expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me(s).name!)).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /Select group Volunteers/ }));
@@ -126,10 +127,14 @@ describe('#009 / #010 activity drafts and verifiers', () => {
     const s = base();
     const { user } = renderApp('/verification-activities/new?type=own', s);
     await user.type(screen.getByLabelText('Activity name'), 'Gate Check');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     const review = screen.getByRole('heading', { name: 'Review' }).closest('div')!;
     expect(review).not.toHaveTextContent(/biometric|provider|integration/i);
     expect(review).not.toHaveTextContent('No verifier assigned');
+    await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: `Unassign ${me(s).name}` }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     const again = screen.getByRole('heading', { name: 'Review' }).closest('div')!;
     expect(again).toHaveTextContent('No verifier assigned');
     expect(again).toHaveTextContent('Assign at least one verifier to allow verification for this activity.');
@@ -165,7 +170,7 @@ describe('#012 simple Activity Overview', () => {
     expect(main).toHaveTextContent('Assigned verifiers');
     expect(main).toHaveTextContent('Location check');
     expect(main).toHaveTextContent('Last updated');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'People', 'Transactions', 'Exceptions']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'People', 'Verifications', 'Exceptions']);
   });
 });
 
