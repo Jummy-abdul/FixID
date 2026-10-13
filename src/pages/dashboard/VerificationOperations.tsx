@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Building2, CheckCircle2, ClipboardList, FlaskConical, ListChecks, ShieldAlert, XCircle } from 'lucide-react';
 import { Badge, Card, CardHeader, EmptyState, FilterSelect, StatCard } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
-import { ActivityStatusBadge } from '@/components/verification/parts';
 import { DecisionBadge, sourceName } from '@/components/verification/transactionParts';
 import { EXCEPTION_REASON_LABEL, isUnresolved } from '@/domain/exceptions';
 import { formatDateTime } from '@/lib/dates';
@@ -43,32 +42,40 @@ export function VerificationOperations() {
   const canSeeActivities = can('verification.activities.view');
   const owned = canSeeActivities ? activities.filter((a) => a.sharing && a.status !== 'draft') : [];
   const joined = canSeeActivities ? sharedWith(state, organization.id) : [];
+  const invited = joined.filter((a) => participation(a, organization.id) === 'invited');
   const ownerName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? 'Another organization';
 
   return (
     <section aria-label="Verification operations" className="mt-8 space-y-6">
+      {/* Waiting invitations come first: nothing can be verified for them until someone accepts. */}
+      {invited.length > 0 && (
+        <Link to="/verification-activities?view=invited" className="flex items-center gap-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200 hover:bg-sky-100">
+          <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1">{invited.length === 1 ? `${ownerName(invited[0].organizationId)} invited you to ${invited[0].name}.` : `${invited.length} activity invitations are waiting.`}</span>
+          <span className="font-semibold">Review</span>
+        </Link>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Verification operations</h2>
-          <p className="text-sm text-slate-500">From {organization.name}’s recorded transactions{s.simulated ? '; some used simulated services' : ''}.</p>
+          <h2 className="text-lg font-semibold text-slate-900">Verification</h2>
         </div>
         <FilterSelect label="Period" value={period} onChange={(v) => setPeriod(v as keyof typeof PERIODS)} options={[{ value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: 'all', label: 'All time' }]} />
       </div>
       {showResults && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <StatCard label="Active Verification Activities" value={activities.filter((a) => a.status === 'active').length} icon={<ListChecks className="h-4 w-4" />} />
-          <StatCard label="Verification Attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to="/verification-history" />
-          <StatCard label="Successful Outcomes" value={s.allowed} tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} to="/verification-history?decision=allow" />
-          <StatCard label="Unsuccessful Outcomes" value={s.denied} icon={<XCircle className="h-4 w-4" />} to="/verification-history?decision=deny" />
-          <StatCard label="Pending Reviews" value={s.pendingReview} tone="violet" icon={<ShieldAlert className="h-4 w-4" />} to={showExceptions ? '/exceptions?status=unresolved' : undefined} />
-          <StatCard label="Unable to Complete" value={s.unableToComplete} tone="amber" to="/verification-history?decision=unable-to-decide" />
+          <StatCard label="Active activities" value={activities.filter((a) => a.status === 'active').length} icon={<ListChecks className="h-4 w-4" />} to="/verification-activities" />
+          <StatCard label="Total attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to="/verification-history" />
+          <StatCard label="Verified" value={s.allowed} tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} to="/verification-history?decision=allow" />
+          <StatCard label="Not verified" value={s.denied} icon={<XCircle className="h-4 w-4" />} to="/verification-history?decision=deny" />
+          <StatCard label="Pending review" value={s.pendingReview} tone="violet" icon={<ShieldAlert className="h-4 w-4" />} to={showExceptions ? '/exceptions?status=unresolved' : undefined} />
+          <StatCard label="Unable to verify" value={s.unableToComplete} tone="amber" to="/verification-history?decision=unable-to-decide" />
         </div>
       )}
       <div className="grid gap-6 xl:grid-cols-2">
         {showResults && (
           <Card>
             <CardHeader title="Recent verification transactions" action={<Link to="/verification-history" className="text-sm font-medium text-brand-600 hover:text-brand-700">View history</Link>} />
-            {recent.length === 0 ? <EmptyState title="No verifications in this period" description="Transactions appear here as verifiers complete them." /> : (
+            {recent.length === 0 ? <EmptyState title="No verifications in this period" /> : (
               <ul className="divide-y divide-slate-100" aria-label="Recent verification transactions">
                 {recent.map((a) => (
                   <li key={a.id}>
@@ -100,20 +107,6 @@ export function VerificationOperations() {
             )}
           </Card>
         )}
-        {can('verification.activities.view') && (
-          <Card>
-            <CardHeader title="Activity status" />
-            <ul className="divide-y divide-slate-100" aria-label="Activity status">
-              {activities.slice(0, 8).map((a) => (
-                <li key={a.id} className="flex flex-wrap items-center gap-2 px-5 py-2.5 text-sm">
-                  <Link to={`/verification-activities/${a.id}`} className="min-w-0 flex-1 truncate text-slate-900 hover:text-brand-700">{a.name}</Link>
-                  <ActivityStatusBadge status={a.status} />
-                </li>
-              ))}
-              {activities.length === 0 && <li className="px-5 py-3 text-sm text-slate-500">No activities yet.</li>}
-            </ul>
-          </Card>
-        )}
         {showResults && (
           <Card>
             <CardHeader title="Identity service status" />
@@ -130,7 +123,7 @@ export function VerificationOperations() {
       </div>
       {(owned.length > 0 || joined.length > 0) && (
         <Card>
-          <CardHeader title="Shared activities" description="Activities shared between organizations: those you own, and those you take part in." />
+          <CardHeader title="Shared activities" />
           <ul className="divide-y divide-slate-100" aria-label="Shared activities">
             {owned.map((a) => {
               const o = sharedResults(state, a);
@@ -151,7 +144,7 @@ export function VerificationOperations() {
                   <Link to={`/verification-activities/${a.id}`} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50">
                     <Building2 className="h-4 w-4 text-slate-400" aria-hidden="true" />
                     <span className="min-w-0 flex-1 font-medium text-slate-900">{a.name} <span className="font-normal text-slate-500">· from {ownerName(a.organizationId)}</span></span>
-                    <Badge tone={st === 'invited' ? 'info' : st === 'active' ? 'success' : 'warning'}>{st === 'invited' ? 'Invitation waiting' : st === 'active' ? 'Taking part' : 'Suspended'}</Badge>
+                    <Badge tone={st === 'invited' ? 'info' : st === 'active' ? 'success' : 'warning'}>{st === 'invited' ? 'Invited' : st === 'active' ? 'Accepted' : 'Suspended'}</Badge>
                   </Link>
                 </li>
               );

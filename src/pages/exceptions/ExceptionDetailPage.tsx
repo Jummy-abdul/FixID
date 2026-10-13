@@ -89,12 +89,11 @@ function Detail({ e }: { e: VerificationException }) {
           <Card className="px-5 py-5">
             <h2 className="text-sm font-semibold text-slate-900">Overview</h2>
             <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2" aria-label="Exception overview">
-              <Row label="Exception reference"><span className="font-mono text-xs">{e.id}</span></Row>
               <Row label="Current status"><ExceptionStatusBadge status={e.status} /></Row>
               <Row label="Exception reason">{EXCEPTION_REASON_LABEL[e.reason]}<span className="block text-xs text-slate-500">{e.reasonDetail}</span></Row>
               <Row label="Assigned reviewer">{e.assignedReviewerName ?? 'Unassigned'}</Row>
               <Row label="Organization">{orgName(e.organizationId)}</Row>
-              <Row label="Review queue">{e.route === 'owner' ? `${orgName(e.reviewOrganizationId)} reviewers (owner of the shared activity)` : `${orgName(e.reviewOrganizationId)} reviewers`}</Row>
+              <Row label="Reviewed by">{orgName(e.reviewOrganizationId)}{e.route === 'owner' ? ' (activity owner)' : ''}</Row>
               <Row label="Activity">{e.activityName}</Row>
             </dl>
           </Card>
@@ -171,6 +170,20 @@ function Detail({ e }: { e: VerificationException }) {
           <div className="space-y-6">
             {isUnresolved(e) && (
               <Card className="space-y-3 px-5 py-5">
+                <h2 className="text-sm font-semibold text-slate-900">Decision</h2>
+                <Field label="Decision">{(p) => (
+                  <Select {...p} value={outcome} onChange={(x) => setOutcome(x.target.value as ResolutionOutcome)}>
+                    {OUTCOMES.map((o) => <option key={o} value={o}>{RESOLUTION_LABEL[o]}</option>)}
+                  </Select>
+                )}</Field>
+                {resolutionBlock && <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">{resolutionBlock}</p>}
+                <Field label="Reason">{(p) => <Textarea {...p} rows={2} value={reason} onChange={(x) => setReason(x.target.value)} />}</Field>
+                <p className="text-xs text-slate-500">The original result is kept.</p>
+                <Button disabled={!reason.trim() || !!resolutionBlock} onClick={() => done(actions.resolveException(organization.id, e.id, outcome, reason), 'Resolution recorded', () => setReason(''))}>Record decision</Button>
+              </Card>
+            )}
+            {isUnresolved(e) && (
+              <Card className="space-y-3 px-5 py-5">
                 <h2 className="text-sm font-semibold text-slate-900">Assignment</h2>
                 <Field label="Assign Reviewer">{(p) => (
                   <Select {...p} value={reviewerId} onChange={(x) => setReviewerId(x.target.value)}>
@@ -188,38 +201,28 @@ function Detail({ e }: { e: VerificationException }) {
               </Card>
             )}
             {e.status !== 'closed' && (
-              <Card className="space-y-3 px-5 py-5">
+              <details className="rounded-xl border border-slate-200 bg-white px-5 py-3">
+                <summary className="cursor-pointer text-sm font-medium text-slate-700">More actions</summary>
+                <div className="mt-4 space-y-6">
+              <div className="space-y-3">
                 <h2 className="text-sm font-semibold text-slate-900">Add Review Note</h2>
                 <Field label="Note">{(p) => <Textarea {...p} rows={3} value={note} onChange={(x) => setNote(x.target.value)} />}</Field>
-                <Field label="Supporting evidence references" hint="Optional, comma-separated references to documents held elsewhere. Never upload biometric data.">{(p) => <Input {...p} value={refs} onChange={(x) => setRefs(x.target.value)} />}</Field>
+                <Field label="Evidence references (optional)" hint="Comma-separated. No biometric data.">{(p) => <Input {...p} value={refs} onChange={(x) => setRefs(x.target.value)} />}</Field>
                 <Button variant="secondary" disabled={!note.trim()} onClick={() => done(actions.addExceptionNote(organization.id, e.id, note, refs.split(',')), 'Note added', () => { setNote(''); setRefs(''); })}>Add Note</Button>
-              </Card>
-            )}
+              </div>
             {isUnresolved(e) && (
-              <Card className="space-y-3 px-5 py-5">
+              <div className="space-y-3">
                 <h2 className="text-sm font-semibold text-slate-900">Request Information</h2>
                 <Field label="What’s needed">{(p) => <Textarea {...p} rows={2} value={infoRequest} onChange={(x) => setInfoRequest(x.target.value)} />}</Field>
                 <Button variant="secondary" disabled={!infoRequest.trim()} onClick={() => done(actions.requestExceptionInformation(organization.id, e.id, infoRequest), 'Marked Awaiting Information', () => setInfoRequest(''))}>Request Information</Button>
-              </Card>
+              </div>
             )}
-            {isUnresolved(e) && (
-              <Card className="space-y-3 px-5 py-5">
-                <h2 className="text-sm font-semibold text-slate-900">Decision</h2>
-                <Field label="Decision">{(p) => (
-                  <Select {...p} value={outcome} onChange={(x) => setOutcome(x.target.value as ResolutionOutcome)}>
-                    {OUTCOMES.map((o) => <option key={o} value={o}>{RESOLUTION_LABEL[o]}</option>)}
-                  </Select>
-                )}</Field>
-                {resolutionBlock && <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">{resolutionBlock}</p>}
-                <Field label="Reason">{(p) => <Textarea {...p} rows={2} value={reason} onChange={(x) => setReason(x.target.value)} />}</Field>
-                <p className="text-xs text-slate-500">The original result is kept.</p>
-                <Button disabled={!reason.trim() || !!resolutionBlock} onClick={() => done(actions.resolveException(organization.id, e.id, outcome, reason), 'Resolution recorded', () => setReason(''))}>Record decision</Button>
-              </Card>
+                </div>
+              </details>
             )}
             {e.status === 'resolved' && (
               <Card className="space-y-3 px-5 py-5">
                 <h2 className="text-sm font-semibold text-slate-900">Close Exception</h2>
-                <p className="text-sm text-slate-600">The resolution is recorded. Closing ends the case; its history is kept.</p>
                 <Button variant="secondary" onClick={() => setClosing(true)}>Close Exception</Button>
               </Card>
             )}

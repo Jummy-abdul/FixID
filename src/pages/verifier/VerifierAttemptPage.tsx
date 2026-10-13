@@ -513,7 +513,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
         </p>
       )}
       {!external && <div className="mt-4"><AccessAndEntry attempt={attempt} /></div>}
-      {attempt.review && <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">Pending review since {formatDateTime(attempt.review.referredAt)} ({attempt.review.referredBy}): {attempt.review.reason}</p>}
+      {attempt.review && !exception && <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">Pending review since {formatDateTime(attempt.review.referredAt)} ({attempt.review.referredBy}): {attempt.review.reason}</p>}
 
       {(!attempt.decision || details) && <Card className="mt-6 px-5 py-5">
         <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
@@ -537,7 +537,8 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
           </>}
         </dl>
       </Card>}
-      <section className="mt-6">
+      {/* The outcome above is what a verifier needs; the individual checks are in the details. */}
+      {(details || !attempt.decision) && <section className="mt-6">
         <h2 className="mb-3 text-sm font-semibold text-slate-900">Checks</h2>
         <CheckList runs={attempt.checks} details={details} />
         {attempt.status === 'completed' && attempt.reasons.length > 0 && (
@@ -546,12 +547,12 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600">{attempt.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
           </div>
         )}
-      </section>
+      </section>}
       <div className="mt-6 flex flex-wrap gap-2">
         {canRetry && <Button size="lg" icon={<RotateCcw className="h-5 w-5" />} onClick={() => startNew(true)}>Retry Verification</Button>}
         {isMine && <Button size="lg" variant={canRetry ? 'secondary' : 'primary'} icon={<RotateCcw className="h-5 w-5" />} onClick={() => startNew()}>Verify Next Participant</Button>}
         <Button size="lg" variant="secondary" onClick={() => navigate(isMine ? `/verify/activities/${attempt.activityId}` : '/verify')}>{isMine ? 'Complete' : 'Return'}</Button>
-        <Button variant="secondary" onClick={() => setDetails((d) => !d)} aria-expanded={details}>{details ? 'Hide Verification Details' : 'View Verification Details'}</Button>
+        <Button variant="secondary" onClick={() => setDetails((d) => !d)} aria-expanded={details}>{details ? 'Hide details' : 'View details'}</Button>
         {canRefer && <Button variant="ghost" onClick={() => setReferring(true)}>Submit for Review</Button>}
       </div>
       {referring && (

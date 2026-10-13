@@ -392,6 +392,17 @@ Old `/programmes` links redirect there.
 - Access rules are enforced in the browser prototype only, not as production-grade security.
 - Earlier sections below mention programmes; read "programme" there as "shared activity" and "programme owner" as "activity owner".
 
+## Production gaps (prototype vs. production)
+
+What works here is the product flow, end to end, in one browser. These are not production capabilities:
+
+- **Storage:** all data lives in the browser's local storage, per device. There's no server, database, backup or retention enforcement.
+- **Access control:** checks run in the application code in the browser. They keep normal use and direct URLs inside each organization's scope, but anyone with access to the browser can change the stored data. Production needs server-side authorization on every request.
+- **Identity sources:** sources are simulated, with fixed demo references. Real services, credentials and secure server-side calls aren't implemented.
+- **Face and liveness:** results are chosen in a simulation and marked *Simulated*. No faces are compared.
+- **Accounts:** demonstration accounts share a published password, and invitations go only to organizations already on FixID (no email delivery).
+- **Audit log:** append-only by convention in the app, not tamper-evident.
+
 ## Organizations, workspaces and demo accounts (Phase 1)
 
 **Organization model.** Every organization registers the same way (no organization-type choice). An organization becomes a parent only by creating sub-organizations. Relationships are separate records (`data.organizationRelationships`: parent, child, type `sub-organization`, origin, status, initial administrator), so later phases can add other origins, such as inviting an existing organization (`pending` until accepted), without changing organizations. Phase 1 rules, enforced in the store (`src/store/orgOps.ts`): one level only (a sub-organization can't create sub-organizations), one parent per organization, and an existing organization is never reassigned.

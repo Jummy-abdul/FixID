@@ -332,8 +332,9 @@ describe('Verifier Interface', () => {
     expect(screen.queryByRole('region', { name: 'Participant found' })).toBeNull();
     const hero = await verifyByDetails(user, m);
     expect(hero).toHaveTextContent('Identity verificationVerified');
+    expect(screen.queryByRole('list', { name: 'Checks' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'View details' }));
     expect(screen.getByRole('list', { name: 'Checks' })).toHaveTextContent('Identity Record Lookup');
-    await user.click(screen.getByRole('button', { name: 'View Verification Details' }));
     expect(screen.getByText('Version 1')).toBeInTheDocument();
     expect(screen.queryByText(m.identifier!.value)).toBeNull();
   });

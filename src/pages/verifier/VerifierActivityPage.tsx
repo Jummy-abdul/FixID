@@ -8,12 +8,13 @@ import { AccessBadge, AttemptBadge, EntryBadge } from '@/components/verification
 import { formatCoordinate, formatRadius } from '@/domain/location';
 import { participantProgress, participantStatuses } from '@/domain/participantStatus';
 import type { ActivityConfig } from '@/domain/types';
-import { activeAssignments, describeRequirements, eligibleParticipants } from '@/domain/verification';
+import { activeAssignments, eligibleParticipants } from '@/domain/verification';
 import { checksLabel, sourceLabel } from '@/components/verification/RequirementsSummary';
 import { formatDateTime } from '@/lib/dates';
-import { useOrgData, useSession, useStore } from '@/store/AppStore';
+import { useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { activityFor, activityPolicy, executionUnavailable } from '@/store/sharingOps';
+import { summarize } from '@/store/reporting';
 
 /** Where the activity takes place, from its location check or its descriptive location. */
 export function activityPlace(a: ActivityConfig): string | null {
@@ -56,7 +57,6 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
   const { organization } = useSession();
   const { state } = useStore();
   const { record, readOnly } = useAuthorization();
-  const { credentialTypeById } = useOrgData();
   const service = useVerificationService();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -78,12 +78,20 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
     navigate(`/verify/attempts/${r.attempt.id}`);
   };
 
-  const stats = [
+  // An activity with a list of people shows progress against it; otherwise this organization's results so far.
+  const hasList = !!(activity.participants?.groupIds.length || activity.participants?.memberIds.length);
+  const results = summarize(state, state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.organizationId === organization.id && a.status !== 'in-progress'));
+  const entry = activity.entryPolicy && activity.entryPolicy !== 'off';
+  const stats = hasList ? [
     { label: 'Eligible participants', value: progress.eligible },
     { label: 'Verified', value: progress.verified },
     { label: 'Pending verification', value: progress.pending },
-    { label: 'Entry granted', value: progress.granted },
-    { label: 'Entry denied', value: progress.denied },
+    ...(entry || progress.granted ? [{ label: 'Entry granted', value: progress.granted }, { label: 'Entry denied', value: progress.denied }] : []),
+  ] : [
+    { label: 'Total attempts', value: results.attempts },
+    { label: 'Verified', value: results.allowed },
+    { label: 'Not verified', value: results.denied },
+    { label: 'Pending review', value: results.pendingReview },
   ];
 
   return (
@@ -119,7 +127,7 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
         </p>
       )}
 
-      <section aria-label="Verification progress" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <section aria-label="Verification progress" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
         {stats.map((x) => (
           <Card key={x.label} className="p-4">
             <p className="text-xs text-slate-500">{x.label}</p>
@@ -130,18 +138,14 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
 
       {version && (
         <Card className="mt-6 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">Verification requirements</h2>
+          <h2 className="text-sm font-semibold text-slate-900">Requirements</h2>
           <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2" aria-label="Verification requirements">
             <div><dt className="text-slate-500">Owned by</dt><dd className="text-slate-900">{ownerName}{shared ? ' (shared activity)' : ''}</dd></div>
             <div><dt className="text-slate-500">Identity Source</dt><dd className="text-slate-900">{sourceLabel(policy.effective.identitySource, policy.integration)}</dd></div>
             <div><dt className="text-slate-500">Required Checks</dt><dd className="text-slate-900">{checksLabel(policy.effective)}</dd></div>
             <div><dt className="text-slate-500">Assigned Verifiers</dt><dd className="text-slate-900">{verifiers.join(', ') || 'None'}</dd></div>
           </dl>
-          {shared && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Requirements are set by {ownerName} and can’t be changed while verifying.</p>}
-          <p className="mt-3 text-xs font-medium text-slate-500">Checks</p>
-          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-600">
-            {describeRequirements(version, (id) => credentialTypeById.get(id)?.name ?? '').map((l) => <li key={l}>{l}</li>)}
-          </ul>
+          {shared && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Set by {ownerName}.</p>}
         </Card>
       )}
 

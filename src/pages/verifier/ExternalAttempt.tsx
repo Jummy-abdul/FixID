@@ -21,8 +21,8 @@ const attributeLabel = (k: string) => ATTRIBUTE_LABEL[k] ?? k.replace(/([a-z])([
 /**
  * External identity verification. The person needs no FixID record: the reference identity is held by the
  * activity's configured external source (the owner's, for a shared activity), which FixID
- * calls through the integration framework. Steps adapt to the method: Identify Person → Capture / Verify →
- * Check Eligibility → View Result, without capture for a record-only activity. The verifier can't change the
+ * calls through the integration framework. Steps adapt to the method: Find person → Verify face →
+ * Result, without capture for a record-only activity. The verifier can't change the
  * service or the requirements. Captures are transient: never sent to a simulated service, never stored.
  */
 export function RunExternal({ attempt }: { attempt: VerificationAttempt }) {
@@ -49,8 +49,8 @@ export function RunExternal({ attempt }: { attempt: VerificationAttempt }) {
   const reusable = found ? service.reusableResults(attempt.id) : [];
   const label = integration?.referenceLabel || 'External Reference ID';
 
-  const steps = face ? ['Identify Person', 'Capture / Verify', 'Check Eligibility', 'View Result'] : ['Identify Person', 'Check Eligibility', 'View Result'];
-  const current = busy === 'verify' ? steps.length - 2 : stage === 'capture' ? 1 : 0;
+  const steps = face ? ['Find person', 'Verify face', 'Result'] : ['Find person', 'Result'];
+  const current = face && (busy === 'verify' || stage === 'capture') ? 1 : 0;
 
   const goResult = () => navigate(`/verify/attempts/${attempt.id}`, { replace: true });
   const fail = (r: { error: string; code: string }) => {

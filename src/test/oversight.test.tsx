@@ -292,7 +292,7 @@ describe('screens', () => {
     renderApp('/', tobyson(), 'usr_tobyson');
     const ops = await screen.findByRole('region', { name: 'Verification operations' });
     // Brightwater's four recorded transactions in the last 30 days.
-    expect(ops).toHaveTextContent('Verification Attempts4');
+    expect(ops).toHaveTextContent('Total attempts4');
     expect(within(ops).getByLabelText('Recent exceptions')).toHaveTextContent('Identity mismatch');
   });
 

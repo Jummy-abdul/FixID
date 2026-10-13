@@ -100,9 +100,7 @@ function ActivityCard({ activity, disabled, onStart }: { activity: ActivityConfi
             {when && <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{when}</span>}
           </p>
         )}
-        <p className="mt-3 flex-1 text-sm text-slate-700" aria-label="Progress">
-          {progress.verified} of {progress.eligible} verified · {progress.granted} entered{progress.denied ? ` · ${progress.denied} denied` : ''}
-        </p>
+        <p className="mt-3 flex-1 text-sm text-slate-700" aria-label="Progress">{useProgressLine(activity, progress)}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button icon={<Play className="h-4 w-4" />} disabled={disabled} onClick={onStart} aria-label={`Start verification: ${activity.name}`}>Start Verification</Button>
           <ButtonLink to={`/verify/activities/${activity.id}`} variant="secondary" aria-label={`View details: ${activity.name}`}>View Details</ButtonLink>
@@ -175,7 +173,7 @@ export function VerifierDashboard() {
       <section aria-label="Your verification summary" className="mt-6 grid gap-4 sm:grid-cols-3">
         <Card className="p-5"><p className="text-sm text-slate-500">Assigned activities</p><p className="mt-1 text-2xl font-semibold text-slate-900">{assigned.length}</p></Card>
         <Card className="p-5"><p className="text-sm text-slate-500">Verifications today</p><p className="mt-1 text-2xl font-semibold text-slate-900">{todays.filter((a) => a.status === 'completed').length}</p></Card>
-        <Card className="p-5"><p className="text-sm text-slate-500">Entries allowed today</p><p className="mt-1 text-2xl font-semibold text-slate-900">{todays.filter((a) => a.entry?.status === 'entered').length}</p></Card>
+        <Card className="p-5"><p className="text-sm text-slate-500">Verified today</p><p className="mt-1 text-2xl font-semibold text-slate-900">{todays.filter((a) => a.status === 'completed' && (a.reviewDisposition?.decision ?? a.decision) === 'allow').length}</p></Card>
       </section>
       <div className="mt-6 flex flex-wrap gap-2">
         <Link to="/verify" className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"><Play className="h-4 w-4" aria-hidden="true" />My Verification Activities</Link>
@@ -222,8 +220,24 @@ function AssignedRow({ activity }: { activity: ActivityConfig }) {
     <li className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
       <span className="min-w-0 flex-1">
         <Link to={`/verify/activities/${activity.id}`} className="block font-medium text-slate-900 hover:text-brand-700">{activity.name}</Link>
-        <span className="block text-xs text-slate-500">{progress.verified} of {progress.eligible} verified · {progress.granted} entered</span>
+        <span className="block text-xs text-slate-500">{useProgressLine(activity, progress)}</span>
       </span>
     </li>
   );
+}
+
+/**
+ * One short line for an assigned activity: progress against its list of people when it has one, and who
+ * shared it when it comes from another organization. Nothing for an open activity with no list.
+ */
+function useProgressLine(activity: ActivityConfig, progress: ReturnType<typeof useActivityProgress>): string {
+  const { state } = useStore();
+  const { organization } = useSession();
+  const hasList = !!(activity.participants?.groupIds.length || activity.participants?.memberIds.length);
+  const parts = [
+    ...(activity.organizationId !== organization.id ? [`From ${state.data.organizations.find((o) => o.id === activity.organizationId)?.name ?? 'another organization'}`] : []),
+    ...(hasList ? [`${progress.verified} of ${progress.eligible} verified`] : []),
+    ...(activity.entryPolicy && activity.entryPolicy !== 'off' ? [`${progress.granted} entered`] : []),
+  ];
+  return parts.join(' · ');
 }

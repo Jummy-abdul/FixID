@@ -206,7 +206,7 @@ describe('dashboard', () => {
   it('active preview shows the sample organization for a new organization', async () => {
     const { user } = renderApp('/', NEW_ORGANIZATION_ID);
     await user.selectOptions(previewSelect(), 'active');
-    expect(screen.getByText(/across Northbridge Group today/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 }).parentElement).toHaveTextContent('Northbridge Group');
   });
 
   it('links metrics to pre-filtered lists', async () => {

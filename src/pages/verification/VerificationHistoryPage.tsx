@@ -83,9 +83,9 @@ const LEGACY_OUTCOME = { allow: 'verified', deny: 'not-verified', indeterminate:
 const LEGACY_ACCESS = { allow: 'permitted', deny: 'not-permitted', indeterminate: 'review-required' } as const;
 const LEGACY_DECISION = { allow: 'allow', deny: 'deny', indeterminate: 'unable-to-decide' } as const;
 
-export function AttemptsTable({ rows, hideActivity, orgName }: { rows: VerificationAttempt[]; hideActivity?: boolean; orgName?: (id: string) => string }) {
+export function AttemptsTable({ rows, hideActivity, orgName, hideColumns = [] }: { rows: VerificationAttempt[]; hideActivity?: boolean; orgName?: (id: string) => string; hideColumns?: string[] }) {
   const sorted = useMemo(() => [...rows].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).map((a) => fromAttempt(a, orgName?.(a.organizationId) ?? '')), [rows, orgName]);
-  const hide = [...(hideActivity ? ['activity'] : []), ...(orgName ? [] : ['organization'])];
+  const hide = [...(hideActivity ? ['activity'] : []), ...(orgName ? [] : ['organization']), ...hideColumns];
   return <HistoryTable rows={sorted} hide={hide} empty={<EmptyState title="No verifications yet" />} />;
 }
 
@@ -96,12 +96,12 @@ function HistoryTable({ rows, hide = [], empty }: { rows: HistoryRow[]; hide?: s
     { key: 'reference', header: 'Reference', cell: (r) => <span className="font-mono text-xs text-slate-600">{r.id}</span> },
     { key: 'activity', header: 'Activity', cell: (r) => (r.activityHref ? <Link to={r.activityHref} onClick={stop} className="text-slate-900 hover:text-brand-700">{r.activityName}</Link> : <span className="text-slate-900">{r.activityName}</span>) },
     { key: 'organization', header: 'Organization', cell: (r) => <span className="text-slate-600">{r.organization}</span> },
-    { key: 'subject', header: 'Subject', cell: (r) => (r.memberId ? <Link to={`/users/${r.memberId}`} onClick={stop} className="text-slate-900 hover:text-brand-700">{r.subject}</Link> : <span className="text-slate-500">{r.subject}</span>) },
+    { key: 'subject', header: 'Person', cell: (r) => (r.memberId ? <Link to={`/users/${r.memberId}`} onClick={stop} className="text-slate-900 hover:text-brand-700">{r.subject}</Link> : <span className="text-slate-500">{r.subject}</span>) },
     { key: 'verifier', header: 'Verifier', cell: (r) => r.verifier },
     { key: 'source', header: 'Identity source', cell: (r) => <span className="text-slate-600">{r.source}</span> },
     { key: 'identity', header: 'Identity', cell: (r) => r.identity },
     { key: 'eligibility', header: 'Eligibility', cell: (r) => r.eligibility },
-    { key: 'decision', header: 'Decision', cell: (r) => r.decision },
+    { key: 'decision', header: 'Outcome', cell: (r) => r.decision },
     { key: 'status', header: 'Status', cell: (r) => r.status },
     { key: 'entry', header: 'Entry', cell: (r) => r.entry },
     { key: 'details', header: <span className="sr-only">Details</span>, cell: (r) => <Link to={`/verification-history/${r.id}`} onClick={stop} className="text-sm font-medium text-brand-600 hover:text-brand-700">View<span className="sr-only"> details for {r.id}</span></Link> },

@@ -148,7 +148,9 @@ export function ActivityTransactionsTab({ activity, onlyOrganizationId }: { acti
         {!onlyOrganizationId && orgs.length > 1 && <FilterSelect label="Organization" value={org} onChange={setOrg} options={[{ value: 'all', label: 'All organizations' }, ...orgs.map((id) => ({ value: id, label: orgName(id) }))]} />}
         <FilterSelect label="Outcome" value={outcome} onChange={setOutcome} options={OUTCOME_OPTIONS} />
       </div>
-      <AttemptsTable rows={rows} hideActivity orgName={onlyOrganizationId ? undefined : orgName} />
+      {/* Only what's needed here; the full record opens from each row. */}
+      <AttemptsTable rows={rows} hideActivity orgName={onlyOrganizationId ? undefined : orgName}
+        hideColumns={['source', 'identity', 'eligibility', 'status', ...((activity.entryPolicy && activity.entryPolicy !== 'off') || all.some((x) => x.entry) ? [] : ['entry'])]} />
     </Card>
   );
 }

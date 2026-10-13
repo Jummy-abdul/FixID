@@ -92,6 +92,6 @@ function OrganizationDashboard() {
   // The "active" preview shows an established sample organization, read-only.
   if (preview === 'active') return <ActiveDashboard headerActions={control} data={selectOrgData(state, SAMPLE_ORGANIZATION_ID)} />;
   // Verification operations always describe the signed-in workspace's own records.
-  if (!firstTimeData) return <><ActiveDashboard headerActions={control} /><VerificationOperations /></>;
+  if (!firstTimeData) return <ActiveDashboard headerActions={control} verification={<VerificationOperations />} />;
   return <><FirstTimeDashboard data={firstTimeData} adminName={admin.name} headerActions={control} />{preview === 'automatic' && <VerificationOperations />}</>;
 }
