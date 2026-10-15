@@ -7,3 +7,27 @@
   body { @apply bg-slate-50 font-sans text-slate-900; }
   input[type='search']::-webkit-search-cancel-button { cursor: pointer; }
 }
+
+/*
+ * Credential printing (Print credential / Print credentials). The prepared card pages live off screen and
+ * are the only thing printed: one ID-1 sized page (85.60 × 53.98 mm) per card side, with no margins.
+ */
+.fixid-print-root { position: fixed; left: -100000px; top: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.fixid-print-page { display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; break-inside: avoid; }
+/* The card is drawn at its base size and scaled down; clip its unscaled layout box so it can't spill onto another page. */
+.fixid-print-page > [role='img'] { overflow: hidden; }
+.fixid-print-page--landscape { width: 85.6mm; height: 53.98mm; page: fixid-card-landscape; }
+.fixid-print-page--portrait { width: 53.98mm; height: 85.6mm; page: fixid-card-portrait; }
+/* The card's on-screen drop shadow and outline aren't part of the printed card. */
+.fixid-print-page > [role='img'] > div { box-shadow: none !important; }
+
+@page fixid-card-landscape { size: 85.6mm 53.98mm; margin: 0; }
+@page fixid-card-portrait { size: 53.98mm 85.6mm; margin: 0; }
+
+@media print {
+  body.fixid-printing { background: #fff !important; margin: 0; }
+  body.fixid-printing > *:not(.fixid-print-root) { display: none !important; }
+  body.fixid-printing .fixid-print-root { position: static; }
+  body.fixid-printing .fixid-print-page { break-after: page; }
+  body.fixid-printing .fixid-print-page:last-child { break-after: auto; }
+}

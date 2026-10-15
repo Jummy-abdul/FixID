@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, BadgeCheck, ShieldCheck, ShieldX, UserRound } from 'lucide-react';
-import { ButtonLink, Card, CardBody, CardHeader, EmptyState } from '@/components/ui';
+import { ArrowLeft, BadgeCheck, Download, Printer, ShieldCheck, ShieldX, UserRound } from 'lucide-react';
+import { Button, ButtonLink, Card, CardBody, CardHeader, EmptyState } from '@/components/ui';
+import { useAuthorization } from '@/auth/authorization';
+import { PrintCredentialsDialog } from '@/components/credentials/print/PrintCredentialsDialog';
+import { isPrintable } from '@/components/credentials/print/printing';
 import { FlippableCredentialCard } from '@/components/credentials/CredentialCard';
 import { CredentialStatusBadge } from '@/components/domain/StatusBadges';
 import { issuedLook } from '@/domain/templates';
@@ -40,6 +44,8 @@ export function IssuedCredentialDetailPage() {
   const credential = credentialId ? credentialById.get(credentialId) : undefined;
   const member = credential ? memberById.get(credential.memberId) : undefined;
   const portrait = usePortrait(member);
+  const canPrint = useAuthorization().can('credentials.issue');
+  const [printing, setPrinting] = useState<'print' | 'pdf' | null>(null);
   if (!credential) return <NotFoundPage entity="credential" backTo="/credentials" />;
 
   const type = credentialTypeById.get(credential.credentialTypeId);
@@ -99,8 +105,17 @@ export function IssuedCredentialDetailPage() {
           </p>
           <div className="mt-2"><CredentialStatusBadge status={credential.status} /></div>
         </div>
-        {member && <ButtonLink to={`/users/${member.id}`} variant="secondary" icon={<UserRound className="h-4 w-4" />}>View User Profile</ButtonLink>}
+        <div className="flex flex-wrap gap-2">
+          {canPrint && isPrintable(credential) && (
+            <>
+              <Button variant="secondary" icon={<Download className="h-4 w-4" />} onClick={() => setPrinting('pdf')}>Download PDF</Button>
+              <Button variant="secondary" icon={<Printer className="h-4 w-4" />} onClick={() => setPrinting('print')}>Print credential</Button>
+            </>
+          )}
+          {member && <ButtonLink to={`/users/${member.id}`} variant="secondary" icon={<UserRound className="h-4 w-4" />}>View User Profile</ButtonLink>}
+        </div>
       </div>
+      {canPrint && <PrintCredentialsDialog open={!!printing} onClose={() => setPrinting(null)} credentialIds={[credential.id]} startWith={printing === 'pdf' ? 'pdf' : undefined} />}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-2">

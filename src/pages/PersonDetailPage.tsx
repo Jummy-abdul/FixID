@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { BadgePlus, ChevronRight, ShieldCheck } from 'lucide-react';
+import { BadgePlus, ChevronRight, Printer, ShieldCheck } from 'lucide-react';
 import { Avatar, Button, ButtonLink, Card, DataTable, EmptyState, Skeleton, Tabs } from '@/components/ui';
 import { CredentialStatusBadge, MemberStatusBadge, ResultBadge } from '@/components/domain/StatusBadges';
 import { assignUrl } from '@/components/issuance/assignment';
@@ -15,6 +15,8 @@ import { useOrgData } from '@/store/AppStore';
 import { NotFoundPage } from './NotFoundPage';
 import { useAuthorization } from '@/auth/authorization';
 import { MemberGroupsCard } from '@/components/groups/MemberGroupsCard';
+import { PrintCredentialsDialog } from '@/components/credentials/print/PrintCredentialsDialog';
+import { isPrintable } from '@/components/credentials/print/printing';
 
 type TabId = 'profile' | 'credentials' | 'verifications';
 
@@ -140,6 +142,9 @@ function CredentialsTab({ member, creds }: { member: Member; creds: Credential[]
   const { credentialTypeById } = useOrgData();
   const issueHref = assignUrl({ recipientIds: [member.id], from: 'user' });
   const allowed = useAuthorization().can('credentials.issue');
+  // Printing an issued card is for the people who issue them; it never changes the credential.
+  const canPrint = allowed;
+  const [printing, setPrinting] = useState<string | null>(null);
   const canIssue = member.status === 'active';
   const serial = useMemo(() => new Map(creds.map((c, i) => [c.id, i + 1])), [creds]);
   const issueButton = (variant: 'primary' | 'secondary') => !allowed ? null : canIssue
@@ -170,14 +175,22 @@ function CredentialsTab({ member, creds }: { member: Member; creds: Credential[]
             {
               key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right',
               cell: (c) => (
-                <Link to={issuedCredentialPath(c.id, { kind: 'user', id: member.id })} className="whitespace-nowrap text-sm font-medium text-brand-600 hover:text-brand-700">
-                  View Details<span className="sr-only"> for {issuedLook(c, credentialTypeById.get(c.credentialTypeId)).credentialName} {c.identifier}</span>
-                </Link>
+                <span className="inline-flex items-center gap-4">
+                  {canPrint && isPrintable(c) && (
+                    <button type="button" onClick={() => setPrinting(c.id)} className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-brand-600 hover:text-brand-700">
+                      <Printer className="h-4 w-4" aria-hidden="true" />Print<span className="sr-only"> {issuedLook(c, credentialTypeById.get(c.credentialTypeId)).credentialName} {c.identifier}</span>
+                    </button>
+                  )}
+                  <Link to={issuedCredentialPath(c.id, { kind: 'user', id: member.id })} className="whitespace-nowrap text-sm font-medium text-brand-600 hover:text-brand-700">
+                    View Details<span className="sr-only"> for {issuedLook(c, credentialTypeById.get(c.credentialTypeId)).credentialName} {c.identifier}</span>
+                  </Link>
+                </span>
               ),
             },
           ]}
         />
       )}
+      {canPrint && <PrintCredentialsDialog open={!!printing} onClose={() => setPrinting(null)} credentialIds={printing ? [printing] : []} />}
     </Card>
   );
 }

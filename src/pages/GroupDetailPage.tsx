@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronRight, Eye, Pencil, Trash2, UserMinus, UserPlus, Users } from 'lucide-react';
+import { ChevronRight, Eye, Pencil, Printer, Trash2, UserMinus, UserPlus, Users } from 'lucide-react';
 import {
   Button, Card, ConfirmDialog, Tabs, DataTable, EmptyState, FilterSelect, OverflowMenu, Pagination, SearchInput, Skeleton, usePageSlice, useToast,
   type OverflowMenuItem,
@@ -15,6 +15,8 @@ import { useContacts } from '@/hooks/useContacts';
 import { useQueryState } from '@/hooks/useQueryState';
 import { GroupActivityTab } from '@/components/groups/GroupActivityTab';
 import { GroupCredentialsTab } from '@/components/groups/GroupCredentialsTab';
+import { PrintCredentialsDialog, type NotIncluded } from '@/components/credentials/print/PrintCredentialsDialog';
+import { isPrintable } from '@/components/credentials/print/printing';
 import { formatDate } from '@/lib/dates';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { NotFoundPage } from './NotFoundPage';
@@ -98,9 +100,13 @@ function GroupDetails({ group }: { group: Group }) {
 function MembersTab({ group }: { group: Group }) {
   const { organization } = useSession();
   const { state } = useStore();
-  const { memberById, identifierConfigById } = useOrgData();
+  const { memberById, identifierConfigById, credentials } = useOrgData();
   const { can } = useAuthorization();
   const canManage = can('groups.members');
+  // Printing issued cards is for the people who issue them; selecting members for it changes nothing.
+  const canPrint = can('credentials.issue');
+  const canSelect = canManage || canPrint;
+  const [printBatch, setPrintBatch] = useState<{ credentialIds: string[]; notIncluded: NotIncluded[] } | null>(null);
   const canViewUsers = can('users.view');
   const { removeGroupMembers } = useActions();
   const toast = useToast();
@@ -172,11 +178,28 @@ function MembersTab({ group }: { group: Group }) {
               options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'pending', label: 'Pending' }, { value: 'inactive', label: 'Inactive' }]} />
           </div>
         )}
-        {canManage && selected.size > 0 && (
+        {canSelect && selected.size > 0 && (
           <div role="toolbar" aria-label="Bulk actions" className="flex flex-wrap items-center gap-2 border-b border-brand-100 bg-brand-50/60 px-4 py-2.5">
             <span className="mr-2 text-sm font-medium text-slate-700" aria-live="polite">{selected.size} selected</span>
-            <Button size="sm" variant="secondary" icon={<UserMinus className="h-4 w-4" />}
-              onClick={() => setConfirmRemove(pageRows.filter((r) => selected.has(r.member.id)).map((r) => r.member))}>Remove from group</Button>
+            {canManage && (
+              <Button size="sm" variant="secondary" icon={<UserMinus className="h-4 w-4" />}
+                onClick={() => setConfirmRemove(pageRows.filter((r) => selected.has(r.member.id)).map((r) => r.member))}>Remove from group</Button>
+            )}
+            {canPrint && (() => {
+              const chosen = pageRows.filter((r) => selected.has(r.member.id)).map((r) => r.member);
+              const printable = (m: Member) => credentials.filter((c) => c.memberId === m.id && isPrintable(c));
+              const withCards = chosen.filter((m) => printable(m).length > 0);
+              return (
+                <>
+                  <Button size="sm" variant="secondary" icon={<Printer className="h-4 w-4" />} disabled={withCards.length === 0}
+                    onClick={() => setPrintBatch({
+                      credentialIds: withCards.flatMap((m) => printable(m).map((c) => c.id)),
+                      notIncluded: chosen.filter((m) => !withCards.includes(m)).map((m) => ({ name: m.displayName, reason: 'No active credential' })),
+                    })}>Print credentials</Button>
+                  <span className="text-xs text-slate-500">{withCards.length} of {chosen.length} with an active credential</span>
+                </>
+              );
+            })()}
             <button type="button" className="ml-auto text-sm font-medium text-brand-600 hover:text-brand-700" onClick={() => setSelected(new Set())}>Clear selection</button>
           </div>
         )}
@@ -189,7 +212,7 @@ function MembersTab({ group }: { group: Group }) {
               action={canManage ? <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => setAdding(true)}>Add Members</Button> : undefined} />
           ) : <EmptyState title="No matching members" description="Try a different search or status." />}
           columns={[
-            ...(canManage ? [{
+            ...(canSelect ? [{
               key: 'select', className: 'w-10',
               header: <SelectAllBox label="Select all members on this page" checked={allSelected} indeterminate={!allSelected && pageRows.some((r) => selected.has(r.member.id))}
                 onChange={() => setSelected(allSelected ? new Set() : new Set(pageRows.map((r) => r.member.id)))} />,
@@ -226,6 +249,7 @@ function MembersTab({ group }: { group: Group }) {
       </Card>
 
       {canManage && <AddMembersDrawer group={group} open={adding} onClose={() => setAdding(false)} />}
+      {canPrint && <PrintCredentialsDialog open={!!printBatch} onClose={() => setPrintBatch(null)} credentialIds={printBatch?.credentialIds ?? []} notIncluded={printBatch?.notIncluded} />}
       <ConfirmDialog open={!!confirmRemove} tone="danger" onCancel={() => setConfirmRemove(null)} onConfirm={() => { if (confirmRemove) remove(confirmRemove); }}
         title={confirmRemove?.length === 1 ? `Remove ${confirmRemove[0].displayName}?` : `Remove ${confirmRemove?.length ?? 0} members?`}
         confirmLabel={confirmRemove?.length === 1 ? 'Remove Member' : 'Remove Members'}

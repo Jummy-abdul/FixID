@@ -422,6 +422,32 @@ Old `/programmes` links redirect there.
 - **Who can upload:** administrators with *Manage organizations*, in an organization that isn't itself a sub-organization.
 - **Prototype limits:** files are read in the browser and data stays in the browser's local storage, like the rest of the prototype. Duplicate detection by name isn't a substitute for server-side uniqueness checks.
 
+### Credential printing and PDF export
+
+Issued cards can be printed in the browser or saved as a PDF. Nothing new was added to the navigation.
+- **Where:**
+  - A user's **Credentials** tab has **Print** on each eligible credential.
+  - An issued credential's details page has **Print credential** and **Download PDF**.
+  - In **Groups → Members**, selecting members shows **Print credentials** in the bulk toolbar, with a count of how many have an active credential.
+- **One print preview for all of them:**
+  - It shows each card (front and back, or front only), how many cards and pages are being prepared, and who's included.
+  - In a batch, a card can be left out, and members without an active credential are listed as *Not included*.
+  - **Back** returns to the screen you came from, with any selection kept.
+- **What prints:** only *active*, current credentials. Suspended, revoked, expired and not-yet-active credentials aren't offered and are never included.
+- **Who can print:** administrators who can issue credentials (*Issue credentials*). Read-only roles can view credentials but not print them.
+- **Credentials don't change:** printing and reprinting only read the issued credential and the existing renderer (`CredentialCard`). Nothing is issued, duplicated or changed. Printing isn't recorded in the audit log.
+- **Size:**
+  - Each card side is one ISO/IEC 7810 ID-1 page (85.60 × 53.98 mm; portrait templates 53.98 × 85.60 mm) with no margins.
+  - The renderer's existing 340 × 214 px design is scaled so its long edge is exactly 85.60 mm.
+  - Its aspect ratio is very slightly wider than ID-1, so the short edge is 53.88 mm. The 0.1 mm difference is left as blank margin rather than stretching the design.
+- **Browser printing:** print styles show only the cards and set the page size. Print at actual size (100%).
+- **PDF:**
+  - The PDF has one ID-1 page per card side.
+  - Each side is captured from the same print-ready cards at about 600 dpi, using `html-to-image` and `jspdf`, which load only when a PDF is requested.
+  - Pages are images, so text in the PDF isn't selectable.
+  - If the web font can't be embedded, the system font is used.
+- **Not included:** direct integration with card printers (discovery, status, encoding, duplex control). Output goes through the normal browser or operating-system print dialog to whatever printer is chosen, and compatibility with specific PVC card printers hasn't been tested. The QR pattern on the cards is the existing decorative pattern, not a scannable code.
+
 ## Production gaps (prototype vs. production)
 
 What works here is the product flow, end to end, in one browser. These are not production capabilities:
