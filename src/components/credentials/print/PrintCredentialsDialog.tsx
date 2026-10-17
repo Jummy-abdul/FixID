@@ -49,14 +49,21 @@ function useLoadedImages(urls: string[]) {
  * the browser's print dialog at ID-1 size (one page per card side), or saves the same pages as a PDF.
  * Printing only reads the issued credentials: nothing is issued, changed or recorded as a new credential.
  */
-export function PrintCredentialsDialog({ open, onClose, credentialIds, notIncluded = NONE, startWith }: {
+export function PrintCredentialsDialog({ open, onClose, credentialIds, notIncluded = NONE, startWith, onComplete }: {
   open: boolean; onClose: () => void; credentialIds: string[]; notIncluded?: NotIncluded[]; startWith?: 'pdf';
+  /**
+   * Called when the job is finished (PDF saved, or Done after printing) so the caller can clear its selection.
+   * Browsers don't report whether a print dialog printed or was cancelled, so after printing the administrator
+   * confirms with Done; Back keeps the selection for another try.
+   */
+  onComplete?: () => void;
 }) {
   const { organization, credentialById, memberById, credentialTypeById, identifierConfigById, logoAssetById } = useOrgData();
   const toast = useToast();
   const [sides, setSides] = useState<'both' | 'front'>('both');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [printed, setPrinted] = useState(false);
   const printRoot = useRef<HTMLDivElement>(null);
   const started = useRef(false);
 
@@ -95,7 +102,7 @@ export function PrintCredentialsDialog({ open, onClose, credentialIds, notInclud
   const ready = images.done && chosen.length > 0 && !busy;
   const bulk = items.length > 1;
 
-  useEffect(() => { if (!open) { started.current = false; setExcluded(new Set()); setBusy(null); } }, [open]);
+  useEffect(() => { if (!open) { started.current = false; setExcluded(new Set()); setBusy(null); setPrinted(false); } }, [open]);
 
   const print = () => {
     // Browsers apply the first page's size to every page unless told otherwise, so the job's page size is set
@@ -109,7 +116,14 @@ export function PrintCredentialsDialog({ open, onClose, credentialIds, notInclud
     document.body.classList.add('fixid-printing');
     const done = () => { document.body.classList.remove('fixid-printing'); pageSize?.remove(); window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
-    try { window.print(); } finally { setTimeout(done, 0); }
+    try {
+      window.print();
+      if (onComplete) setPrinted(true);
+    } catch {
+      toast({ tone: 'error', title: 'Print dialog didn’t open', description: 'Try again, or download a PDF instead.' });
+    } finally {
+      setTimeout(done, 0);
+    }
   };
 
   const downloadPdf = async () => {
@@ -122,6 +136,7 @@ export function PrintCredentialsDialog({ open, onClose, credentialIds, notInclud
       await saveCardsPdf(pages, name, chosen.length === 1 ? `${chosen[0].content.credentialName} — ${chosen[0].holder}` : `${organization.name} credentials`,
         (n, total) => setBusy(`Preparing PDF… ${n} of ${total}`));
       toast({ tone: 'success', title: 'PDF saved', description: `${chosen.length} ${chosen.length === 1 ? 'card' : 'cards'}, ${pageCount} ${pageCount === 1 ? 'page' : 'pages'}.` });
+      onComplete?.();
     } catch (e) {
       toast({ tone: 'error', title: 'PDF not saved', description: e instanceof Error ? e.message : 'Try again.' });
     } finally {
@@ -146,10 +161,20 @@ export function PrintCredentialsDialog({ open, onClose, credentialIds, notInclud
           <>
             <Button variant="secondary" onClick={onClose} disabled={!!busy}>Back</Button>
             <Button variant="secondary" icon={<Download className="h-4 w-4" />} onClick={() => void downloadPdf()} disabled={!ready} loading={!!busy}>Download PDF</Button>
-            <Button icon={<Printer className="h-4 w-4" />} onClick={print} disabled={!ready}>Print</Button>
+            {printed ? (
+              <>
+                <Button variant="secondary" icon={<Printer className="h-4 w-4" />} onClick={print} disabled={!ready}>Print again</Button>
+                <Button onClick={() => onComplete?.()} disabled={!!busy}>Done</Button>
+              </>
+            ) : <Button icon={<Printer className="h-4 w-4" />} onClick={print} disabled={!ready}>Print</Button>}
           </>
         )}>
         <div className="space-y-4">
+          {printed && (
+            <p role="status" className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900 ring-1 ring-inset ring-brand-200">
+              The print dialog has closed. If the cards printed, choose Done to clear your selection. To keep it and try again, choose Back or Print again.
+            </p>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label className="flex items-center gap-2 text-sm text-slate-700">
               Sides

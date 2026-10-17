@@ -429,6 +429,10 @@ Issued cards can be printed in the browser or saved as a PDF. Nothing new was ad
   - A user's **Credentials** tab has **Print** on each eligible credential.
   - An issued credential's details page has **Print credential** and **Download PDF**.
   - In **Groups → Members**, selecting members shows **Print credentials** in the bulk toolbar, with a count of how many have an active credential.
+  - In **Credentials → [credential] → Issued To**, each row has a checkbox and the header selects every printable recipient on the page. The list isn't paginated, so that's every recipient shown.
+    - Rows that can't be printed (pending, suspended, revoked, expired, or active but past their expiry date) have a disabled checkbox that gives the reason.
+    - **Print ID cards (N)** opens the same preview, where individual recipients can be left out.
+    - Saving the PDF clears the selection. After the print dialog closes, **Done** clears it, while **Back** or **Print again** keeps it for another try (browsers don't report whether a print job was cancelled). **Clear selection** is always available.
 - **One print preview for all of them:**
   - It shows each card (front and back, or front only), how many cards and pages are being prepared, and who's included.
   - In a batch, a card can be left out, and members without an active credential are listed as *Not included*.

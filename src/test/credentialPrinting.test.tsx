@@ -197,3 +197,146 @@ describe('bulk printing from a group', () => {
     expect(screen.queryByRole('button', { name: 'Print credentials' })).toBeNull();
   });
 });
+
+describe('bulk printing from Credentials → Issued To', () => {
+  /** A credential type with mixed statuses: pending, suspended, revoked, expired and active-but-past-expiry can't print. */
+  function mixed() {
+    const s0 = createInitialState(new Date());
+    const type = s0.data.credentialTypes.find((t) => t.organizationId === ORG_A && credsOf(s0).filter((c) => c.credentialTypeId === t.id).length >= 8)!;
+    const list = credsOf(s0).filter((c) => c.credentialTypeId === type.id).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
+    const blockedAs: Partial<Credential>[] = [{ status: 'pending' }, { status: 'suspended' }, { status: 'revoked' }, { status: 'expired' }, { status: 'active', expiresAt: '2001-01-01T00:00:00Z' }];
+    const changes = new Map(list.map((c, i) => [c.id, i < blockedAs.length ? blockedAs[i] : { status: 'active' as const, expiresAt: null, effectiveFrom: '2020-01-01T00:00:00Z' }]));
+    const s: AppState = { ...s0, data: { ...s0.data, credentials: s0.data.credentials.map((c) => (changes.has(c.id) ? { ...c, ...changes.get(c.id) } : c)) } };
+    const rows = list.map((c) => ({ ...c, ...changes.get(c.id) }) as Credential);
+    const name = (c: Credential) => s.data.members.find((m) => m.id === c.memberId)!.displayName;
+    return { s, type, rows, blocked: rows.slice(0, blockedAs.length), printable: rows.slice(blockedAs.length), name };
+  }
+  const header = () => screen.getByRole('checkbox', { name: 'Select all printable recipients on this page' }) as HTMLInputElement;
+  const rowBox = (label: string) => screen.getByRole('checkbox', { name: label }) as HTMLInputElement;
+
+  it('selects one, all and none; the header shows checked, unchecked and indeterminate; ineligible records can’t be selected', async () => {
+    const { s, type, blocked, printable, name } = mixed();
+    const user = renderAs(`/credentials/configurations/${type.id}?tab=issued`, ESTHER, s);
+    await screen.findByRole('heading', { name: 'Recipients' });
+    // Existing table and actions are unchanged.
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['', 'SN', 'Recipient Name', 'Identifier', 'Date Issued', 'Expiration Date', 'Credential Status', 'Actions']);
+    expect(screen.getAllByRole('button', { name: /^View Details/ })).toHaveLength(printable.length + blocked.length);
+    expect(screen.getByRole('link', { name: /Issue credential/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    // Ineligible records: disabled, with the reason; nothing is shown as active that isn't.
+    const reasons = ['Credential not yet active', 'Credential suspended', 'Credential revoked', 'Credential expired', 'Credential expired'];
+    blocked.forEach((c, i) => expect(rowBox(`Can't print ${name(c)}: ${reasons[i]}`)).toBeDisabled());
+    expect(screen.getByText(`Select recipients to print their ID cards. The header checkbox selects all ${printable.length} printable on this page. ${blocked.length} can’t be printed (not active, or expired).`)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Print ID cards/ })).toBeNull();
+    expect(header().checked).toBe(false);
+    expect(header().indeterminate).toBe(false);
+
+    // One recipient: indeterminate header, count in the action.
+    await user.click(rowBox(`Select ${name(printable[0])}`));
+    expect(screen.getByRole('toolbar', { name: 'Bulk actions' })).toHaveTextContent('1 selected');
+    expect(screen.getByRole('button', { name: 'Print ID cards (1)' })).toBeInTheDocument();
+    expect(header().indeterminate).toBe(true);
+    expect(header().checked).toBe(false);
+    // Keyboard: Space toggles a focused row checkbox.
+    rowBox(`Select ${name(printable[1])}`).focus();
+    await user.keyboard(' ');
+    expect(screen.getByRole('button', { name: 'Print ID cards (2)' })).toBeInTheDocument();
+    // Select all printable on the page, then none.
+    await user.click(header());
+    expect(header().checked).toBe(true);
+    expect(header().indeterminate).toBe(false);
+    expect(screen.getByRole('button', { name: `Print ID cards (${printable.length})` })).toBeInTheDocument();
+    blocked.forEach((c, i) => expect(rowBox(`Can't print ${name(c)}: ${reasons[i]}`)).not.toBeChecked());
+    await user.click(header());
+    expect(header().checked).toBe(false);
+    expect(screen.queryByRole('toolbar', { name: 'Bulk actions' })).toBeNull();
+  });
+
+  it('previews one card per selected recipient, lets one be removed, keeps the selection on Back, and clears it after Done', async () => {
+    const { s, type, printable, name } = mixed();
+    const before = snapshot(s);
+    const user = renderAs(`/credentials/configurations/${type.id}?tab=issued`, ESTHER, s);
+    await screen.findByRole('heading', { name: 'Recipients' });
+    for (const c of printable.slice(0, 3)) await user.click(rowBox(`Select ${name(c)}`));
+    await user.click(screen.getByRole('button', { name: 'Print ID cards (3)' }));
+    let dialog = screen.getByRole('dialog', { name: 'Print credentials' });
+    expect(dialog).toHaveTextContent('3 cards · 6 pages');
+    const listed = within(dialog).getByRole('list', { name: 'Cards to print' });
+    printable.slice(0, 3).forEach((c) => expect(listed).toHaveTextContent(name(c)));
+    // Remove one recipient from this print run.
+    await user.click(within(dialog).getByRole('checkbox', { name: new RegExp(`^Include ${name(printable[1])}`) }));
+    expect(dialog).toHaveTextContent('2 cards · 4 pages');
+    expect(printPages()).toHaveLength(4);
+    expect(printPages().some((p) => p.textContent?.includes(printable[1].identifier))).toBe(false);
+    // Cancel: back to the table with the selection intact.
+    await user.click(within(dialog).getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'Print ID cards (3)' })).toBeInTheDocument();
+
+    // Retry and print: the browser dialog opens; Done clears the selection.
+    await user.click(screen.getByRole('button', { name: 'Print ID cards (3)' }));
+    dialog = screen.getByRole('dialog', { name: 'Print credentials' });
+    const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Print' })).toBeEnabled());
+    await user.click(within(dialog).getByRole('button', { name: 'Print' }));
+    expect(print).toHaveBeenCalledTimes(1);
+    print.mockRestore();
+    expect(within(dialog).getByRole('status')).toHaveTextContent('If the cards printed, choose Done to clear your selection.');
+    expect(within(dialog).getByRole('button', { name: 'Print again' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Print credentials' })).toBeNull();
+    expect(screen.queryByRole('toolbar', { name: 'Bulk actions' })).toBeNull();
+    expect(header().checked).toBe(false);
+    // Nothing was issued, duplicated or changed.
+    const stored = loadState();
+    expect(stored ? snapshot(stored) : before).toBe(before);
+  });
+
+  it('keeps the selection when a PDF fails, clears it when the PDF is saved, and reports a print dialog that fails to open', async () => {
+    const { s, type, printable, name } = mixed();
+    const user = renderAs(`/credentials/configurations/${type.id}?tab=issued`, ESTHER, s);
+    await screen.findByRole('heading', { name: 'Recipients' });
+    await user.click(rowBox(`Select ${name(printable[0])}`));
+    await user.click(rowBox(`Select ${name(printable[1])}`));
+    await user.click(screen.getByRole('button', { name: 'Print ID cards (2)' }));
+    let dialog = screen.getByRole('dialog', { name: 'Print credentials' });
+    // The print dialog can't open: an error, no Done, selection kept.
+    const print = vi.spyOn(window, 'print').mockImplementation(() => { throw new Error('blocked'); });
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Print' })).toBeEnabled());
+    await user.click(within(dialog).getByRole('button', { name: 'Print' }));
+    print.mockRestore();
+    expect(await screen.findByText('Print dialog didn’t open')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Done' })).toBeNull();
+    // PDF generation fails: the error is shown and the selection stays.
+    saveCardsPdf.mockRejectedValueOnce(new Error('Out of memory'));
+    await user.click(within(dialog).getByRole('button', { name: 'Download PDF' }));
+    expect(await screen.findByText('PDF not saved')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Print credentials' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'Print ID cards (2)' })).toBeInTheDocument();
+    // PDF saved: one ID-1 page per card side, then the selection clears.
+    await user.click(screen.getByRole('button', { name: 'Print ID cards (2)' }));
+    dialog = screen.getByRole('dialog', { name: 'Print credentials' });
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Download PDF' })).toBeEnabled());
+    await user.click(within(dialog).getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Print credentials' })).toBeNull());
+    expect((saveCardsPdf.mock.calls.at(-1) as unknown as [unknown[]])[0]).toHaveLength(4);
+    expect(screen.queryByRole('toolbar', { name: 'Bulk actions' })).toBeNull();
+  });
+
+  it('says so when nothing can be printed, and offers no selection to read-only roles', async () => {
+    const { s: base, type } = mixed();
+    const none: AppState = { ...base, data: { ...base.data, credentials: base.data.credentials.map((c) => (c.credentialTypeId === type.id ? { ...c, status: 'revoked' as const } : c)) } };
+    renderAs(`/credentials/configurations/${type.id}?tab=issued`, ESTHER, none);
+    await screen.findByRole('heading', { name: 'Recipients' });
+    expect(header()).toBeDisabled();
+    expect(screen.getByText(/None of these credentials can be printed/)).toBeInTheDocument();
+  });
+
+  it('read-only roles see the table without selection or printing', async () => {
+    const { s, type } = mixed();
+    renderAs(`/credentials/configurations/${type.id}?tab=issued`, AUDITOR, s);
+    await screen.findByRole('heading', { name: 'Recipients' });
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByText(/Select recipients to print/)).toBeNull();
+  });
+});

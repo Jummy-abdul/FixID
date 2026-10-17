@@ -104,9 +104,9 @@ export function AddMembersDrawer({ group, open, onClose }: { group: Group; open:
   );
 }
 
-export function SelectAllBox({ checked, indeterminate, onChange, label }: { checked: boolean; indeterminate: boolean; onChange: () => void; label?: string }) {
+export function SelectAllBox({ checked, indeterminate, onChange, label, disabled }: { checked: boolean; indeterminate: boolean; onChange: () => void; label?: string; disabled?: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate; }, [indeterminate]);
-  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label}
+  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label} disabled={disabled}
     className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />;
 }
