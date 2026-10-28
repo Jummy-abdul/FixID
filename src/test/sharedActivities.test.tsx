@@ -1,8 +1,10 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
+import { loadState } from '@/store/persistence';
+import { cont, wizardToVerifiers } from './helpers/activityWizard';
 import { AUTH_STORAGE_KEY } from '@/auth/authCore';
 import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
 import { DEMO_SHARED_ACTIVITY } from '@/data/seed';
@@ -288,46 +290,41 @@ describe('screens', () => {
     expect(within(nav).getByRole('link', { name: /Verification Activities/ })).toBeInTheDocument();
   });
 
-  it('starts with one question, then a short form for the organization’s own use', async () => {
+  it('creates an activity for the organization’s own use without choosing technical methods', async () => {
     const user = renderAs('/verification-activities/new', JORDAN);
     await screen.findByRole('heading', { name: 'Create activity' }, { timeout: 4000 });
-    expect(screen.getByRole('heading', { name: 'What do you want to do?' })).toBeInTheDocument();
-    await user.click(screen.getByRole('radio', { name: /For my organization/ }));
-    expect(screen.queryByText(/Local eligible population|External source eligibility|Reference list eligibility/)).not.toBeInTheDocument();
-    expect(screen.queryByText('Participating organizations')).not.toBeInTheDocument();
-    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument();
-    await user.type(screen.getByLabelText('Activity name'), 'Front Desk Check');
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    await user.click(screen.getByRole('radio', { name: 'Brightwater Identity Service' }));
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    expect(screen.getByLabelText('Activity summary')).toHaveTextContent('Identity sourceBrightwater Identity Service');
-    await user.click(screen.getByRole('button', { name: 'Create Activity' }));
-    expect(await screen.findByRole('heading', { name: /Front Desk Check/ }, { timeout: 4000 })).toBeInTheDocument();
-    expect(screen.getAllByText('For my organization').length).toBeGreaterThan(0);
+    // No activity types or audience question: the wizard starts with the details.
+    expect(screen.queryByRole('heading', { name: 'What do you want to do?' })).not.toBeInTheDocument();
+    await wizardToVerifiers(user, { name: 'Front Desk Check', source: 'Brightwater Identity Service' });
+    expect(screen.queryByText(/Local eligible population|External source eligibility|Reference list eligibility|Match the person’s face/)).not.toBeInTheDocument();
+    await cont(user);
+    expect(screen.getByRole('region', { name: 'Identity source' })).toHaveTextContent('SourceBrightwater Identity Service');
+    await user.click(screen.getByRole('button', { name: 'Create activity' }));
+    expect(await screen.findByRole('heading', { level: 1, name: /Front Desk Check/ }, { timeout: 4000 })).toBeInTheDocument();
+    const saved = loadState()!.data.activityConfigs.find((a) => a.name === 'Front Desk Check')!;
+    expect(saved.sharing).toBeUndefined();
+    // The portrait baseline, from the source: never a record lookup alone, and nothing goes to human review.
+    expect(saved.verification).toMatchObject({ identitySource: { kind: 'external', integrationId: 'int_c_delegates' }, method: 'face', liveness: 'required', exceptions: 'unsuccessful', eligibility: { approach: 'external-source' } });
   });
 
-  it('creates a shared activity with just details, a source and organizations; checks come from the source', async () => {
-    const user = renderAs('/verification-activities/new', JORDAN);
-    await user.click(await screen.findByRole('radio', { name: /For other organizations/ }, { timeout: 4000 }));
-    // No checks, verifiers or other settings to configure.
-    expect(screen.queryByRole('heading', { name: /Checks/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: /Who can verify/ })).not.toBeInTheDocument();
-    expect(screen.queryByText('More options')).not.toBeInTheDocument();
-    expect(screen.queryByRole('radio', { name: 'FixID records' })).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText('Activity name'), 'Partner Check');
-    // The only suitable source is preselected; its checks are reused.
-    expect(screen.getByRole('radio', { name: 'Brightwater Identity Service' })).toBeChecked();
-    expect(screen.getByRole('heading', { name: 'Review' }).closest('div')!).toHaveTextContent('ChecksIdentifier, face match, liveness');
-    await user.click(screen.getByRole('button', { name: 'Create Activity' }));
-    expect(await screen.findByText('Choose at least one organization to take part.')).toBeInTheDocument();
-    await user.click(within(screen.getByRole('group', { name: 'Participating organizations' })).getByRole('checkbox', { name: /Northbridge Group/ }));
-    await user.click(screen.getByRole('button', { name: 'Create Activity' }));
-    // The owner's dashboard, calculated from stored transactions (none yet).
-    const summary = await screen.findByRole('region', { name: 'Activity summary' }, { timeout: 4000 });
-    expect(summary).toHaveTextContent('Total attempts0');
-    expect(screen.getByText('No verifications yet')).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /Organizations/ }));
-    const row = screen.getAllByRole('row').find((r) => within(r).queryAllByText('Northbridge Group').length > 0)!;
+  it('delegates an activity to a sub-organization, which needs a connected identity source', async () => {
+    const user = renderAs('/verification-activities/new', 'acct_demo_b_admin');
+    await screen.findByRole('heading', { name: 'Create activity' }, { timeout: 4000 });
+    await wizardToVerifiers(user, { name: 'Partner Check', source: 'Group Identity Service' });
+    await user.click(within(screen.getByRole('group', { name: 'Authorised sub-organizations' })).getByRole('checkbox', { name: /Meridian Harbourside/ }));
+    // FixID records can't be used once a sub-organization verifies: it would see the owner's records.
+    await user.click(screen.getByRole('button', { name: /Step 3/ }));
+    expect(screen.getByRole('radio', { name: 'FixID records' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /Step 4/ }));
+    await cont(user);
+    expect(screen.getByRole('region', { name: 'Verifiers' })).toHaveTextContent('Authorised sub-organizationsMeridian Harbourside');
+    await user.click(screen.getByRole('button', { name: 'Create activity' }));
+    // The owner's Overview, calculated from stored records (none yet), with results by organization.
+    const summary = await screen.findByRole('region', { name: 'Verification summary' }, { timeout: 4000 });
+    await waitFor(() => expect(summary).toHaveTextContent('Total attempts0'));
+    expect(screen.getByText('Results by organization')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Configuration' }));
+    const row = screen.getAllByRole('row').find((r) => within(r).queryAllByText('Meridian Harbourside').length > 0)!;
     expect(within(row).getByText('Invited')).toBeInTheDocument();
   });
 
@@ -344,29 +341,33 @@ describe('screens', () => {
     expect(screen.getByRole('heading', { name: 'Verifiers' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Your results' })).toHaveTextContent('Total attempts0');
   });
-  it('the owner’s dashboard opens filtered transactions from a figure or an organization', async () => {
+  it('the owner’s Overview counts every organization’s records, and Participants filters them', async () => {
     const user = renderAs(`/verification-activities/${DEMO_SHARED_ACTIVITY}`, 'acct_demo_b_admin');
-    const summary = await screen.findByRole('region', { name: 'Activity summary' }, { timeout: 4000 });
-    // Seeded transactions: B1 three (1 verified, 2 pending review), B2 two (1 verified, 1 unable to verify).
-    expect(summary).toHaveTextContent('Total attempts5');
-    expect(summary).toHaveTextContent('Verified2');
-    expect(summary).toHaveTextContent('Pending review2');
-    expect(summary).toHaveTextContent('Unable to verify1');
-    await user.click(within(summary).getByRole('link', { name: /Pending review/ }));
-    expect(await screen.findByLabelText('Outcome')).toHaveValue('pending-review');
+    const summary = await screen.findByRole('region', { name: 'Verification summary' }, { timeout: 4000 });
+    // Seeded records: B1 three (a match, a mismatch, a match whose record isn't eligible), B2 two (a match, an outage).
+    await waitFor(() => expect(summary).toHaveTextContent('Total attempts5'));
+    expect(summary).toHaveTextContent('Verified3');
+    expect(summary).toHaveTextContent('Unsuccessful1');
+    expect(summary).toHaveTextContent('Pending or incomplete1');
+    // The Overview's only table: results by organization.
+    expect(screen.getByText('Results by organization')).toBeInTheDocument();
+    const harbourside = screen.getAllByRole('row').find((r) => r.textContent?.includes('Meridian Harbourside'))!;
+    expect(within(harbourside).getAllByRole('cell').map((c) => c.textContent).slice(1)).toEqual(['3', '2', '1', '0']);
+    await user.click(screen.getByRole('tab', { name: 'Participants' }));
+    await user.selectOptions(screen.getByLabelText('Verification status'), 'unsuccessful');
     const rows = screen.getAllByRole('row').slice(1);
-    expect(rows).toHaveLength(2);
-    expect(rows.every((r) => r.textContent?.includes('Meridian Harbourside'))).toBe(true);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Unsuccessful');
+    // Identifiers are masked.
+    expect(document.body.textContent).not.toContain('DEMO-10001');
   });
 
-  it('names the records tab Verifications; earlier links still open it, and Exceptions is unchanged', async () => {
+  it('earlier tab links open the tab that now holds that information', async () => {
     const user = renderAs(`/verification-activities/${DEMO_SHARED_ACTIVITY}?tab=transactions`, 'acct_demo_b_admin');
     const tabs = await screen.findAllByRole('tab', {}, { timeout: 4000 });
-    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'Organizations', 'Verifications', 'Exceptions']);
-    expect(screen.getByRole('tab', { name: /Verifications/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByRole('tab', { name: /Transactions/ })).toBeNull();
-    expect(screen.getAllByRole('row').slice(1)).toHaveLength(5);
-    await user.click(screen.getByRole('tab', { name: /Exceptions/ }));
-    expect(screen.getAllByRole('link', { name: /^EXC-/ }).length).toBeGreaterThan(0);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Overview', 'Participants', 'Configuration']);
+    expect(screen.getByRole('tab', { name: 'Participants' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('tab', { name: 'Overview' }));
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
   });
 });

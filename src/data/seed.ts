@@ -1085,15 +1085,31 @@ export function seedActivityScenarios(organizations: Pick<Organization, 'id' | '
     const verifiers = [`${ORG_C}_adm_owner`, `${ORG_C}_adm_4`];
     const external = { identitySource: { kind: 'external' as const, integrationId: 'int_c_delegates' } };
     // Prompt 4 scenarios 3, 4, 6, 7, 9 and 11: an external identity, nobody enrolled in FixID; a result may be reused for a day.
-    add(ORG_C, 'visitor_checkin', 'Tobyson TE', { name: 'Visitor Check-in', description: 'Visitors checked against the organization’s connected identity source.' },
+    const dayAt = (days: number, hour: number) => { const x = new Date(today.getTime() + days * DAY); x.setHours(hour, 0, 0, 0); return x.toISOString(); };
+    add(ORG_C, 'visitor_checkin', 'Tobyson TE', {
+      name: 'Visitor Check-in', description: 'Visitors checked against the organization’s connected identity source.',
+      location: 'Main Reception', schedule: { kind: 'recurring', startsAt: dayAt(-30, 0), enforced: true, recurrence: { frequency: 'weekly', days: [1, 2, 3, 4, 5], startTime: '08:00', endTime: '18:00' } },
+    },
       settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] }, exceptions: 'unsuccessful', reverification: { mode: 'reuse-within', days: 1 } }), verifiers);
     add(ORG_C, 'restricted_lounge', 'Tobyson TE', { name: 'Restricted Lounge Access', description: 'Guests checked against the connected identity source; only listed guests are admitted. Problems go to review.' },
       settings({ ...external, eligibility: { approach: 'reference-list', referenceList: ['DEMO-10001', 'GST-2001', 'GST-2002', 'GST-2003'] } }), verifiers);
     // Prompt 4 scenarios 1 and 2: local identity verification with enrolled faces and an eligible population.
     add(ORG_C, 'badge_collection', 'Tobyson TE', {
       name: 'Badge Collection', description: 'Registered participants checked against their FixID records before collecting a badge.',
-      participants: { groupIds: [], memberIds: [`${ORG_C}_m_001`, `${ORG_C}_m_003`] },
+      participants: { groupIds: [], memberIds: [`${ORG_C}_m_001`, `${ORG_C}_m_003`] }, eligibilityMode: 'selected',
+      location: 'Registration Desk', schedule: { kind: 'open-ended', startsAt: dayAt(-9, 8), enforced: true },
     }, settings({ exceptions: 'unsuccessful' }), verifiers, `${ORG_C}_idc_participant-number`);
+    // Verification Activities module: a scheduled activity that hasn't started, and a completed one with its records.
+    add(ORG_C, 'graduation', 'Tobyson TE', {
+      name: 'Graduation Ceremony Check-in', description: 'Selected graduates confirm their identity before collecting their seat allocation.',
+      participants: { groupIds: [`${ORG_C}_grp_volunteers`], memberIds: [] }, eligibilityMode: 'selected', location: 'Great Hall', locationAddress: '1 College Road',
+      schedule: { kind: 'one-time', startsAt: dayAt(12, 9), endsAt: dayAt(12, 17), enforced: true },
+    }, settings({ exceptions: 'unsuccessful', decisionRules: { onInconclusiveMatch: 'unable-to-decide', onServiceUnavailable: 'unable-to-decide' } }), [`${ORG_C}_adm_owner`], `${ORG_C}_idc_participant-number`);
+    add(ORG_C, 'open_day', 'Tobyson TE', {
+      name: 'Spring Open Day Check-in', description: 'Open-day visitors confirmed their identity on arrival.', eligibilityMode: 'open', location: 'Visitor Centre',
+      // Not enforced while the demonstration history is recorded; it is then marked completed.
+      schedule: { kind: 'one-time', startsAt: dayAt(-9, 8), endsAt: dayAt(-2, 18), enforced: false },
+    }, settings({ ...external, eligibility: { approach: 'external-source', attribute: 'recordStatus', allowedValues: ['ACTIVE'] }, exceptions: 'unsuccessful', decisionRules: { onInconclusiveMatch: 'unable-to-decide', onServiceUnavailable: 'unable-to-decide' } }), [`${ORG_C}_adm_owner`]);
   }
   return out;
 }

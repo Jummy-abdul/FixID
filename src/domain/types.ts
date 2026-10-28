@@ -510,6 +510,7 @@ export type AuditAction =
   | 'verification-activity.verifier-removed'
   | 'verification-activity.activated'
   | 'verification-activity.deactivated'
+  | 'verification-activity.completed'
   | 'verification-activity.duplicated'
   | 'verification-activity.removed'
   | 'verification-activity.draft-discarded'
@@ -711,6 +712,10 @@ export interface ActivityVersion {
   activatedBy?: string;
 }
 
+export type ScheduleKind = 'one-time' | 'recurring' | 'open-ended';
+/** A recurring activity's pattern. Times are local "HH:MM"; `days` are weekdays (0 = Sunday) for weekly recurrence. */
+export interface Recurrence { frequency: 'daily' | 'weekly' | 'monthly'; days?: number[]; startTime: string; endTime: string }
+
 /** A configured verification activity (Verification → Verification Activities). */
 export interface ActivityConfig {
   id: string;
@@ -726,8 +731,24 @@ export interface ActivityConfig {
   draftVersionId?: string;
   /** Where the activity takes place. Informational only: never used for tracking or to restrict anyone. */
   location?: string;
-  /** When it takes place. Informational unless `enforced`, in which case verification is only possible within it. */
-  schedule?: { startsAt?: ISODate; endsAt?: ISODate; enforced?: boolean };
+  /** Address of the location, when given. Informational only. */
+  locationAddress?: string;
+  /**
+   * When it takes place. Informational unless `enforced`, in which case verification is only possible within it.
+   * `kind` and `recurrence` are set by the activity wizard (earlier activities have neither):
+   * - one-time: from `startsAt` to `endsAt`;
+   * - recurring: repeats from `startsAt` (a date) until the optional `endsAt`, in the recurrence's time window;
+   * - open-ended: from `startsAt`, with no end.
+   */
+  schedule?: { startsAt?: ISODate; endsAt?: ISODate; enforced?: boolean; kind?: ScheduleKind; recurrence?: Recurrence };
+  /**
+   * Who may be verified: `selected` people (the participant list below), or `open` (people present themselves
+   * and eligibility comes from the identity source). Missing on earlier activities: derived from the list.
+   */
+  eligibilityMode?: 'selected' | 'open';
+  /** Set when the activity was marked completed. It can't be resumed or edited afterwards; its records are kept. */
+  completedAt?: ISODate;
+  completedBy?: string;
   /**
    * Who is eligible: groups (current membership at verification time) and specific users. Being on the
    * list never proves identity, issues credentials or enrols anyone.

@@ -12,12 +12,16 @@ import { createInitialState, reducer, type AppState } from '@/store/state';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { createVerificationService } from '@/verification/engine';
 import { assign } from './helpers/identity';
+import { wizardToVerifiers } from './helpers/activityWizard';
+import { ORG_C } from '@/data/demoPersonas';
 
 const ORG = SAMPLE_ORGANIZATION_ID;
 const AT = new Date().toISOString();
 
 const base = (): AppState => { const s = createInitialState(new Date()); s.session.currentOrganizationId = ORG; return s; };
 const me = (s: AppState) => adminsOf(s, ORG).find((a) => a.userId === s.data.admin.id)!;
+const baseC = (): AppState => { const s = createInitialState(new Date()); s.session.currentOrganizationId = ORG_C; return s; };
+const meC = (s: AppState) => adminsOf(s, ORG_C).find((a) => a.userId === s.data.admin.id)!;
 const byName = (s: AppState, name: string) => s.data.activityConfigs.find((a) => a.organizationId === ORG && a.name === name)!;
 
 function renderApp(path: string, state: AppState) {
@@ -76,39 +80,38 @@ describe('#008 no Verifier Workspace shortcuts', () => {
 
 describe('#009 / #010 activity drafts and verifiers', () => {
   it('keeps a new activity as a draft through a trip to invite an administrator, and continues where it stopped', async () => {
-    const s = base();
-    const { user } = renderApp('/verification-activities/new?type=own', s);
-    await user.type(screen.getByLabelText('Activity name'), 'Volunteer Briefing');
-    await user.type(screen.getByLabelText(/Short description/), 'Entry to the volunteer briefing');
-    await user.click(screen.getByRole('button', { name: 'Next' }));
+    const s = baseC();
+    const { user } = renderApp('/verification-activities/new', s);
+    await wizardToVerifiers(user, { name: 'Volunteer Briefing', description: 'Entry to the volunteer briefing', group: 'Volunteers', source: 'FixID records' });
     // The administrator creating it is preselected as its verifier.
-    expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me(s).name!)).toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: /Select group Volunteers/ }));
+    expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(meC(s).name!)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Invite Administrator' }));
 
     // Settings → Administrators & Roles, with the invitation open and a way back. Saved as one draft first.
     expect(await screen.findByRole('dialog', { name: 'Invite administrator' })).toBeInTheDocument();
     const drafts = loadState()!.data.activityConfigs.filter((a) => a.name === 'Volunteer Briefing');
     expect(drafts).toHaveLength(1);
-    expect(drafts[0]).toMatchObject({ status: 'draft', createdBy: me(s).name, participants: { groupIds: [`${ORG}_grp_volunteers`], memberIds: [] } });
+    expect(drafts[0]).toMatchObject({ status: 'draft', createdBy: meC(s).name, participants: { groupIds: [`${ORG_C}_grp_volunteers`], memberIds: [] } });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Invite administrator' })).toBeNull());
     await user.click(within(screen.getByRole('region', { name: 'Activity draft' })).getByRole('link', { name: /Back to activity/ }));
 
-    // Back in the editor, with everything kept.
-    expect(await screen.findByRole('heading', { level: 1, name: 'Edit Volunteer Briefing' })).toBeInTheDocument();
+    // Back on the Verifiers step, with everything kept.
+    expect(await screen.findByText('Step 4 of 5: Verifiers')).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(meC(s).name!)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Step 1/ }));
     expect(screen.getByLabelText('Activity name')).toHaveValue('Volunteer Briefing');
-    expect(screen.getByLabelText(/Short description/)).toHaveValue('Entry to the volunteer briefing');
+    expect(screen.getByLabelText('Description (optional)')).toHaveValue('Entry to the volunteer briefing');
+    await user.click(screen.getByRole('button', { name: /Step 2/ }));
     expect(screen.getByRole('checkbox', { name: /Select group Volunteers/ })).toBeChecked();
-    expect(within(screen.getByRole('list', { name: 'Assigned verifiers' })).getByText(me(s).name!)).toBeInTheDocument();
     // Still a draft: never active, and not offered to verifiers.
     const stored = loadState()!;
     expect(stored.data.activityConfigs.find((a) => a.id === drafts[0].id)!.status).toBe('draft');
     const service = createVerificationService({ getState: () => stored, dispatch: () => undefined, idSwitch: createMockIdSwitch() });
-    expect(service.listAuthorizedActivities(ORG).some((x) => x.activity.id === drafts[0].id)).toBe(false);
+    expect(service.listAuthorizedActivities(ORG_C).some((x) => x.activity.id === drafts[0].id)).toBe(false);
   });
 
-  it('offers Continue Editing for drafts on the list, reopening the draft', async () => {
+  it('offers Continue editing for drafts on the list, reopening the draft', async () => {
     let s = base();
     const saved = applySaveActivity(s, {
       organizationId: ORG, ids: { activityId: 'va_resume', versionId: 'vv_resume' }, at: AT,
@@ -118,27 +121,27 @@ describe('#009 / #010 activity drafts and verifiers', () => {
     s = saved.state;
     const { user } = renderApp('/verification-activities', s);
     await user.type(await screen.findByLabelText('Search activities by name'), 'Resume');
-    await user.click(await screen.findByRole('link', { name: 'Continue Editing Resume Me' }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Edit Resume Me' })).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Actions for Resume Me' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Continue editing' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Create activity' })).toBeInTheDocument();
     expect(screen.getByLabelText('Activity name')).toHaveValue('Resume Me');
   });
 
-  it('shows only the missing-verifier warning, and only when nobody is assigned', async () => {
-    const s = base();
-    const { user } = renderApp('/verification-activities/new?type=own', s);
-    await user.type(screen.getByLabelText('Activity name'), 'Gate Check');
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    const review = screen.getByRole('heading', { name: 'Review' }).closest('div')!;
-    expect(review).not.toHaveTextContent(/biometric|provider|integration/i);
-    expect(review).not.toHaveTextContent('No verifier assigned');
-    await user.click(screen.getByRole('button', { name: 'Back' }));
-    await user.click(screen.getByRole('button', { name: `Unassign ${me(s).name}` }));
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    const again = screen.getByRole('heading', { name: 'Review' }).closest('div')!;
-    expect(again).toHaveTextContent('No verifier assigned');
-    expect(again).toHaveTextContent('Assign at least one verifier to allow verification for this activity.');
-    expect(again).not.toHaveTextContent('Worth checking');
+  it('requires someone to verify: an individual verifier or an authorised sub-organization', async () => {
+    const s = baseC();
+    const { user } = renderApp('/verification-activities/new', s);
+    await wizardToVerifiers(user, { name: 'Gate Check', source: 'FixID records' });
+    await user.click(screen.getByRole('button', { name: `Unassign ${meC(s).name}` }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByText('Step 4 of 5: Verifiers')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Assign at least one verifier or authorised sub-organization.');
+    // Brightwater has no sub-organizations to delegate to.
+    expect(screen.getByText('Your organization has no sub-organizations to delegate to.')).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: `Assign ${meC(s).name}` }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const main = screen.getByRole('main');
+    expect(screen.getByText('Step 5 of 5: Review')).toBeInTheDocument();
+    expect(main).not.toHaveTextContent(/biometric|provider|integration|liveness score|threshold/i);
   });
 
   it('only assigns administrators who can verify; selection grants no permission', () => {
@@ -159,18 +162,13 @@ describe('#012 simple Activity Overview', () => {
     const s = base();
     const activity = byName(s, 'Annual Staff Conference');
     renderApp(`/verification-activities/${activity.id}`, s);
-    const summary = screen.getByRole('region', { name: 'Activity summary' });
-    expect(summary).toHaveTextContent('Eligible people');
-    expect(summary).toHaveTextContent('Verified people0');
-    expect(summary).toHaveTextContent('Entries granted0');
     const main = screen.getByRole('main');
     for (const gone of ['How people are verified', 'How the result is decided', 'Technical details', 'Configuration versions', 'Facial Identity Matching', 'provider']) {
       expect(main).not.toHaveTextContent(gone);
     }
     expect(main).toHaveTextContent('Assigned verifiers');
-    expect(main).toHaveTextContent('Location check');
-    expect(main).toHaveTextContent('Last updated');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual(['Overview', 'People', 'Verifications', 'Exceptions']);
+    expect(main).toHaveTextContent('Identity source');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', 'Participants', 'Configuration']);
   });
 });
 

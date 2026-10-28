@@ -1,47 +1,55 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { CalendarClock, ChevronRight, Copy, MapPin, Pencil, Power, PowerOff, Trash2, Undo2, Users } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Building2, CalendarClock, ChevronRight, MapPin, Pencil, ShieldCheck, Undo2, Users } from 'lucide-react';
 import {
-  Badge, Button, ButtonLink, Card, ConfirmDialog, DataTable, EmptyState, Modal, OverflowMenu, Pagination, SearchInput, Tabs, useToast, type OverflowMenuItem,
+  Badge, Button, ButtonLink, Card, CardHeader, ConfirmDialog, DataTable, Drawer, EmptyState, FilterSelect, OverflowMenu, Pagination, SearchInput, Skeleton, StatCard, Tabs, usePageSlice, useToast,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
-import { ParticipantsPicker, useEligibleCount, type Participants } from '@/components/verification/ParticipantsPicker';
-import { ActivityStatusBadge, IssuesList } from '@/components/verification/parts';
-import { ActivitySettingsSummary } from '@/components/verification/RequirementsSummary';
-import { memberCounts } from '@/domain/groups';
-import type { ActivityConfig } from '@/domain/types';
-import { activeAssignments, eligibleParticipants } from '@/domain/verification';
-import { PARTICIPANT_ENTRY_LABEL, PARTICIPANT_VERIFICATION_LABEL, participantProgress, participantStatuses, statusOf } from '@/domain/participantStatus';
-import { formatCoordinate, formatRadius, validCoordinates } from '@/domain/location';
-import { useServices } from '@/services/ServicesProvider';
+import { DisplayStatusBadge, IssuesList } from '@/components/verification/parts';
+import { sourceLabel } from '@/components/verification/RequirementsSummary';
 import { LocationMap } from '@/components/verification/LocationMap';
-import { useQueryState } from '@/hooks/useQueryState';
-import { cn } from '@/lib/cn';
+import {
+  ELIGIBILITY_MODE_LABEL, ELIGIBILITY_OUTCOME_LABEL, ELIGIBILITY_OUTCOME_TONE, PORTRAIT_BASELINE, SCHEDULE_KIND_LABEL, VERIFICATION_STATUS_LABEL, VERIFICATION_STATUS_TONE,
+  activityCounts, describeSource, displayStatus, eligibilityMode, eligibilityOutcome, identityStatus, outcomeExplanation, participantRows, scheduleSummary,
+  type EligibilityOutcome, type ParticipantRow, type VerificationStatus,
+} from '@/domain/activityLifecycle';
+import { formatCoordinate, formatRadius, validCoordinates } from '@/domain/location';
+import type { ActivityConfig, VerificationAttempt } from '@/domain/types';
+import { activeAssignments, currentVersion, eligibleParticipants } from '@/domain/verification';
+import { findRole } from '@/domain/roles';
+import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDate, formatDateTime } from '@/lib/dates';
+import { useServices } from '@/services/ServicesProvider';
 import { NO_VERIFIER_WARNING, activationProblems } from '@/store/activityOps';
+import { activityFor, activityPolicy, audienceOf, settingsEditable } from '@/store/sharingOps';
+import { sharedActivityTransactions } from '@/store/reporting';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
-import { activityFor, activityPolicy, audienceOf } from '@/store/sharingOps';
-import { sharedActivityTransactions, summarize } from '@/store/reporting';
-import { AUDIENCE_LABEL } from '@/domain/activitySettings';
-import { ActivityExceptionsTab, ActivityTransactionsTab, ParticipatingOrganizationsTab, SharedActivityDashboard, SharedActivityParticipantView } from './SharedActivityPanels';
+import { ParticipatingOrganizationsTab, SharedActivityParticipantView } from './SharedActivityPanels';
 import { NotFoundPage } from '../NotFoundPage';
 import { activityPath } from './paths';
+import { useActivityLifecycle } from './useActivityLifecycle';
 
-type TabId = 'overview' | 'organizations' | 'participants' | 'verifications' | 'exceptions';
+type TabId = 'overview' | 'participants' | 'configuration';
 
 export function ActivityDetailsPage() {
   const { activityId } = useParams();
   const { state } = useStore();
   const { organization } = useSession();
-  // The organization's own activity, or a shared activity it was invited to or takes part in. Nothing else.
+  // The organization's own activity, or a delegated activity it was invited to or takes part in. Nothing else.
   const activity = activityId ? activityFor(state, organization.id, activityId) : undefined;
   if (!activity) return <NotFoundPage entity="verification activity" backTo="/verification-activities" />;
   if (activity.organizationId !== organization.id) return <SharedActivityParticipantView key={activity.id} activity={activity} />;
   return <Details key={activity.id} activity={activity} />;
 }
 
-export const scheduleText = (s?: ActivityConfig['schedule']) => (s?.startsAt || s?.endsAt
-  ? `${s.startsAt ? formatDateTime(s.startsAt) : '…'} – ${s.endsAt ? formatDateTime(s.endsAt) : '…'}` : null);
+/** The schedule in one line (kept for the verifier workspace). */
+export const scheduleText = scheduleSummary;
+
+// Earlier links used other tab names: they open the tab that now holds that information.
+const TAB_ALIASES: Record<string, TabId> = {
+  overview: 'overview', participants: 'participants', people: 'participants', verifications: 'participants', transactions: 'participants', history: 'participants', exceptions: 'participants',
+  configuration: 'configuration', organizations: 'configuration',
+};
 
 function Details({ activity }: { activity: ActivityConfig }) {
   const { state } = useStore();
@@ -51,56 +59,34 @@ function Details({ activity }: { activity: ActivityConfig }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [tab, setTab] = useQueryState('tab', 'overview');
-  const [pending, setPending] = useState<'activate' | 'deactivate' | 'remove' | 'discard' | null>(null);
-
-  const versions = state.data.activityVersions.filter((v) => v.activityId === activity.id).sort((a, b) => b.number - a.number);
-  const active = versions.find((v) => v.id === activity.activeVersionId);
-  const draft = versions.find((v) => v.id === activity.draftVersionId);
-  const current = draft ?? active;
+  const [discarding, setDiscarding] = useState(false);
+  const lifecycle = useActivityLifecycle({ afterRemove: () => navigate('/verification-activities', { replace: true }) });
+  const status = displayStatus(activity);
+  const records = useMemo(() => sharedActivityTransactions(state, activity), [state, activity]);
   const problems = activationProblems(state, organization.id, activity);
-  const eligible = useEligibleCount(activity.participants);
-  const attempts = state.data.verificationAttempts.filter((a) => a.activityId === activity.id);
-  const canManage = can('verification.activities.activate');
   const canEdit = can('verification.activities.edit');
-  const usesParticipants = !!current?.checks.some((c) => c.params.useParticipants);
-  const shared = audienceOf(activity) === 'shared';
+  const versions = state.data.activityVersions.filter((v) => v.activityId === activity.id);
+  const pendingChanges = !!activity.draftVersionId && !!activity.activeVersionId && versions.some((v) => v.id === activity.draftVersionId);
+  const selected: TabId = TAB_ALIASES[tab] ?? 'overview';
   const tabs = [
     { value: 'overview' as const, label: 'Overview' },
-    ...(shared ? [{ value: 'organizations' as const, label: 'Organizations', count: (activity.sharing?.participants ?? []).filter((p) => p.status === 'active' || p.status === 'invited').length }] : []),
-    ...(usesParticipants ? [{ value: 'participants' as const, label: 'People', count: eligible }] : []),
-    ...(can('verification.results.view') ? [{ value: 'verifications' as const, label: 'Verifications', count: attempts.filter((a) => a.status !== 'in-progress').length }] : []),
-    ...(can('exceptions.view') || can('exceptions.review') ? [{ value: 'exceptions' as const, label: 'Exceptions' }] : []),
+    { value: 'participants' as const, label: 'Participants' },
+    { value: 'configuration' as const, label: 'Configuration' },
   ];
-  // Earlier links used ?tab=transactions or ?tab=history.
-  const requested = tab === 'history' || tab === 'transactions' ? 'verifications' : tab;
-  const selected: TabId = tabs.some((t) => t.value === requested) ? (requested as TabId) : 'overview';
-
-  const run = () => {
-    const kind = pending;
-    setPending(null);
-    if (!kind) return;
-    const r = kind === 'activate' ? actions.activateActivity(organization.id, activity.id)
-      : kind === 'deactivate' ? actions.deactivateActivity(organization.id, activity.id)
-        : kind === 'discard' ? actions.discardActivityDraft(organization.id, activity.id) : actions.removeDraftActivity(organization.id, activity.id);
-    if (!r.ok) return toast({ tone: 'error', title: kind === 'activate' ? 'Can’t activate yet' : 'Nothing was changed', description: r.problems?.join(' ') ?? r.error });
-    if (kind === 'remove') { toast({ tone: 'success', title: 'Draft removed', description: activity.name }); navigate('/verification-activities', { replace: true }); return; }
-    toast({ tone: 'success', title: { activate: draft && active ? 'Changes activated' : 'Activity activated', deactivate: 'Activity deactivated', discard: 'Draft changes discarded' }[kind] });
+  const sched = scheduleSummary(activity.schedule);
+  const available = lifecycle.available(activity);
+  // The main lifecycle action is a button; the rest are in the menu.
+  const primary = available.find((k) => k === 'activate' || k === 'resume' || k === 'pause');
+  const menu = [
+    ...lifecycle.menu(activity, { includeView: false }).filter((m) => m.key !== 'edit' && m.key !== primary),
+    ...(canEdit && pendingChanges && status !== 'completed' ? [{ key: 'discard', label: 'Discard unsaved configuration changes', icon: <Undo2 className="h-4 w-4" />, onSelect: () => setDiscarding(true) }] : []),
+  ];
+  const discard = () => {
+    setDiscarding(false);
+    const r = actions.discardActivityDraft(organization.id, activity.id);
+    if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
+    toast({ tone: 'success', title: 'Changes discarded' });
   };
-
-  const menu: OverflowMenuItem[] = [
-    ...(can('verification.activities.create') ? [{
-      key: 'dup', label: 'Duplicate Activity', icon: <Copy className="h-4 w-4" />, onSelect: () => {
-        const r = actions.duplicateActivity(organization.id, activity.id);
-        if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
-        toast({ tone: 'success', title: 'Activity duplicated', description: 'The copy is a draft.' });
-        navigate(activityPath((r as { activityId: string }).activityId));
-      },
-    }] : []),
-    ...(canEdit && draft && active ? [{ key: 'discard', label: 'Discard Draft Changes', icon: <Undo2 className="h-4 w-4" />, onSelect: () => setPending('discard') }] : []),
-    ...(canEdit && activity.status === 'draft' && !active ? [{ key: 'remove', label: 'Remove Draft Activity', tone: 'danger' as const, icon: <Trash2 className="h-4 w-4" />, onSelect: () => setPending('remove') }] : []),
-  ];
-  const needsActivation = activity.status !== 'active' || !!draft;
-  const when = scheduleText(activity.schedule);
 
   return (
     <>
@@ -111,262 +97,328 @@ function Details({ activity }: { activity: ActivityConfig }) {
       </nav>
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity.name}<ActivityStatusBadge status={activity.status} /></h1>
+          <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{activity.name}<DisplayStatusBadge activity={activity} /></h1>
           {(activity.description || activity.purpose) && <p className="mt-1 max-w-2xl text-slate-500">{activity.description || activity.purpose}</p>}
           <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-slate-700">
-            {activity.locationCheck?.enabled && <div className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Location check</dt><dd>Location check on{activity.locationCheck.label ? ` · ${activity.locationCheck.label.split(',')[0]}` : ''}</dd></div>}
-            {when && <div className="flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Schedule</dt><dd>{when}{activity.schedule?.enforced ? ' · verification only in this window' : ''}</dd></div>}
-            <div className="flex items-center gap-1.5"><dt className="sr-only">For</dt><dd className="text-slate-600">{AUDIENCE_LABEL[audienceOf(activity)]}{shared ? ` · ${(activity.sharing?.participants ?? []).filter((p) => p.status === 'active').length} taking part` : ''}</dd></div>
-            {usesParticipants && <div className="flex items-center gap-1.5"><Users className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Eligible participants</dt><dd>{eligible} eligible {eligible === 1 ? 'participant' : 'participants'}</dd></div>}
+            <div className="flex items-center gap-1.5"><Building2 className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Organization</dt><dd>{organization.name}</dd></div>
+            <div className="flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Schedule</dt><dd>{sched ?? 'Not scheduled'}</dd></div>
+            {activity.location && <div className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-slate-400" aria-hidden="true" /><dt className="sr-only">Location</dt><dd>{activity.location}</dd></div>}
           </dl>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {canEdit && <ButtonLink to={`${activityPath(activity.id)}/edit`} variant="secondary" icon={<Pencil className="h-4 w-4" />}>Edit</ButtonLink>}
-          {canManage && activity.status === 'active' && <Button variant="secondary" icon={<PowerOff className="h-4 w-4" />} onClick={() => setPending('deactivate')}>Deactivate</Button>}
-          {canManage && needsActivation && (
-            <Button icon={<Power className="h-4 w-4" />} disabled={problems.blockers.length > 0} title={problems.blockers.length ? 'Resolve the listed items first' : undefined}
-              onClick={() => setPending('activate')}>{activity.status === 'active' ? 'Activate changes' : 'Activate'}</Button>
-          )}
+          {canEdit && status !== 'completed' && <ButtonLink to={`${activityPath(activity.id)}/edit${status === 'draft' ? '?step=review' : ''}`} variant="secondary" icon={<Pencil className="h-4 w-4" />}>{status === 'draft' ? 'Continue editing' : 'Edit activity'}</ButtonLink>}
+          {primary && <Button variant={primary === 'pause' ? 'secondary' : 'primary'} icon={lifecycle.ICON[primary]} onClick={() => lifecycle.request(primary, activity)}>{lifecycle.LABEL[primary]}</Button>}
           {menu.length > 0 && <OverflowMenu label="More actions" items={menu} />}
         </div>
       </header>
 
-      {draft && active && (
-        <p className="mb-4 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
-          Version {draft.number} has requirement changes that aren’t in use yet. Version {active.number} {activity.status === 'active' ? 'is used for verifications' : 'is the last activated version'} until you activate them.
+      {status === 'completed' && (
+        <p className="mb-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
+          {activity.completedAt ? `Completed on ${formatDate(activity.completedAt)}${activity.completedBy ? ` by ${activity.completedBy}` : ''}.` : 'Its schedule has ended.'} No new verifications can start. Every record is kept.
         </p>
       )}
-      {canManage && needsActivation && problems.blockers.length > 0 && (
-        <div className="mb-4"><IssuesList blockers={problems.blockers} warnings={[]} title={activity.status === 'active' ? 'Resolve before activating the changes' : 'Resolve before activating'} /></div>
+      {pendingChanges && status !== 'completed' && (
+        <p className="mb-4 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
+          Configuration changes were saved while the activity was paused. They’ll be used when it’s resumed.
+        </p>
+      )}
+      {status === 'draft' && problems.blockers.length > 0 && (
+        <div className="mb-4"><IssuesList blockers={problems.blockers} warnings={[]} title="Finish these before activating" /></div>
       )}
 
       <Tabs<TabId> value={selected} onChange={(v) => setTab(v)} tabs={tabs} />
       <div className="mt-6" role="tabpanel" aria-label={tabs.find((t) => t.value === selected)?.label}>
-        {selected === 'overview' && (shared ? <div className="space-y-6"><SharedActivityDashboard activity={activity} /><Overview activity={activity} warnings={problems.warnings} compact /></div> : <Overview activity={activity} warnings={problems.warnings} />)}
-        {selected === 'organizations' && <ParticipatingOrganizationsTab activity={activity} />}
-        {selected === 'participants' && <ParticipantsTab activity={activity} uses={usesParticipants} />}
-        {selected === 'verifications' && <ActivityTransactionsTab activity={activity} />}
-        {selected === 'exceptions' && <ActivityExceptionsTab activity={activity} />}
+        {selected === 'overview' && <Overview activity={activity} records={records} onTab={setTab} />}
+        {selected === 'participants' && <ParticipantsTab activity={activity} records={records} />}
+        {selected === 'configuration' && <ConfigurationTab activity={activity} />}
       </div>
 
-      {pending && (
-        <ConfirmDialog open onCancel={() => setPending(null)} onConfirm={run} tone={pending === 'activate' ? 'primary' : 'danger'}
-          title={{ activate: draft && active ? `Activate version ${draft.number}?` : `Activate ${activity.name}?`, deactivate: `Deactivate ${activity.name}?`, remove: `Remove ${activity.name}?`, discard: 'Discard draft changes?' }[pending]}
-          confirmLabel={{ activate: 'Activate', deactivate: 'Deactivate', remove: 'Remove Draft', discard: 'Discard changes' }[pending]}
-          description={{
-            activate: draft && active ? `New verifications will use version ${draft.number}. Earlier verifications keep the version they used.` : activity.sharing ? 'Your verifiers and participating organizations’ assigned staff will be able to use it straight away.' : 'Your organization’s verifiers will be able to use it straight away.',
-            deactivate: 'No new verifications can start. Earlier verification records and the configuration are kept, and you can activate it again later.',
-            remove: 'This draft was never activated. It will be removed. This can’t be undone.',
-            discard: `Draft version ${draft?.number} will be deleted. Version ${active?.number} stays as it is.`,
-          }[pending]} />
+      {lifecycle.dialog}
+      {discarding && (
+        <ConfirmDialog open tone="danger" title="Discard the unsaved configuration changes?" confirmLabel="Discard changes" onCancel={() => setDiscarding(false)} onConfirm={discard}
+          description="The activity keeps the configuration it last ran with." />
       )}
     </>
   );
 }
 
-/**
- * An operational summary for the administrator: who can be verified, who verifies, where, and progress
- * so far from actual records. How checks and providers work is FixID's concern and isn't shown here.
- */
-function Overview({ activity, warnings, compact }: { activity: ActivityConfig; warnings: string[]; compact?: boolean }) {
+const statusBadge = (s: VerificationStatus) => <Badge tone={VERIFICATION_STATUS_TONE[s]}>{VERIFICATION_STATUS_LABEL[s]}</Badge>;
+const eligibilityBadge = (e: EligibilityOutcome) => <Badge tone={ELIGIBILITY_OUTCOME_TONE[e]}>{ELIGIBILITY_OUTCOME_LABEL[e]}</Badge>;
+const personName = (a: VerificationAttempt, memberName?: string) => memberName ?? a.lookup?.displayName ?? (a.lookup?.status === 'FOUND' ? 'Unnamed record' : 'Unidentified person');
+
+/** Figures, recent activity and the activity's essentials. Every figure is counted from the same records. */
+function Overview({ activity, records, onTab }: { activity: ActivityConfig; records: VerificationAttempt[]; onTab: (t: string) => void }) {
   const { state } = useStore();
   const { organization } = useSession();
   const org = useOrgData();
-  const { maps } = useServices();
-  const loc = activity.locationCheck;
-  const p = activity.participants ?? { groupIds: [], memberIds: [] };
-  const usesList = p.groupIds.length + p.memberIds.length > 0;
-  const progress = participantProgress(participantStatuses(state.data.verificationAttempts, activity.id), eligibleParticipants(state.data, organization.id, activity.participants));
-  const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
-  const groups = p.groupIds.map((id) => org.groupById.get(id)?.name ?? 'Removed group');
-  const users = p.memberIds.map((id) => org.memberById.get(id)?.displayName ?? 'Removed user');
-  const list = (xs: string[]) => (xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} and ${xs.length - 5} more`);
-  // Only issues an administrator can act on.
-  // A shared activity is verified by its participating organizations' staff, so the owner needn't assign anyone.
-  const actionable = activity.sharing ? [] : warnings.filter((w) => w === NO_VERIFIER_WARNING);
+  const counts = activityCounts(records);
+  const mode = eligibilityMode(activity);
+  const eligible = mode === 'selected' ? eligibleParticipants(state.data, organization.id, activity.participants).size : null;
   const policy = activityPolicy(state, activity);
-  // For a shared activity, the owner counts every participating organization's transactions for it.
-  const results = summarize(state, sharedActivityTransactions(state, activity));
+  const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
+  const delegated = (activity.sharing?.participants ?? []).filter((p) => p.status === 'active' || p.status === 'invited');
+  const recent = [...records].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).slice(0, 5);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setLoading(false), 200); return () => clearTimeout(t); }, []);
+  const noVerifier = !verifiers.length && !delegated.length && displayStatus(activity) !== 'completed';
+
   return (
     <div className="space-y-6">
-      {!compact && (
-      <section aria-label="Activity summary" className={cn('grid gap-4', usesList ? 'sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4')}>
-        {(usesList ? [
-          ['Eligible people', progress.eligible],
-          ['Verified people', progress.verified],
-          ['Entries granted', progress.granted],
-        ] : [
-          ['Total attempts', results.attempts],
-          ['Verified', results.allowed],
-          ['Not verified', results.denied],
-          ['Pending review', results.pendingReview],
-        ]).map(([label, value]) => (
-          <Card key={label} className="p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p></Card>
-        ))}
+      <section aria-label="Verification summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {loading ? [0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 w-full" />) : (
+          <>
+            <StatCard label="Eligible" value={eligible ?? 'Open'} hint={eligible === null ? 'Open verification: eligibility comes from the identity source' : 'Selected participants'} />
+            <StatCard label="Total attempts" value={counts.attempts} />
+            <StatCard label="Verified" value={counts.verified} tone="emerald" />
+            <StatCard label="Unsuccessful" value={counts.unsuccessful} tone="violet" />
+            <StatCard label="Pending or incomplete" value={counts.pending + counts.unable} tone="amber" hint={counts.unable ? `${counts.unable} unable to complete` : undefined} />
+          </>
+        )}
       </section>
+      {noVerifier && <IssuesList blockers={[]} warnings={[NO_VERIFIER_WARNING]} warningsTitle="No verifier assigned" />}
+      {delegated.length > 0 && <ResultsByOrganization activity={activity} records={records} />}
+      <div className="grid gap-6 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardHeader title="Recent activity" action={records.length > 0 ? <button type="button" onClick={() => onTab('participants')} className="text-sm font-semibold text-brand-600 hover:text-brand-700">View participants</button> : undefined} />
+          {recent.length === 0 ? <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No verifications yet" description="Results appear here as verifiers record them." /> : (
+            <ul className="divide-y divide-slate-100" aria-label="Recent activity">
+              {recent.map((a) => (
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
+                  <span className="min-w-0">
+                    <span className="block font-medium text-slate-900">{personName(a, a.subject?.memberId ? org.memberById.get(a.subject.memberId)?.displayName : undefined)}</span>
+                    <span className="block text-xs text-slate-500">{formatDateTime(a.completedAt ?? a.startedAt)} · {a.verifierName}</span>
+                  </span>
+                  <span className="flex flex-wrap gap-1.5">{statusBadge(identityStatus(a))}{eligibilityBadge(eligibilityOutcome(a))}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card className="px-6 py-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold text-slate-900">At a glance</h2>
+          <dl className="mt-3 space-y-3 text-sm">
+            <Item label="Status"><DisplayStatusBadge activity={activity} /></Item>
+            <Item label="Identity source">{sourceLabel(policy.effective.identitySource, policy.integration)}</Item>
+            <Item label="Who can be verified">{ELIGIBILITY_MODE_LABEL[mode]}</Item>
+            <Item label="Schedule">{scheduleSummary(activity.schedule) ?? 'Not scheduled'}</Item>
+            <Item label="Assigned verifiers">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet'}</Item>
+            {delegated.length > 0 && <Item label="Authorised sub-organizations">{delegated.map((p) => state.data.organizations.find((o) => o.id === p.organizationId)?.name ?? p.organizationId).join(', ')}</Item>}
+          </dl>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/** A delegated activity's results for each organization that verifies for it, counted from the same records. */
+function ResultsByOrganization({ activity, records }: { activity: ActivityConfig; records: VerificationAttempt[] }) {
+  const { state } = useStore();
+  const orgIds = [activity.organizationId, ...(activity.sharing?.participants ?? []).filter((p) => p.status !== 'declined').map((p) => p.organizationId)];
+  const rows = [...new Set([...orgIds, ...records.map((r) => r.organizationId)])]
+    .map((id) => ({ id, name: state.data.organizations.find((o) => o.id === id)?.name ?? id, counts: activityCounts(records.filter((r) => r.organizationId === id)) }))
+    .filter((r) => r.counts.attempts > 0 || r.id !== activity.organizationId);
+  return (
+    <Card>
+      <CardHeader title="Results by organization" />
+      <DataTable
+        rows={rows}
+        rowKey={(r) => r.id}
+        columns={[
+          { key: 'org', header: 'Organization', cell: (r) => <span className="font-medium text-slate-900">{r.name}</span> },
+          { key: 'attempts', header: 'Total attempts', cell: (r) => <span className="tabular-nums">{r.counts.attempts}</span> },
+          { key: 'verified', header: 'Verified', cell: (r) => <span className="tabular-nums">{r.counts.verified}</span> },
+          { key: 'unsuccessful', header: 'Unsuccessful', cell: (r) => <span className="tabular-nums">{r.counts.unsuccessful}</span> },
+          { key: 'pending', header: 'Pending or incomplete', cell: (r) => <span className="tabular-nums">{r.counts.pending + r.counts.unable}</span> },
+        ]}
+      />
+    </Card>
+  );
+}
+
+const STATUS_OPTIONS = [{ value: 'all', label: 'All verification statuses' }, ...(['verified', 'unsuccessful', 'pending', 'unable', 'not-attempted'] as const).map((v) => ({ value: v, label: VERIFICATION_STATUS_LABEL[v] }))];
+const ELIGIBILITY_OPTIONS = [{ value: 'all', label: 'All eligibility' }, ...(['eligible', 'not-eligible', 'unknown', 'not-required', 'not-checked'] as const).map((v) => ({ value: v, label: ELIGIBILITY_OUTCOME_LABEL[v] }))];
+const PAGE = 10;
+
+/**
+ * One row per person: everyone selected, and everyone who attempted. Identity verification and eligibility
+ * are separate columns. Search, filters and page are in the address, so closing the details keeps them.
+ */
+function ParticipantsTab({ activity, records }: { activity: ActivityConfig; records: VerificationAttempt[] }) {
+  const { state } = useStore();
+  const org = useOrgData();
+  const [q, setQ] = useQueryState('q');
+  const [status, setStatus] = useQueryState('status', 'all');
+  const [eligibility, setEligibility] = useQueryState('eligibility', 'all');
+  const [page, setPage] = usePageParam();
+  const [, setParams] = useSearchParams();
+  const [open, setOpen] = useState<string | null>(null);
+  const mode = eligibilityMode(activity);
+  const listed = useMemo(() => (mode === 'selected' ? eligibleParticipants(state.data, activity.organizationId, activity.participants) : new Set<string>()), [state.data, activity, mode]);
+  const rows = useMemo(() => participantRows(records, listed, org.memberById), [records, listed, org.memberById]);
+  const query = q.trim().toLowerCase();
+  const filtered = rows.filter((r) => (status === 'all' || r.status === status) && (eligibility === 'all' || r.eligibility === eligibility)
+    && (!query || r.name.toLowerCase().includes(query) || r.identifier.toLowerCase().includes(query) || (r.memberId && org.memberById.get(r.memberId)?.identifier?.value.toLowerCase().includes(query))));
+  const { pageRows, pageCount, current } = usePageSlice(filtered, page, PAGE);
+  const attempted = rows.filter((r) => r.attempts.length > 0).length;
+  const selectedRow = rows.find((r) => r.key === open);
+  // One update for all filters: separate updates in the same event would overwrite each other.
+  const clear = () => setParams((prev) => { const next = new URLSearchParams(prev); ['q', 'status', 'eligibility', 'page'].forEach((k) => next.delete(k)); return next; }, { replace: true });
+
+  return (
+    <Card>
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h2 className="text-base font-semibold text-slate-900">
+          {mode === 'selected' ? `${listed.size} eligible ${listed.size === 1 ? 'person' : 'people'} · ${attempted} attempted` : `${attempted} ${attempted === 1 ? 'person' : 'people'} attempted · open verification`}
+        </h2>
+        <p className="text-sm text-slate-500">Identity verification and eligibility are separate results: being verified doesn’t make someone eligible, and being eligible doesn’t verify them.</p>
+      </div>
+      <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
+        <SearchInput value={q} onChange={setQ} placeholder="Search by name or identifier" label="Search participants" className="sm:w-72" />
+        <FilterSelect label="Verification status" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+        <FilterSelect label="Eligibility" value={eligibility} onChange={setEligibility} options={ELIGIBILITY_OPTIONS} />
+      </div>
+      <DataTable
+        rows={pageRows}
+        rowKey={(r) => r.key}
+        empty={rows.length === 0
+          ? <EmptyState icon={<Users className="h-5 w-5" />} title="No participants yet" description={mode === 'selected' ? 'Select users or groups by editing the activity.' : 'People appear here once they’ve been verified.'} />
+          : <EmptyState title="No participants match" description="Try a different search or filter." action={<Button variant="secondary" onClick={clear}>Clear filters</Button>} />}
+        columns={[
+          { key: 'name', header: 'Name', cell: (r) => <span className="font-medium text-slate-900">{r.name}{mode === 'selected' && !r.listed && <span className="block text-xs font-normal text-slate-500">Not a selected participant</span>}</span> },
+          { key: 'id', header: 'Identifier', cell: (r) => <span className="font-mono text-xs text-slate-600">{r.identifier}</span> },
+          { key: 'eligibility', header: 'Eligibility', cell: (r) => eligibilityBadge(r.eligibility) },
+          { key: 'status', header: 'Verification', cell: (r) => statusBadge(r.status) },
+          { key: 'at', header: 'Date and time', cell: (r) => <span className="whitespace-nowrap text-slate-600">{r.latest ? formatDateTime(r.latest.completedAt ?? r.latest.startedAt) : '—'}</span> },
+          { key: 'verifier', header: 'Verifier', cell: (r) => <span className="text-slate-600">{r.latest?.verifierName ?? '—'}</span> },
+          { key: 'view', header: <span className="sr-only">Actions</span>, className: 'text-right', cell: (r) => (
+            <button type="button" onClick={() => setOpen(r.key)} className="whitespace-nowrap text-sm font-semibold text-brand-600 hover:text-brand-700">View details<span className="sr-only"> for {r.name}</span></button>
+          ) },
+        ]}
+      />
+      <Pagination page={current} pageCount={pageCount} total={filtered.length} pageSize={PAGE} onPage={setPage} />
+      {selectedRow && <ParticipantDrawer row={selectedRow} activity={activity} onClose={() => setOpen(null)} />}
+    </Card>
+  );
+}
+
+/** One person's results for this activity. No images, portraits, templates or scores are ever shown. */
+function ParticipantDrawer({ row, activity, onClose }: { row: ParticipantRow; activity: ActivityConfig; onClose: () => void }) {
+  const { state } = useStore();
+  const { can } = useAuthorization();
+  const a = row.latest;
+  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
+  const source = a ? (a.identitySource === 'external' ? a.serviceName ?? 'Connected identity source' : 'FixID records') : sourceLabel(activityPolicy(state, activity).effective.identitySource, activityPolicy(state, activity).integration);
+  const eligibilityText = a?.eligibilityExplanation
+    ?? (row.listed ? 'On the activity’s list of selected participants.' : row.eligibility === 'not-checked' ? 'Eligibility wasn’t checked because verification didn’t get that far.' : undefined);
+  return (
+    <Drawer open onClose={onClose} title={row.name} description={`Identifier ${row.identifier}`} width="md"
+      footer={<div className="flex justify-end"><Button variant="secondary" onClick={onClose}>Close</Button></div>}>
+      <dl className="space-y-4 text-sm">
+        <Item label="Activity">{activity.name}</Item>
+        <Item label="Date and time">{a ? formatDateTime(a.completedAt ?? a.startedAt) : 'Not yet verified'}</Item>
+        <div className="grid grid-cols-2 gap-4">
+          <Item label="Verification outcome">{statusBadge(row.status)}</Item>
+          <Item label="Eligibility outcome">{eligibilityBadge(row.eligibility)}</Item>
+        </div>
+        <Item label="What happened">{outcomeExplanation(a)}</Item>
+        {eligibilityText && <Item label="Eligibility">{eligibilityText}</Item>}
+        <Item label="Identity source">{source}</Item>
+        <Item label="Verifier">{a?.verifierName ?? '—'}</Item>
+        {a && a.organizationId !== activity.organizationId && <Item label="Verified by organization">{orgName(a.organizationId)}</Item>}
+      </dl>
+      {row.attempts.length > 1 && (
+        <section className="mt-6" aria-label="Earlier attempts">
+          <h3 className="text-sm font-semibold text-slate-900">Earlier attempts</h3>
+          <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {row.attempts.slice(1).map((x) => (
+              <li key={x.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="text-slate-600">{formatDateTime(x.completedAt ?? x.startedAt)} · {x.verifierName}</span>
+                <span className="flex gap-1.5">{statusBadge(identityStatus(x))}{eligibilityBadge(eligibilityOutcome(x))}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
-      {actionable.length > 0 && <IssuesList blockers={[]} warnings={actionable} warningsTitle="No verifier assigned" />}
-      {!compact && <Card className="px-6 py-5">
-        <h2 className="text-sm font-semibold text-slate-900">Activity details</h2>
-        <dl className="mt-3 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-          {usesList && <div><dt className="text-slate-500">Who can be verified</dt><dd className="mt-0.5 text-slate-900">
-            {groups.length > 0 && <span className="block">Groups: {list(groups)}</span>}
-            {users.length > 0 && <span className="block">Users: {list(users)}</span>}
-          </dd></div>}
-          <div><dt className="text-slate-500">Assigned verifiers</dt><dd className="mt-0.5 text-slate-900">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet'}</dd></div>
-          <div><dt className="text-slate-500">Location check</dt><dd className="mt-0.5 text-slate-900">{loc?.enabled
-            ? validCoordinates(loc.lat, loc.lng)
-              ? <>On{loc.label && <span className="block">{loc.label}</span>}<span className="block text-slate-600">{formatCoordinate(loc.lat)}, {formatCoordinate(loc.lng)} · within {formatRadius(loc.radiusM)}</span></>
-              : 'On, but no location selected'
-            : 'Off'}</dd></div>
-          <div><dt className="text-slate-500">For</dt><dd className="mt-0.5 text-slate-900">{AUDIENCE_LABEL[audienceOf(activity)]}</dd></div>
-          <div><dt className="text-slate-500">Last updated</dt><dd className="mt-0.5 text-slate-900">{formatDate(activity.updatedAt)} by {activity.updatedBy}</dd></div>
-        </dl>
-      </Card>}
-      <Card className="px-6 py-5">
-        <h2 className="text-sm font-semibold text-slate-900">Verification settings</h2>
-        {activity.sharing && <p className="mt-1 text-xs text-slate-500">Applies to every participating organization.</p>}
-        <div className="mt-3"><ActivitySettingsSummary settings={policy.effective} integration={policy.integration} /></div>
-      </Card>
+      <p className="mt-6 text-xs text-slate-500">Images, portraits and biometric data are never shown here.</p>
+      {a && can('verification.results.view') && <Link to={`/verification-history/${a.id}`} className="mt-2 inline-block text-sm font-semibold text-brand-600 hover:text-brand-700">Open the full verification record</Link>}
+    </Drawer>
+  );
+}
+
+/** Everything the activity is configured with, in plain words. Technical policy settings aren't shown. */
+function ConfigurationTab({ activity }: { activity: ActivityConfig }) {
+  const { state } = useStore();
+  const { organization } = useSession();
+  const { can } = useAuthorization();
+  const org = useOrgData();
+  const { maps, faceVerification } = useServices();
+  const mode = eligibilityMode(activity);
+  const p = activity.participants ?? { groupIds: [], memberIds: [] };
+  const policy = activityPolicy(state, activity);
+  const editable = settingsEditable(currentVersion(state.data, activity));
+  const process = describeSource(policy.effective.identitySource.kind === 'external' ? { kind: 'external', integration: policy.integration } : { kind: 'local' }, mode, !faceVerification.available);
+  const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => state.data.administrators.find((y) => y.id === x.administratorId)).filter(Boolean);
+  const loc = activity.locationCheck;
+  const list = (xs: string[]) => (xs.length <= 5 ? xs.join(', ') : `${xs.slice(0, 5).join(', ')} and ${xs.length - 5} more`);
+  const eligibleCount = mode === 'selected' ? eligibleParticipants(state.data, organization.id, activity.participants).size : 0;
+  const canEdit = can('verification.activities.edit') && displayStatus(activity) !== 'completed';
+  const edit = (step: string) => (canEdit ? <ButtonLink to={`${activityPath(activity.id)}/edit?step=${step}`} variant="ghost" size="sm" icon={<Pencil className="h-4 w-4" />}>Edit</ButtonLink> : undefined);
+
+  return (
+    <div className="space-y-6">
+      {canEdit && <div className="flex justify-end"><ButtonLink to={`${activityPath(activity.id)}/edit`} icon={<Pencil className="h-4 w-4" />}>Edit activity</ButtonLink></div>}
+      <ConfigCard title="Details" action={edit('details')}>
+        <Item label="Name">{activity.name}</Item>
+        <Item label="Description">{activity.description || activity.purpose || '—'}</Item>
+        <Item label="Organization">{organization.name}</Item>
+        <Item label="Created">{formatDate(activity.createdAt)} by {activity.createdBy}</Item>
+        <Item label="Last updated">{formatDate(activity.updatedAt)} by {activity.updatedBy}</Item>
+      </ConfigCard>
+      <ConfigCard title="Participants and schedule" action={edit('participants')}>
+        <Item label="Who can be verified">{ELIGIBILITY_MODE_LABEL[mode]}{mode === 'selected' && ` · ${eligibleCount} eligible ${eligibleCount === 1 ? 'person' : 'people'}`}</Item>
+        {mode === 'selected' && p.groupIds.length > 0 && <Item label="Groups">{list(p.groupIds.map((id) => org.groupById.get(id)?.name ?? 'Removed group'))}</Item>}
+        {mode === 'selected' && p.memberIds.length > 0 && <Item label="Users">{list(p.memberIds.map((id) => org.memberById.get(id)?.displayName ?? 'Removed user'))}</Item>}
+        <Item label="Schedule">{activity.schedule?.kind ? `${SCHEDULE_KIND_LABEL[activity.schedule.kind]} · ` : ''}{scheduleSummary(activity.schedule) ?? 'Not scheduled'}</Item>
+        <Item label="Location">{[activity.location, activity.locationAddress].filter(Boolean).join(', ') || '—'}</Item>
+        <Item label="Location check">{loc?.enabled
+          ? validCoordinates(loc.lat, loc.lng) ? `On${loc.label ? ` · ${loc.label}` : ''} · ${formatCoordinate(loc.lat)}, ${formatCoordinate(loc.lng)} · within ${formatRadius(loc.radiusM)}` : 'On, but no location selected'
+          : 'Off'}</Item>
+      </ConfigCard>
       {loc?.enabled && validCoordinates(loc.lat, loc.lng) && maps.available && (
         <Card className="px-6 py-5">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">Location check area</h2>
           <LocationMap maps={maps} center={{ lat: loc.lat, lng: loc.lng }} radiusM={loc.radiusM} label="Location check area map" />
         </Card>
       )}
+      <ConfigCard title="Identity source" action={edit('source')}>
+        <Item label="Source">{sourceLabel(policy.effective.identitySource, policy.integration)}</Item>
+        <Item label="How people are verified">
+          {editable && policy.effective.method === 'face'
+            ? <><ol className="list-decimal space-y-1 pl-5" aria-label="Verification process">{process.steps.map((s) => <li key={s}>{s}</li>)}</ol><span className="mt-2 block text-slate-600">{PORTRAIT_BASELINE}</span></>
+            : 'Configured before the portrait baseline. Saving this activity in the editor applies the required portrait match.'}
+          {process.simulated && <span className="mt-2 block"><Badge tone="warning">Simulated in this prototype</Badge></span>}
+        </Item>
+      </ConfigCard>
+      <ConfigCard title="Verifiers" action={edit('verifiers')}>
+        <Item label="Individual verifiers">{verifiers.length ? (
+          <ul aria-label="Individual verifiers">{verifiers.map((v) => <li key={v!.id}>{v!.name ?? v!.email} <span className="text-slate-500">· {organization.name} · {v!.roleIds.map((r) => findRole(state.data.customRoles ?? [], v!.organizationId, r)?.name).filter(Boolean).join(', ')}</span></li>)}</ul>
+        ) : 'None yet'}</Item>
+        {audienceOf(activity) === 'own' && <Item label="Authorised sub-organizations">None</Item>}
+      </ConfigCard>
+      {audienceOf(activity) === 'shared' && <ParticipatingOrganizationsTab activity={activity} />}
     </div>
   );
 }
 
-function ParticipantsTab({ activity, uses }: { activity: ActivityConfig; uses: boolean }) {
-  const { state } = useStore();
-  const { organization } = useSession();
-  const { can } = useAuthorization();
-  const { saveActivity } = useActions();
-  const toast = useToast();
-  const org = useOrgData();
-  const [editing, setEditing] = useState<Participants | null>(null);
-  const p = activity.participants ?? { groupIds: [], memberIds: [] };
-  const counts = useMemo(() => memberCounts(state.data, organization.id), [state.data, organization.id]);
-  const total = useEligibleCount(p);
-  const canManage = can('verification.activities.edit');
-  const version = state.data.activityVersions.find((v) => v.id === (activity.draftVersionId ?? activity.activeVersionId));
-
-  const save = (next: Participants) => {
-    if (!version) return;
-    const r = saveActivity(organization.id, activity.id, {
-      name: activity.name, description: activity.description, purpose: activity.purpose, type: version.type, checks: version.checks, outcome: version.outcome,
-      verifierIds: state.data.verifierAssignments.filter((x) => x.activityId === activity.id && x.status === 'active').map((x) => x.administratorId),
-      participants: next, keepConfiguration: true,
-    });
-    setEditing(null);
-    if (!r.ok) return toast({ tone: 'error', title: 'Nothing was changed', description: r.error });
-    toast({ tone: 'success', title: 'Participants updated', description: 'Eligibility uses the new list from the next verification.' });
-  };
-
-  if (!uses) {
-    return <Card><EmptyState icon={<Users className="h-5 w-5" />} title="This activity doesn’t use a participant list" description="Anyone who passes verification meets its conditions. Edit the activity to require eligibility." /></Card>;
-  }
+function ConfigCard({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <Card>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">{total} eligible {total === 1 ? 'person' : 'people'}</h2>
-          <p className="text-sm text-slate-500">Group eligibility uses current membership when someone is verified. Being eligible doesn’t prove identity.</p>
-        </div>
-        {canManage && <Button icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(p)}>Edit participants</Button>}
-      </div>
-      <div className="grid gap-6 px-6 py-5 lg:grid-cols-2">
-        <section>
-          <h3 className="text-sm font-semibold text-slate-900">Groups ({p.groupIds.length})</h3>
-          <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200" aria-label="Eligible groups">
-            {p.groupIds.map((id) => {
-              const g = org.groupById.get(id);
-              return <li key={id} className="flex items-center justify-between px-3 py-2 text-sm">{g ? <Link to={`/groups/${id}`} className="font-medium text-slate-900 hover:text-brand-700">{g.name}</Link> : <span className="text-slate-400">Removed group</span>}<span className="text-xs text-slate-500">{counts.get(id) ?? 0} members</span></li>;
-            })}
-            {p.groupIds.length === 0 && <li className="px-3 py-3 text-sm text-slate-500">No groups.</li>}
-          </ul>
-        </section>
-        <section>
-          <h3 className="text-sm font-semibold text-slate-900">Specific users ({p.memberIds.length})</h3>
-          <DataTable
-            rows={p.memberIds.map((id) => org.memberById.get(id)).filter(Boolean) as NonNullable<ReturnType<typeof org.memberById.get>>[]}
-            rowKey={(m) => m.id}
-            empty={<p className="px-3 py-3 text-sm text-slate-500">No specific users.</p>}
-            columns={[
-              { key: 'name', header: 'Name', cell: (m) => <Link to={`/users/${m.id}`} className="font-medium text-slate-900 hover:text-brand-700">{m.displayName}</Link> },
-              { key: 'id', header: 'Identifier', cell: (m) => <span className="font-mono text-xs text-slate-600">{m.identifier?.value ?? '—'}</span> },
-            ]}
-          />
-        </section>
-      </div>
-      <ParticipantStatusTable activity={activity} />
-      {editing && (
-        <Modal open size="lg" onClose={() => setEditing(null)} title="Edit participants" description="Changes apply from the next verification and are recorded in the Audit Log."
-          footer={<><Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button onClick={() => save(editing)}>Save participants</Button></>}>
-          <ParticipantsPicker value={editing} onChange={setEditing} />
-        </Modal>
-      )}
+      <CardHeader title={title} action={action} />
+      <dl className="grid gap-x-8 gap-y-4 px-5 py-4 text-sm sm:grid-cols-2">{children}</dl>
     </Card>
   );
 }
 
-const STATUS_FILTERS = [
-  { id: 'all', label: 'All' }, { id: 'verified', label: 'Verified' }, { id: 'not-verified', label: 'Not verified' },
-  { id: 'failed', label: 'Failed or unable' }, { id: 'granted', label: 'Entry granted' }, { id: 'denied', label: 'Entry denied' },
-] as const;
-const PAGE = 25;
-
-/** Each eligible participant's verification and entry status, from persisted results only. */
-function ParticipantStatusTable({ activity }: { activity: ActivityConfig }) {
-  const { state } = useStore();
-  const org = useOrgData();
-  const [q, setQ] = useState('');
-  const [filter, setFilter] = useState<(typeof STATUS_FILTERS)[number]['id']>('all');
-  const [page, setPage] = useState(1);
-  const statuses = useMemo(() => participantStatuses(state.data.verificationAttempts, activity.id), [state.data.verificationAttempts, activity.id]);
-  const people = useMemo(() => [...eligibleParticipants(state.data, activity.organizationId, activity.participants)]
-    .map((id) => org.memberById.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName)), [state.data, activity, org.memberById]);
-  const rows = people.filter((m) => {
-    const st = statusOf(statuses, m.id);
-    const text = !q.trim() || `${m.displayName} ${m.identifier?.value ?? ''}`.toLowerCase().includes(q.trim().toLowerCase());
-    const f = filter === 'all' || (filter === 'verified' ? st.verification === 'verified' : filter === 'not-verified' ? st.verification === 'not-verified'
-      : filter === 'failed' ? st.verification === 'failed' || st.verification === 'unable' : st.entry === filter);
-    return text && f;
-  });
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE));
-  const shown = rows.slice((Math.min(page, pageCount) - 1) * PAGE, Math.min(page, pageCount) * PAGE);
-  const vTone = { verified: 'success', failed: 'danger', unable: 'warning', 'not-verified': 'neutral' } as const;
-  const eTone = { granted: 'brand', denied: 'danger', 'not-granted': 'neutral', pending: 'warning', 'not-recorded': 'neutral' } as const;
-  return (
-    <section aria-label="Participant status" className="border-t border-slate-100 px-6 py-5">
-      <h3 className="text-sm font-semibold text-slate-900">Participant status</h3>
-      <p className="text-sm text-slate-500">Identity verification and physical entry are recorded separately. Finding someone’s identifier never makes them Verified.</p>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="sm:w-72"><SearchInput value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Search participants" label="Search participants" /></div>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
-          {STATUS_FILTERS.map((f) => (
-            <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setPage(1); }}
-              className={cn('rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset', filter === f.id ? 'bg-brand-50 text-brand-700 ring-brand-300' : 'text-slate-600 ring-slate-200 hover:bg-slate-50')}>{f.label}</button>
-          ))}
-        </div>
-      </div>
-      <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
-        <DataTable
-          rows={shown}
-          rowKey={(m) => m.id}
-          empty={<p className="px-4 py-4 text-sm text-slate-500">No participants match.</p>}
-          columns={[
-            { key: 'name', header: 'Participant', cell: (m) => <Link to={`/users/${m.id}`} className="font-medium text-slate-900 hover:text-brand-700">{m.displayName}</Link> },
-            { key: 'id', header: 'Identifier', cell: (m) => <span className="font-mono text-xs text-slate-600">{m.identifier?.value ?? '—'}</span> },
-            { key: 'verification', header: 'Verification', cell: (m) => { const st = statusOf(statuses, m.id); return <Badge tone={vTone[st.verification]}>{PARTICIPANT_VERIFICATION_LABEL[st.verification]}</Badge>; } },
-            { key: 'entry', header: 'Entry', cell: (m) => { const st = statusOf(statuses, m.id); return <Badge tone={eTone[st.entry]}>{PARTICIPANT_ENTRY_LABEL[st.entry]}</Badge>; } },
-            { key: 'at', header: 'Last verification', cell: (m) => { const st = statusOf(statuses, m.id); return st.attemptId ? <Link to={`/verification-history/${st.attemptId}`} className="text-slate-600 hover:text-brand-700">{formatDateTime(st.at!)}</Link> : <span className="text-slate-400">—</span>; } },
-          ]}
-        />
-      </div>
-      {rows.length > PAGE && <div className="mt-3"><Pagination page={Math.min(page, pageCount)} pageCount={pageCount} total={rows.length} pageSize={PAGE} onPage={setPage} /></div>}
-    </section>
-  );
-}
+const Item = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div><dt className="text-slate-500">{label}</dt><dd className="mt-0.5 text-slate-900">{children}</dd></div>
+);

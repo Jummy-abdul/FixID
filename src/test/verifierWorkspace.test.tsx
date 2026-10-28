@@ -407,23 +407,27 @@ describe('screens', () => {
     expect(JSON.stringify(saved)).not.toContain(CAPTURE.slice(30, 80));
   });
 
-  it('shows statuses in the participant list and results in Verification History', async () => {
+  it('shows each participant’s results on the Participants tab, with the full record a click away', async () => {
     const s0 = prepared(adminVerifier(base()));
     const h = harness(s0, fakeFaceVerification(FACE.match));
     const { enrolled, second } = people(s0);
-    h.service.recordEntry((await verify(h, enrolled)).id);
+    const first = await verify(h, enrolled);
+    h.service.recordEntry(first.id);
     await verify(h, second);
     const user = renderApp(`/verification-activities/${exam(s0).id}?tab=participants`, h.state);
-    const table = screen.getByRole('region', { name: 'Participant status' });
-    const row = (m: Member) => within(table).getAllByRole('row').find((r) => r.textContent?.includes(m.displayName))!;
-    expect(row(enrolled)).toHaveTextContent('VerifiedGranted');
-    expect(row(second)).toHaveTextContent('VerifiedPending');
-    await user.click(within(table).getByRole('button', { name: 'Not verified' }));
-    expect(within(table).queryByText(enrolled.displayName)).toBeNull();
-    // Verification History keeps the same results.
-    await user.click(screen.getByRole('tab', { name: /Verifications/ }));
-    const historyRow = (await screen.findAllByRole('row')).find((r) => r.textContent?.includes(enrolled.displayName.split(' ')[0]) && r.textContent?.includes('Entered'));
-    expect(historyRow).toBeDefined();
+    const row = (m: Member) => screen.getAllByRole('row').find((r) => r.textContent?.includes(m.displayName));
+    // Identity and eligibility are separate columns.
+    expect(row(enrolled)).toHaveTextContent('Eligible');
+    expect(row(enrolled)).toHaveTextContent('Verified');
+    expect(row(second)).toHaveTextContent('Verified');
+    await user.selectOptions(screen.getByLabelText('Verification status'), 'not-attempted');
+    expect(row(enrolled)).toBeUndefined();
+    await user.selectOptions(screen.getByLabelText('Verification status'), 'all');
+    await user.click(screen.getByRole('button', { name: `View details for ${enrolled.displayName}` }));
+    const drawer = screen.getByRole('dialog', { name: enrolled.displayName });
+    expect(drawer).toHaveTextContent('The record was retrieved and the portrait match confirmed the person’s identity.');
+    expect(within(drawer).getByRole('link', { name: 'Open the full verification record' })).toHaveAttribute('href', `/verification-history/${first.id}`);
+    expect(drawer.querySelector('img')).toBeNull();
   });
 
   it('says plainly when biometric verification is unavailable, and records Unable to Verify', async () => {

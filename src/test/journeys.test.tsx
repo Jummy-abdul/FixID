@@ -381,8 +381,9 @@ describe('screens', () => {
     renderApp(`/verification-activities/${STAFF}`, as('acct_demo_b_admin', ORG_B, h.state), 'acct_demo_b_admin');
     const table = await screen.findByRole('table');
     const row = within(table).getAllByRole('row').find((r) => r.textContent?.includes('Meridian Harbourside'))!;
-    // Three seeded demonstration transactions plus this one: total, verified, not verified, pending review.
-    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(1, 5)).toEqual(['4', '2', '0', '2']);
+    // Three seeded demonstration transactions plus this one: total, verified, unsuccessful, pending or incomplete.
+    // Identity results only: a verified person who isn't eligible still counts as verified.
+    expect(within(row).getAllByRole('cell').map((c) => c.textContent).slice(1, 5)).toEqual(['4', '3', '1', '0']);
     expect(document.body.textContent).not.toContain('DEMO-10001');
   });
 });

@@ -13,6 +13,7 @@ import {
 import { subRelationships } from '@/store/orgOps';
 import { configFromSettings, executionUnavailable, invitableOrganizations, participation } from '@/store/sharingOps';
 import { createInitialState, reducer, type AppState } from '@/store/state';
+import { wizardToVerifiers } from './helpers/activityWizard';
 
 const AT = new Date().toISOString();
 const HEADER = ORG_IMPORT_COLUMNS.join(',');
@@ -22,6 +23,7 @@ function as(accountId: string, s = createInitialState(new Date())): AppState {
   return { ...s, data: { ...s.data, admin: { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner', organizationIds: [p.organizationId!] } }, session: { ...s.session, currentOrganizationId: p.organizationId! } };
 }
 const VICTOR = 'acct_demo_b_admin';
+
 const AUDITOR = `${ORG_A}_usr_2`;
 const LINA = 'acct_demo_b1_admin';
 
@@ -204,13 +206,14 @@ describe('bulk organization upload (screens)', () => {
     expect(screen.queryByRole('button', { name: 'Upload CSV' })).toBeNull();
   }, 20_000);
 
-  it('the shared activity form finds organizations by name when there are many', async () => {
+  it('the activity wizard finds sub-organizations by name when there are many', async () => {
     const s0 = as(VICTOR);
     const many = csv(...Array.from({ length: 10 }, (_, i) => `Campus ${i + 1} University,admin${i}@campus.example`));
     const r = applyBulkCreateOrganizations(s0, input(rowsOf(s0, many)));
     if (!r.ok) throw new Error(r.error);
-    const user = renderAs('/verification-activities/new?type=shared', VICTOR, r.state);
-    const group = await screen.findByRole('group', { name: 'Participating organizations' });
+    const user = renderAs('/verification-activities/new', VICTOR, r.state);
+    await wizardToVerifiers(user, { name: 'Campus Entry', source: 'Group Identity Service' });
+    const group = await screen.findByRole('group', { name: 'Authorised sub-organizations' });
     await user.type(screen.getByLabelText('Search organizations'), 'Campus 1');
     expect(within(group).getAllByRole('checkbox').map((c) => c.closest('label')!.textContent)).toEqual(['Campus 1 University', 'Campus 10 University']);
     await user.click(screen.getByRole('button', { name: 'Select all shown' }));

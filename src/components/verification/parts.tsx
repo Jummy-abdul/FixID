@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Info, Lock, X, XCircle } from 'lucide-react';
 import { Badge, EmptyState, Field, SearchInput, Select } from '@/components/ui';
+import { DISPLAY_STATUS_LABEL, displayStatus } from '@/domain/activityLifecycle';
 import { findRole } from '@/domain/roles';
 import type { ActivityCheck, ActivityConfig, ActivityVersion } from '@/domain/types';
 import {
@@ -13,6 +14,13 @@ import { useSession, useStore } from '@/store/AppStore';
 export function ActivityStatusBadge({ status }: { status: ActivityConfig['status'] }) {
   const map = { draft: { tone: 'neutral', label: 'Draft' }, active: { tone: 'success', label: 'Active' }, inactive: { tone: 'warning', label: 'Inactive' } } as const;
   return <Badge tone={map[status].tone} dot>{map[status].label}</Badge>;
+}
+
+/** The status administrators see: Draft, Scheduled, Active, Paused or Completed. */
+export function DisplayStatusBadge({ activity }: { activity: Pick<ActivityConfig, 'status' | 'schedule' | 'completedAt'> }) {
+  const st = displayStatus(activity);
+  const tone = { draft: 'neutral', scheduled: 'info', active: 'success', paused: 'warning', completed: 'brand' } as const;
+  return <Badge tone={tone[st]} dot>{DISPLAY_STATUS_LABEL[st]}</Badge>;
 }
 
 export const typeName = (t: ActivityVersion['type']) => TYPE_INFO[t].name;
@@ -156,7 +164,7 @@ export function IssuesList({ blockers, warnings, title = 'Resolve before activat
  * Searchable choice of the administrators who perform verification for an activity. Only active
  * administrators whose roles include performing verifications can be chosen.
  */
-export function VerifierPicker({ value, onChange, readOnly }: { value: string[]; onChange: (ids: string[]) => void; readOnly?: boolean }) {
+export function VerifierPicker({ value, onChange, readOnly, showOrganization }: { value: string[]; onChange: (ids: string[]) => void; readOnly?: boolean; showOrganization?: boolean }) {
   const { organization } = useSession();
   const { state } = useStore();
   const [q, setQ] = useState('');
@@ -186,7 +194,7 @@ export function VerifierPicker({ value, onChange, readOnly }: { value: string[];
                     className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium text-slate-900">{a.name ?? a.email}</span>
-                    <span className="block text-xs text-slate-500">{a.email} · {a.roleIds.map((r) => findRole(state.data.customRoles ?? [], a.organizationId, r)?.name).filter(Boolean).join(', ')}</span>
+                    <span className="block text-xs text-slate-500">{showOrganization ? `${organization.name} · ` : `${a.email} · `}{a.roleIds.map((r) => findRole(state.data.customRoles ?? [], a.organizationId, r)?.name).filter(Boolean).join(', ')}</span>
                   </span>
                 </label>
               </li>

@@ -339,6 +339,50 @@ Stages: Initiated → Capture pending / Lookup completed → Pending Review, Com
 - **Security:** access checks run in the browser prototype and aren't a security boundary.
 - **Saved browser data:** load the new scenarios with Settings → Demo data → Reset.
 
+## Verification Activities module
+
+The current Verification Activities experience (`/verification-activities`). It supersedes the descriptions of the older editor, details tabs and Deactivate wording in the sections below; their rules on versions, sharing, permissions and auditing still apply.
+
+**Statuses** (`src/domain/activityLifecycle.ts`): **Draft**, **Scheduled** (activated, start still ahead), **Active**, **Paused** (stored as `inactive`), **Completed** (marked completed, or the scheduled end has passed). Activities created before schedules existed are never Scheduled or Completed by date.
+
+**List:** activity, organization (plus delegated sub-organizations), identity source, schedule, status, progress (*x of y verified* for selected participants; *verified · attempts* for open verification), created date and a row menu (View details, Edit or Continue editing, Activate / Pause / Resume / Mark as completed, Duplicate, Remove draft). Search, status and identity-source filters live in the address. The empty state reads *No verification activities yet* with **Create activity**.
+- See it for real by opening the empty *Crestfield Institute* workspace (demo@fixid.app).
+- Or use the demo-only *preview the empty state* link under the list, which changes no data.
+
+**Five-step wizard** (`ActivityEditorPage`, `/verification-activities/new`, `/:id/edit?step=details|participants|source|verifiers|review`):
+1. **Details:** name (required), optional description. The organization comes from the workspace.
+2. **Participants and schedule:**
+   - **Who can be verified?** *Selected participants*, chosen with the existing user and group picker (search, counts, remove), or *Open verification*, where eligibility comes from the identity source.
+   - **Schedule:** *One-time* (start and end), *Recurring* (daily, weekly on chosen days, or monthly; time window; start date; optional end date) or *Open-ended* (start only).
+   - **Location (optional):** name and address, plus the existing location check.
+3. **Identity source:** FixID records or the organization's connected sources.
+   - A source that can't perform the portrait match is shown disabled with the reason. This covers an inactive or lookup-only integration, or FixID records without portrait matching. When nothing is usable, the step links to Settings → Integrations.
+   - The prescribed process is shown read-only: retrieve the record with an identifier, confirm a live person, perform the required portrait match against the reference portrait, then the eligibility step.
+   - There is no verification-type, method or bypass choice.
+4. **Verifiers:** individual verifiers (only people whose role can verify; shown with organization and role) and/or **authorised sub-organizations**, which assign their own staff after accepting in their own workspace. Assigning grants no permissions. Delegation needs a connected identity source. *Invite Administrator* saves the draft and comes back to this step.
+5. **Review:** every section with **Edit**, then **Create activity** (or *Save as draft*). The new activity opens on its **Overview** with a success message.
+
+Steps are validated on **Continue**; values are kept when moving back. Editing a running activity uses the same steps with **Save changes**. A running activity whose verification settings change has the new version put into use straight away; a paused one keeps it for when it resumes. **Cancel** with unsaved changes asks first. Changing the identity source of an activity with records asks first; earlier records keep their source.
+
+**Portrait baseline:** new activities, and any activity whose identity source or eligibility mode changes, are saved with a face match and required liveness. New activities never send results to human review. Editing other details never changes an existing activity's verification configuration or schedule.
+
+**Details page** (`ActivityDetailsPage`): header with name, status, organization, schedule, location and lifecycle actions. Three tabs:
+- **Overview:** Eligible, Total attempts, Verified, Unsuccessful, and Pending or incomplete; recent activity; key facts. For a delegated activity it adds results by organization.
+- **Participants:** one row per person (everyone selected plus everyone who attempted) with masked identifier, eligibility, verification (Verified / Unsuccessful / Pending / Unable to complete / Not yet verified), date and time, and verifier. Search and filters are kept in the address, so closing a person's details drawer keeps them. The drawer shows outcomes, a plain explanation, source and verifier; never images, portraits, scores or biometric data, and no review or override.
+- **Configuration:** everything in plain words with **Edit activity** per section; delegated sub-organizations can be suspended, resumed or removed there.
+
+Old `?tab=` links (`verifications`, `transactions`, `history`, `exceptions`, `people`) open Participants; `organizations` opens Configuration. Identity and eligibility are separate results everywhere, and every figure is counted from the same stored records.
+
+**Lifecycle** (`useActivityLifecycle`), each confirmed first:
+- Activate a draft; an activity that isn't ready opens on its review step instead.
+- Pause and Resume.
+- **Mark as completed** (`vactivities/complete`, audited as `verification-activity.completed`): final. No new verifications, no edits and no resuming; records are kept, and the activity can be duplicated.
+- Remove a never-activated draft.
+
+**Data:** optional fields only (`schedule.kind`/`recurrence`, `eligibilityMode`, `locationAddress`, `completedAt`), with no state-version change, so existing browser data keeps working. Brightwater Collective gained demo activities: *Graduation Ceremony Check-in* (Scheduled) and *Spring Open Day Check-in* (Completed, with five simulated records: verified, verified but not eligible, portrait mismatch, inconclusive, no record found). Schedules were added to Visitor Check-in and Badge Collection. To see them in a browser that already has saved data, use Settings → **Reset demo data**.
+
+**Simulated, not real:** identity sources, liveness and portrait matching are the existing labelled simulations; no biometric service, external API, QR or NFC is connected. QR retrieval and physical access control aren't part of this module, and no exception, review or override screens were added here. The existing Exceptions module is unchanged. A recurring schedule's daily time window and days are recorded and shown, but verification is only limited by its start and end dates.
+
 ## Verification Activities: one concept, for your organization or shared
 
 Verification Programmes were merged into Verification Activities. There is one concept, **Verification Activities** (`/verification-activities`). When an activity is created, the first decision is who it's for:

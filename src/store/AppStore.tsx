@@ -11,7 +11,7 @@ import {
   type CreateUserInput, type ImportSummaryInput, type CredentialConfigInput, type IdentifierConfigInput, type IssuanceInput,
 } from './operations';
 import {
-  applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
+  applyActivate, applyComplete, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
 } from './activityOps';
 import { applyGroupIssuance, type GroupIssuanceInput } from './groupIssuance';
 import { applyAddMembers, applyCreateGroup, applyRemoveGroup, applyRemoveMembers, applyUpdateGroup } from './groupOps';
@@ -455,6 +455,10 @@ export function useActions() {
       deactivateActivity: (organizationId: string, activityId: string) => {
         const action = { type: 'vactivities/deactivate' as const, organizationId, activityId, at: new Date().toISOString() };
         return run(() => applyDeactivate(getState(), action), action);
+      },
+      completeActivity: (organizationId: string, activityId: string) => {
+        const action = { type: 'vactivities/complete' as const, organizationId, activityId, at: new Date().toISOString() };
+        return run(() => applyComplete(getState(), action), action);
       },
       discardActivityDraft: (organizationId: string, activityId: string) => {
         const action = { type: 'vactivities/discardDraft' as const, organizationId, activityId, at: new Date().toISOString() };

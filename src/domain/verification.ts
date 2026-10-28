@@ -425,6 +425,7 @@ export function authorizeVerifier(d: VerificationData, input: { organizationId: 
     || a.sharing?.participants.some((p) => p.organizationId === input.organizationId && p.status === 'active')));
   if (!activity) return { authorized: false, reason: 'Activity not found in this organization.' };
   if (activity.status !== 'active' || !activity.activeVersionId) return { authorized: false, reason: 'The activity isn’t active.' };
+  if (activity.completedAt) return { authorized: false, reason: 'The activity has been completed.' };
   const admin = d.administrators.find((a) => a.id === input.administratorId && a.organizationId === input.organizationId);
   if (!admin || admin.status !== 'active') return { authorized: false, reason: 'Not an active administrator of this organization.' };
   if (!canExecute(d, admin)) return { authorized: false, reason: 'Their role doesn’t allow performing verifications.' };

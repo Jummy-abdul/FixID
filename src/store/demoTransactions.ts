@@ -26,6 +26,8 @@ interface Step {
   end?: boolean;
 }
 
+const OPEN_DAY = `${ORG_C}_va_open_day`;
+
 const STEPS: Step[] = [
   // Meridian's shared activity, run by Harbourside (Tomi Okon): a success, a mismatch for the owner's review, an eligibility question.
   { key: 'D01', org: ORG_B1, userId: 'acct_demo_b1_verifier', activityId: DEMO_SHARED_ACTIVITY, daysAgo: 6, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
@@ -39,6 +41,12 @@ const STEPS: Step[] = [
   { key: 'D07', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 4, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
   { key: 'D08', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_restricted_lounge`, daysAgo: 2, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
   { key: 'D09', org: ORG_C, userId: 'usr_tobyson', activityId: `${ORG_C}_va_visitor_checkin`, daysAgo: 1, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-UNAVAILABLE' },
+  // Brightwater's completed open day (Tobyson): verified, verified but not eligible, a portrait mismatch, an inconclusive match, no record found.
+  { key: 'D10', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 8, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D11', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 7, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D12', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 5, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
+  { key: 'D13', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 3, reference: 'DEMO-20001', end: true },
+  { key: 'D14', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 4, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-INCONCLUSIVE' },
 ];
 
 export function seedDemoTransactions(initial: AppState, now: Date): AppState {
@@ -86,6 +94,11 @@ export function seedDemoTransactions(initial: AppState, now: Date): AppState {
       run({ type: 'exceptions/startReview', organizationId: ORG_B, exceptionId: eligibility.id, at: minutes(at, 5) });
       run({ type: 'exceptions/note', organizationId: ORG_B, exceptionId: eligibility.id, comment: 'The identity service reports the record as suspended. Checking whether the suspension is still current.', evidenceRefs: ['CASE-NOTE-001'], at: minutes(at, 10) });
     }
+  }
+  // The open day has ended: Tobyson marks it completed, so no new verifications can start. Its records stay.
+  if (s.data.activityConfigs.some((a) => a.id === OPEN_DAY)) {
+    as('usr_tobyson', ORG_C);
+    run({ type: 'vactivities/complete', organizationId: ORG_C, activityId: OPEN_DAY, at: minutes(new Date(now.getTime() - 2 * 86_400_000), 60 * 9) });
   }
   return { ...s, data: { ...s.data, admin: initial.data.admin }, session: initial.session };
 }

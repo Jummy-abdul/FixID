@@ -7,15 +7,12 @@ import { ActivityStatusBadge, VerifierPicker } from '@/components/verification/p
 import { ActivitySettingsSummary } from '@/components/verification/RequirementsSummary';
 import { PARTICIPATION_LABEL, type ParticipationStatus } from '@/domain/activitySettings';
 import type { ActivityConfig, VerificationAttempt } from '@/domain/types';
-import { EXCEPTION_REASON_LABEL, RESOLUTION_LABEL } from '@/domain/exceptions';
 import { DECISION_LABEL, STAGE_LABEL, stageOf } from '@/domain/transactions';
 import { useQueryState } from '@/hooks/useQueryState';
-import { currentDecision, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
+import { currentDecision, exceptionFor } from '@/store/exceptionOps';
 import type { AppState } from '@/store/state';
-import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
 import { activeAssignments } from '@/domain/verification';
-import { formatDateTime } from '@/lib/dates';
-import { sharedResults, summarize } from '@/store/reporting';
+import { summarize } from '@/store/reporting';
 import { activityPolicy, participation } from '@/store/sharingOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
 import { AttemptsTable } from './VerificationHistoryPage';
@@ -35,46 +32,6 @@ function outcomeOf(state: AppState, a: VerificationAttempt): Outcome | undefined
   if (stageOf(a) === 'incomplete') return 'incomplete';
   if (d === 'unable-to-decide' || stageOf(a) === 'unable-to-complete') return 'unable-to-decide';
   return d;
-}
-
-/**
- * The owner's dashboard for a shared activity: figures across participating organizations and results by
- * organization, all counted from stored transactions. Each figure opens the matching transactions.
- */
-export function SharedActivityDashboard({ activity }: { activity: ActivityConfig }) {
-  const { state } = useStore();
-  const r = sharedResults(state, activity);
-  const s = r.summary;
-  const base = `${activityPath(activity.id)}?tab=verifications`;
-  return (
-    <div className="space-y-6">
-      <section aria-label="Activity summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Participating organizations" value={r.participating} to={`${activityPath(activity.id)}?tab=organizations`} />
-        <StatCard label="Total attempts" value={s.attempts} to={base} hint={s.incomplete ? `${s.incomplete} incomplete` : undefined} />
-        <StatCard label="Verified" value={s.allowed} tone="emerald" to={`${base}&outcome=allow`} />
-        <StatCard label="Not verified" value={s.denied} to={`${base}&outcome=deny`} />
-        <StatCard label="Pending review" value={s.pendingReview} tone="violet" to={`${base}&outcome=pending-review`} />
-        <StatCard label="Unable to verify" value={s.unableToComplete} tone="amber" to={`${base}&outcome=unable-to-decide`} />
-      </section>
-      <Card>
-        <CardHeader title="Results by organization" />
-        {s.attempts === 0 ? <EmptyState title="No verifications yet" /> : (
-          <DataTable
-            rows={r.rows.filter((x) => x.summary.attempts > 0 || x.participation === 'active')}
-            rowKey={(x) => x.organizationId}
-            rowHref={(x) => `${base}&org=${x.organizationId}`}
-            columns={[
-              { key: 'org', header: 'Organization', cell: (x) => <Link to={`${base}&org=${x.organizationId}`} className="font-medium text-slate-900 hover:text-brand-700">{x.name}</Link> },
-              { key: 'total', header: 'Total attempts', cell: (x) => <span className="tabular-nums">{x.summary.attempts}</span> },
-              { key: 'allowed', header: 'Verified', cell: (x) => <span className="tabular-nums">{x.summary.allowed}</span> },
-              { key: 'denied', header: 'Not verified', cell: (x) => <span className="tabular-nums">{x.summary.denied}</span> },
-              { key: 'review', header: 'Pending review', cell: (x) => <span className="tabular-nums">{x.summary.pendingReview}</span> },
-            ]}
-          />
-        )}
-      </Card>
-    </div>
-  );
 }
 
 /** The owner manages participation: who's invited, who accepted, and suspending or removing an organization. */
@@ -156,31 +113,6 @@ export function ActivityTransactionsTab({ activity, onlyOrganizationId }: { acti
   );
 }
 
-/** Exceptions for this activity that the organization may see. */
-export function ActivityExceptionsTab({ activity }: { activity: ActivityConfig }) {
-  const { state } = useStore();
-  const { organization } = useSession();
-  const list = exceptionsVisibleTo(state, organization.id).filter((e) => e.activityId === activity.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? id;
-  return (
-    <Card>
-      <DataTable
-        rows={list}
-        rowKey={(e) => e.id}
-        rowHref={(e) => `/exceptions/${e.id}`}
-        empty={<EmptyState title="No exceptions" />}
-        columns={[
-          { key: 'id', header: 'Exception', cell: (e) => <Link to={`/exceptions/${e.id}`} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> },
-          { key: 'org', header: 'Organization', cell: (e) => orgName(e.organizationId) },
-          { key: 'reason', header: 'Reason', cell: (e) => EXCEPTION_REASON_LABEL[e.reason] },
-          { key: 'status', header: 'Status', cell: (e) => <ExceptionStatusBadge status={e.status} /> },
-          { key: 'decision', header: 'Decision', cell: (e) => (e.resolution ? RESOLUTION_LABEL[e.resolution.outcome] : <span className="text-slate-400">—</span>) },
-          { key: 'created', header: 'Created', cell: (e) => <span className="whitespace-nowrap text-slate-500">{formatDateTime(e.createdAt)}</span> },
-        ]}
-      />
-    </Card>
-  );
-}
 
 /**
  * A participating organization's view of another organization's shared activity: accept the invitation,

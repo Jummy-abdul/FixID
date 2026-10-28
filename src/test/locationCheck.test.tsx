@@ -205,9 +205,9 @@ describe('screens', () => {
 
   it('searches for a place with a connected map provider and selects it', async () => {
     const maps: MapsService = { available: true, providerName: 'Test Maps', tileUrl: '', attribution: '', searchPlaces: async () => [{ label: 'Main Hall, City Centre', lat: 6.5, lng: 3.4 }] };
-    const user = renderApp('/verification-activities/new?type=own', base(), { ...createDefaultServices(), maps });
+    const user = renderApp('/verification-activities/new', base(), { ...createDefaultServices(), maps });
     await user.type(screen.getByLabelText('Activity name'), 'Hall Entry');
-    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('switch', { name: /Enable Location Check/ }));
     const settings = screen.getByRole('region', { name: 'Location settings' });
     expect(within(settings).getByRole('application', { name: 'Activity location map' })).toBeInTheDocument();
@@ -217,7 +217,7 @@ describe('screens', () => {
     expect(settings.querySelector('form')).toBeNull();
     await user.type(within(settings).getByLabelText('Search for a location or address'), 'Main Hall{Enter}');
     // Enter searches; it doesn't move to the next step.
-    expect(screen.getByText('Step 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('Step 2 of 5: Participants and schedule')).toBeInTheDocument();
     await user.click(await within(settings).findByRole('button', { name: 'Main Hall, City Centre' }));
     expect(within(settings).getByLabelText('Selected location')).toHaveTextContent('Main Hall, City Centre6.50000, 3.40000 · within 100 m');
   });

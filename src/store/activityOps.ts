@@ -11,6 +11,7 @@ import {
 } from '@/domain/verification';
 import { actorPermissions } from './adminOps';
 import type { AppState } from './state';
+import { ELIGIBILITY_MODE_LABEL, scheduleSummary } from '@/domain/activityLifecycle';
 
 /**
  * Verification Activity management. Every change re-checks permissions from state and is recorded in
@@ -31,7 +32,9 @@ export interface ActivityForm {
   customized?: boolean;
   /** Activity-level settings. Left undefined, the current values are kept. */
   location?: string;
+  locationAddress?: string;
   schedule?: ActivityConfig['schedule'];
+  eligibilityMode?: ActivityConfig['eligibilityMode'];
   participants?: { groupIds: string[]; memberIds: string[] };
   entryPolicy?: ActivityConfig['entryPolicy'];
   restrictVerifiers?: boolean;
@@ -43,7 +46,10 @@ export interface ActivityForm {
    * (checks, outcome rules, requirements) exactly as saved instead of regenerating it.
    */
   keepConfiguration?: boolean;
-  /** New activities: for the organization's own use, or shared with other organizations. Fixed once created. */
+  /**
+   * For the organization's own use, or delegated to other (sub-)organizations. An activity for the
+   * organization's own use can be delegated later; a delegated one stays delegated, so its records stay visible.
+   */
   audience?: ActivityAudience;
   /** Shared activities: the organizations taking part. New ones are invited; left undefined, the current list is kept. */
   participantIds?: string[];
@@ -179,12 +185,13 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   const by = state.data.admin.name;
   const existing = input.activityId ? state.data.activityConfigs.find((a) => a.id === input.activityId && a.organizationId === organizationId) : undefined;
   if (input.activityId && !existing) return { ok: false, error: 'This activity no longer exists.' };
+  if (existing?.completedAt) return { ok: false, error: 'A completed activity can’t be changed. Duplicate it to run it again.' };
 
   const nameErr = nameProblem(state, organizationId, form.name, existing?.id);
   if (nameErr) return { ok: false, error: nameErr, field: 'name' };
   // Who the activity is for is decided when it's created. A shared activity needs a connected identity
   // source and at least one other organization; participants can never change its requirements.
-  const audience: ActivityAudience = existing ? audienceOf(existing) : form.audience ?? 'own';
+  const audience: ActivityAudience = existing && audienceOf(existing) === 'shared' ? 'shared' : form.audience ?? (existing ? audienceOf(existing) : 'own');
   const currentIds = (existing?.sharing?.participants ?? []).filter((p) => p.status !== 'removed' && p.status !== 'declined').map((p) => p.organizationId);
   const participantIds = audience === 'shared' ? [...new Set(form.participantIds ?? currentIds)] : [];
   if (audience === 'shared') {
@@ -215,9 +222,10 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
   const org = state.data.organizations.find((o) => o.id === organizationId)!;
   const type = form.requirements && !form.customized ? buildChecks(form.requirements, org, () => 'x').type : form.type;
   const versionMeta = { requirements: form.requirements, customized: form.requirements ? !!form.customized : undefined };
-  const keep = <K extends 'location' | 'schedule' | 'participants' | 'entryPolicy' | 'restrictVerifiers' | 'locationCheck'>(k: K): ActivityConfig[K] => (form[k] !== undefined ? form[k] as ActivityConfig[K] : existing?.[k]);
+  const keep = <K extends 'location' | 'locationAddress' | 'schedule' | 'eligibilityMode' | 'participants' | 'entryPolicy' | 'restrictVerifiers' | 'locationCheck'>(k: K): ActivityConfig[K] => (form[k] !== undefined ? form[k] as ActivityConfig[K] : existing?.[k]);
   const settings = {
-    location: keep('location')?.toString().trim() || undefined, schedule: keep('schedule'),
+    location: keep('location')?.toString().trim() || undefined, locationAddress: keep('locationAddress')?.toString().trim() || undefined,
+    schedule: keep('schedule'), eligibilityMode: keep('eligibilityMode'),
     participants: keep('participants') ?? { groupIds: [], memberIds: [] }, entryPolicy: keep('entryPolicy') ?? 'off', restrictVerifiers: keep('restrictVerifiers') ?? false,
     locationCheck: keep('locationCheck'),
   };
@@ -227,12 +235,16 @@ export function applySaveActivity(state: AppState, input: { organizationId: stri
     if (!p || (!p.groupIds.length && !p.memberIds.length)) return 'None';
     return [p.groupIds.length ? `Groups: ${p.groupIds.map(groupName).join(', ')}` : '', p.memberIds.length ? (p.memberIds.length <= 3 ? `Users: ${p.memberIds.map(userName).join(', ')}` : `${p.memberIds.length} users`) : ''].filter(Boolean).join('; ');
   };
-  const describeSchedule = (x?: ActivityConfig['schedule']) => (x?.startsAt || x?.endsAt ? `${x.startsAt ?? '…'} – ${x.endsAt ?? '…'}${x.enforced ? ' (enforced)' : ''}` : 'None');
+  const describeSchedule = (x?: ActivityConfig['schedule']) => (x?.startsAt || x?.endsAt ? scheduleSummary(x) ?? 'None' : 'None');
   const ENTRY: Record<string, string> = { off: 'Allowed', flag: 'Flag for review', deny: 'Refuse' };
   const describeLocation = (c?: LocationCheckConfig) => (c?.enabled
     ? `On: ${c.label ? `${c.label}, ` : ''}${formatCoordinate(c.lat)}, ${formatCoordinate(c.lng)} within ${formatRadius(c.radiusM)}` : 'Off');
   const settingChanges = (prev: Partial<ActivityConfig>) => [
     ...((prev.location ?? '') !== (settings.location ?? '') ? [{ field: 'Location', from: prev.location || '—', to: settings.location || '—' }] : []),
+    ...((prev.locationAddress ?? '') !== (settings.locationAddress ?? '') ? [{ field: 'Address', from: prev.locationAddress || '—', to: settings.locationAddress || '—' }] : []),
+    ...(JSON.stringify(prev.schedule ?? null) !== JSON.stringify(settings.schedule ?? null) && describeSchedule(prev.schedule) === describeSchedule(settings.schedule)
+      ? [{ field: 'Schedule', from: 'Previous settings', to: describeSchedule(settings.schedule) }] : []),
+    ...(prev.eligibilityMode !== settings.eligibilityMode && settings.eligibilityMode ? [{ field: 'Who can be verified', from: prev.eligibilityMode ? ELIGIBILITY_MODE_LABEL[prev.eligibilityMode] : '—', to: ELIGIBILITY_MODE_LABEL[settings.eligibilityMode] }] : []),
     ...(describeSchedule(prev.schedule) !== describeSchedule(settings.schedule) ? [{ field: 'Schedule', from: describeSchedule(prev.schedule), to: describeSchedule(settings.schedule) }] : []),
     ...((prev.entryPolicy ?? 'off') !== settings.entryPolicy ? [{ field: 'Multiple entries', from: ENTRY[prev.entryPolicy ?? 'off'], to: ENTRY[settings.entryPolicy] }] : []),
     ...(describeLocation(prev.locationCheck) !== describeLocation(settings.locationCheck) ? [{ field: 'Location check', from: describeLocation(prev.locationCheck), to: describeLocation(settings.locationCheck) }] : []),
@@ -393,6 +405,7 @@ export function applyActivate(state: AppState, input: { organizationId: string; 
   if (!actorPermissions(state, input.organizationId).has('verification.activities.activate')) return { ok: false, error: DENIED };
   const activity = find(state, input.organizationId, input.activityId);
   if (!activity) return { ok: false, error: 'This activity no longer exists.' };
+  if (activity.completedAt) return { ok: false, error: 'A completed activity can’t be resumed. Duplicate it to run it again.' };
   if (activity.status === 'active' && !activity.draftVersionId) return { ok: true, state, activityId: activity.id };
   const { blockers } = activationProblems(state, input.organizationId, activity);
   if (blockers.length) return { ok: false, error: 'This activity can’t be activated yet.', problems: blockers };
@@ -430,6 +443,31 @@ export function applyDeactivate(state: AppState, input: { organizationId: string
       action: 'verification-activity.deactivated', summary: `${state.data.admin.name} deactivated ${activity.name}. No new verifications can start; earlier records are kept.`,
       changes: [{ field: 'Status', from: 'Active', to: 'Inactive' }],
     }], { activityConfigs: state.data.activityConfigs.map((a) => (a.id === activity.id ? next : a)) }),
+  };
+}
+
+/**
+ * Marks an activity completed: no new verifications can start, and it can't be resumed or edited. Its
+ * configuration and every verification record are kept.
+ */
+export function applyComplete(state: AppState, input: { organizationId: string; activityId: string; at: string }): Result {
+  if (!actorPermissions(state, input.organizationId).has('verification.activities.activate')) return { ok: false, error: DENIED };
+  const activity = find(state, input.organizationId, input.activityId);
+  if (!activity) return { ok: false, error: 'This activity no longer exists.' };
+  if (activity.status === 'draft') return { ok: false, error: 'A draft can’t be completed. Remove it instead.' };
+  if (activity.completedAt) return { ok: false, error: 'This activity is already completed.' };
+  const by = state.data.admin.name;
+  const next: ActivityConfig = { ...activity, status: 'inactive', completedAt: input.at, completedBy: by, draftVersionId: undefined, updatedAt: input.at, updatedBy: by };
+  return {
+    ok: true, activityId: activity.id,
+    state: withEvents(state, next, input.at, [{
+      action: 'verification-activity.completed', summary: `${by} marked ${activity.name} as completed. No new verifications can start; earlier records are kept.`,
+      changes: [{ field: 'Status', from: activity.status === 'active' ? 'Active' : 'Paused', to: 'Completed' }],
+    }], {
+      activityConfigs: state.data.activityConfigs.map((a) => (a.id === activity.id ? next : a)),
+      // Unpublished changes are dropped: a completed activity keeps the configuration it last ran with.
+      activityVersions: activity.draftVersionId && activity.activeVersionId ? state.data.activityVersions.filter((v) => v.id !== activity.draftVersionId) : state.data.activityVersions,
+    }),
   };
 }
 

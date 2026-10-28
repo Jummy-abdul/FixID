@@ -32,7 +32,7 @@ import {
   actorPermissions, actorRecord, applyAcceptInvite, applyExpireInvite, ensurePrimaryAdmins, applyInvite, applyResendInvite, applyRevokeInvite, applySetAdminStatus, applySetRoles, applySaveRole, applyDeleteRole, ownerRecord, type InviteInput, type RoleInput,
 } from './adminOps';
 import {
-  applyActivate, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
+  applyActivate, applyComplete, applyDeactivate, applyDiscardDraft, applyDuplicate, applyRemoveDraft, applySaveActivity, type ActivityForm,
 } from './activityOps';
 import {
   applyCancelAttempt, applyCompleteAttempt, applyDeniedAttempt, applyExpireAttempts, applyFailAttempt, applyRecordEntry, applyDenyEntry, applyReferAttempt, applyStartAttempt,
@@ -116,6 +116,7 @@ export type Action =
   | { type: 'vactivities/save'; organizationId: string; activityId?: string; ids: { activityId: string; versionId: string }; form: ActivityForm; at: string }
   | { type: 'vactivities/activate'; organizationId: string; activityId: string; at: string }
   | { type: 'vactivities/deactivate'; organizationId: string; activityId: string; at: string }
+  | { type: 'vactivities/complete'; organizationId: string; activityId: string; at: string }
   | { type: 'vactivities/discardDraft'; organizationId: string; activityId: string; at: string }
   | { type: 'vactivities/duplicate'; organizationId: string; activityId: string; ids: { activityId: string; versionId: string }; at: string }
   | { type: 'vactivities/remove'; organizationId: string; activityId: string; at: string }
@@ -217,6 +218,7 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'vactivities/save': ['verification.activities.create', 'verification.activities.edit'],
   'vactivities/activate': ['verification.activities.activate'],
   'vactivities/deactivate': ['verification.activities.activate'],
+  'vactivities/complete': ['verification.activities.activate'],
   'vactivities/discardDraft': ['verification.activities.edit'],
   'vactivities/duplicate': ['verification.activities.create'],
   'vactivities/remove': ['verification.activities.edit'],
@@ -564,6 +566,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'vactivities/save': return orKeep(state, applySaveActivity(state, action));
     case 'vactivities/activate': return orKeep(state, applyActivate(state, action));
     case 'vactivities/deactivate': return orKeep(state, applyDeactivate(state, action));
+    case 'vactivities/complete': return orKeep(state, applyComplete(state, action));
     case 'vactivities/discardDraft': return orKeep(state, applyDiscardDraft(state, action));
     case 'vactivities/duplicate': return orKeep(state, applyDuplicate(state, action));
     case 'vactivities/remove': return orKeep(state, applyRemoveDraft(state, action));

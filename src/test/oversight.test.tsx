@@ -291,8 +291,8 @@ describe('screens', () => {
   it('the dashboard shows verification operations from stored records', async () => {
     renderApp('/', tobyson(), 'usr_tobyson');
     const ops = await screen.findByRole('region', { name: 'Verification operations' });
-    // Brightwater's four recorded transactions in the last 30 days.
-    expect(ops).toHaveTextContent('Total attempts4');
+    // Brightwater's nine recorded transactions in the last 30 days (four, plus the completed open day's five).
+    expect(ops).toHaveTextContent('Total attempts9');
     expect(within(ops).getByLabelText('Recent exceptions')).toHaveTextContent('Identity mismatch');
   });
 
