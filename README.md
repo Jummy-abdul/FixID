@@ -346,7 +346,7 @@ The current Verification Activities experience (`/verification-activities`). It 
 **Statuses** (`src/domain/activityLifecycle.ts`): **Draft**, **Scheduled** (activated, start still ahead), **Active**, **Paused** (stored as `inactive`), **Completed** (marked completed, or the scheduled end has passed). Activities created before schedules existed are never Scheduled or Completed by date.
 
 **List:** activity, organization (plus delegated sub-organizations), identity source, schedule, status, progress (*x of y verified* for selected participants; *verified · attempts* for open verification), created date and a row menu (View details, Edit or Continue editing, Activate / Pause / Resume / Mark as completed, Duplicate, Remove draft). Search, status and identity-source filters live in the address. The empty state reads *No verification activities yet* with **Create activity**.
-- See it for real by opening the empty *Crestfield Institute* workspace (demo@fixid.app).
+- See it for real by opening the empty *Crestfield Organization* workspace (demo@fixid.app).
 - Or use the demo-only *preview the empty state* link under the list, which changes no data.
 
 **Five-step wizard** (`ActivityEditorPage`, `/verification-activities/new`, `/:id/edit?step=details|participants|source|verifiers|review`):
