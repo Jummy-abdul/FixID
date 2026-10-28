@@ -100,5 +100,14 @@ export const DEMO_PERSONAS: DemoPersona[] = [
   },
 ];
 
+/**
+ * The two accounts shown first in the sign-in "Demo accounts" dialog: an administrator and a verifier in the same
+ * organization (C), whose seeded activities cover local and external verification, assignment and exceptions.
+ */
+export const FEATURED_DEMO_ACCOUNTS: { accountId: string; role: string }[] = [
+  { accountId: 'acct_demo_c_admin', role: 'Administrator' },
+  { accountId: `${ORG_C}_usr_4`, role: 'Verifier' },
+];
+
 export const personaById = (id: string) => DEMO_PERSONAS.find((p) => p.accountId === id);
 export const personaName = (p: DemoPersona) => `${p.firstName} ${p.lastName}`;

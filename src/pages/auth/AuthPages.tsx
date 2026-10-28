@@ -8,7 +8,7 @@ import { DEMO_AUTH_ENABLED, DEMO_PASSWORD, RESET_LINK_MINUTES, SESSION_EXPIRED_F
 import { DEMO_ADMIN } from '@/data/seed';
 import { useStore } from '@/store/AppStore';
 import { loadMailbox } from '@/auth/demoMailbox';
-import { DEMO_PERSONAS, personaName } from '@/data/demoPersonas';
+import { DEMO_PERSONAS, FEATURED_DEMO_ACCOUNTS, personaById, personaName } from '@/data/demoPersonas';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
 import { OtpInput, PasswordField, PasswordRules } from './fields';
 
@@ -302,11 +302,30 @@ export function SignInPage() {
  * normal password check. Not rendered when demo mode is off (VITE_DEMO_AUTH=off).
  */
 function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
-  const accounts = [
+  type DemoAccount = { email: string; persona: string; name: string; description: string };
+  const accounts: DemoAccount[] = [
     { email: 'demo@fixid.app', persona: 'Multi-workspace Organization Admin', name: 'Tobyson TE', description: 'Belongs to several sample organizations and can switch between them.' },
     ...DEMO_PERSONAS.map((p) => ({ email: p.email, persona: p.persona, name: personaName(p), description: p.description })),
   ];
+  // One administrator and one verifier from the same organization, for trying the verification workflow end to end.
+  const featured = FEATURED_DEMO_ACCOUNTS.flatMap((f) => {
+    const a = accounts.find((x) => x.email === personaById(f.accountId)?.email);
+    return a ? [{ ...a, role: f.role }] : [];
+  });
+  const others = accounts.filter((a) => !featured.some((f) => f.email === a.email));
   const [open, setOpen] = useState(false);
+  const row = (a: DemoAccount & { role?: string }) => (
+    <li key={a.email} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
+      <span className="min-w-0">
+        {a.role && <span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">{a.role}</span>}
+        <span className="block font-medium text-slate-900">{a.persona}</span>
+        <span className="block text-xs text-slate-500 [overflow-wrap:anywhere]">{a.name} · {a.email}</span>
+        <span className="block text-xs text-slate-500">{a.description}</span>
+      </span>
+      <button type="button" onClick={() => { onUse(a.email); setOpen(false); }} aria-label={`Use ${a.persona} account`}
+        className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 hover:text-brand-700">Use</button>
+    </li>
+  );
   return (
     <div className="mt-4 text-center">
       <button type="button" aria-haspopup="dialog" onClick={() => setOpen(true)} className="text-sm font-medium text-slate-500 underline-offset-2 hover:text-brand-700 hover:underline">
@@ -319,19 +338,16 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900 ring-1 ring-inset ring-amber-200">
             Prototype only, not available in production builds. All demo accounts use the password <span className="font-mono">{DEMO_PASSWORD}</span>. Choose <span className="font-semibold">Use</span> to fill in the sign-in form.
           </p>
-          <ul className="space-y-1.5" aria-label="Demonstration accounts">
-            {accounts.map((a) => (
-              <li key={a.email} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
-                <span className="min-w-0">
-                  <span className="block font-medium text-slate-900">{a.persona}</span>
-                  <span className="block text-xs text-slate-500 [overflow-wrap:anywhere]">{a.name} · {a.email}</span>
-                  <span className="block text-xs text-slate-500">{a.description}</span>
-                </span>
-                <button type="button" onClick={() => { onUse(a.email); setOpen(false); }} aria-label={`Use ${a.persona} account`}
-                  className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 hover:text-brand-700">Use</button>
-              </li>
-            ))}
-          </ul>
+          {featured.length > 0 && (
+            <section aria-labelledby="demo-start-here">
+              <h3 id="demo-start-here" className="mb-1.5 text-sm font-semibold text-slate-900">Start here</h3>
+              <ul className="space-y-1.5" aria-label="Start here">{featured.map(row)}</ul>
+            </section>
+          )}
+          <section aria-labelledby="demo-other-accounts">
+            <h3 id="demo-other-accounts" className="mb-1.5 text-sm font-semibold text-slate-900">{featured.length > 0 ? 'Other demo accounts' : 'Demo accounts'}</h3>
+            <ul className="space-y-1.5" aria-label="Demonstration accounts">{others.map((a) => row(a))}</ul>
+          </section>
           <p className="text-slate-500">Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
         </div>
       </Modal>

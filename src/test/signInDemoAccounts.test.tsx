@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_PASSWORD } from '@/auth/authCore';
-import { DEMO_PERSONAS } from '@/data/demoPersonas';
+import { DEMO_PERSONAS, FEATURED_DEMO_ACCOUNTS, personaById } from '@/data/demoPersonas';
 import { createInitialState } from '@/store/state';
 
 function renderSignIn() {
@@ -72,5 +72,46 @@ describe('sign-in demo accounts dialog', () => {
     await user.click(screen.getByRole('button', { name: `Use ${verifier.persona} account` }));
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY)!).session.accountId).toBe(verifier.accountId), { timeout: 4000 });
+  });
+
+  it('features one administrator and one verifier first, and keeps every other account', async () => {
+    const user = renderSignIn();
+    await user.click(await screen.findByRole('button', { name: 'View demo accounts' }));
+    const dialog = screen.getByRole('dialog', { name: 'Demo accounts' });
+    const featured = within(dialog).getByRole('list', { name: 'Start here' });
+    const admin = personaById('acct_demo_c_admin')!;
+    const verifier = personaById(FEATURED_DEMO_ACCOUNTS[1].accountId)!;
+    const rows = within(featured).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent)).toEqual([expect.stringContaining('Administrator'), expect.stringContaining('Verifier')]);
+    expect(rows[0]).toHaveTextContent(`${admin.firstName} ${admin.lastName}`);
+    expect(rows[1]).toHaveTextContent(`${verifier.firstName} ${verifier.lastName}`);
+    expect(within(featured).getByRole('button', { name: `Use ${admin.persona} account` })).toBeInTheDocument();
+    expect(within(featured).getByRole('button', { name: `Use ${verifier.persona} account` })).toBeInTheDocument();
+    // Every other account is still listed, once.
+    const others = within(dialog).getByRole('list', { name: 'Demonstration accounts' });
+    expect(within(dialog).getByRole('heading', { name: 'Other demo accounts' })).toBeInTheDocument();
+    expect(within(others).getAllByRole('listitem')).toHaveLength(DEMO_PERSONAS.length + 1 - 2);
+    expect(within(others).getByText('demo@fixid.app', { exact: false })).toBeInTheDocument();
+  });
+
+  it('the featured administrator opens Brightwater as Organization Admin', async () => {
+    const user = renderSignIn();
+    await user.click(await screen.findByRole('button', { name: 'View demo accounts' }));
+    await user.click(screen.getByRole('button', { name: `Use ${personaById('acct_demo_c_admin')!.persona} account` }));
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('region', { name: 'Workspace' }, { timeout: 4000 })).toHaveTextContent('Brightwater Collective');
+    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Organization Admin');
+  });
+
+  it('the featured verifier sees only the activities assigned to them', async () => {
+    const user = renderSignIn();
+    const verifier = personaById(FEATURED_DEMO_ACCOUNTS[1].accountId)!;
+    await user.click(await screen.findByRole('button', { name: 'View demo accounts' }));
+    await user.click(screen.getByRole('button', { name: `Use ${verifier.persona} account` }));
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('region', { name: 'Workspace' }, { timeout: 4000 })).toHaveTextContent('Brightwater Collective');
+    await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'My Verification Activities' }));
+    for (const name of ['Visitor Check-in', 'Restricted Lounge Access', 'Badge Collection']) expect(await screen.findByText(name)).toBeInTheDocument();
+    for (const name of ['Annual Staff Conference', 'Visitor Identity Check', 'Membership Verification']) expect(screen.queryByText(name)).toBeNull();
   });
 });
