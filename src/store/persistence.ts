@@ -79,6 +79,7 @@ function withLogoAssets(state: AppState): AppState {
   if (!Array.isArray(state.data.ssoConnections)) state = { ...state, data: { ...state.data, ssoConnections: [] } };
   if (!Array.isArray(state.data.organizationRelationships)) state = { ...state, data: { ...state.data, organizationRelationships: [] } };
   if (!Array.isArray(state.data.verificationExceptions)) state = { ...state, data: { ...state.data, verificationExceptions: [] } };
+  if (!Array.isArray(state.data.managedOrganizations)) state = { ...state, data: { ...state.data, managedOrganizations: [] } };
   state = Array.isArray(state.data.customIntegrations) ? settleInterruptedTests(state) : { ...state, data: { ...state.data, customIntegrations: [] } };
   return Array.isArray(state.data.logoAssets) ? state : { ...state, data: { ...state.data, logoAssets: [] } };
 }

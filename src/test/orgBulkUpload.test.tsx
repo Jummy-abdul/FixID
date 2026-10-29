@@ -172,7 +172,7 @@ function renderAs(path: string, accountId: string, state = createInitialState(ne
 
 describe('bulk organization upload (screens)', () => {
   it('uploads, previews, confirms and summarises; problems are explained by row', async () => {
-    const user = renderAs('/organizations', VICTOR);
+    const user = renderAs('/organizations?view=sub-organizations', VICTOR);
     const bulk = await screen.findByRole('link', { name: 'Bulk upload' });
     expect(screen.getByRole('button', { name: 'Add organization' })).toBeTruthy();
     await user.click(bulk);

@@ -75,6 +75,8 @@ export interface SeedData {
   /** Custom identity services, each owned by one organization. */
   customIntegrations: CustomIntegration[];
   verificationExceptions: VerificationException[];
+  /** Organizations managed inside a workspace (no workspace, sign-in or administrators of their own). */
+  managedOrganizations?: import('@/domain/managedOrganizations').ManagedOrganization[];
 }
 
 const DAY = 86_400_000;
@@ -940,11 +942,40 @@ export function buildSeed(now: Date = new Date()): SeedData {
     ssoConnections: [],
     customIntegrations: seedIntegrations(today),
     verificationExceptions: [],
+    managedOrganizations: seedManagedOrganizations(today),
     organizationRelationships: Object.entries(SEEDED_SUB_ORGANIZATIONS).map(([child, parent]) => ({
       id: `rel_${child}`, parentOrganizationId: parent, childOrganizationId: child, type: 'sub-organization' as const, origin: 'created-by-parent' as const,
       status: 'active' as const, initialAdministratorId: `${child}_adm_owner`, createdAt: iso(addMonths(today, -14)), createdBy: 'Victor Hale',
     })),
   };
+}
+
+/**
+ * Fictional organizations managed inside two workspaces. Brightwater: two active organizations with users
+ * and activities (one user belongs to both), one with nobody yet, and an inactive one whose records are kept.
+ * Meridian: one with users and its staff activity, one empty. Most users belong to none.
+ */
+function seedManagedOrganizations(today: Date): import('@/domain/managedOrganizations').ManagedOrganization[] {
+  const at = (d: number) => addDays(today, -d).toISOString();
+  const m = (org: string, n: number, d: number, by: string) => ({ memberId: `${org}_m_${String(n).padStart(3, '0')}`, assignedAt: at(d), assignedBy: by });
+  const C = 'org_lts';
+  const B = ORG_B;
+  const org = (o: Omit<import('@/domain/managedOrganizations').ManagedOrganization, 'updatedAt' | 'updatedBy'> & { updated?: number }) => {
+    const { updated, ...rest } = o;
+    return { ...rest, updatedAt: updated !== undefined ? at(updated) : rest.createdAt, updatedBy: rest.createdBy };
+  };
+  return [
+    org({ id: 'morg_bw_riverside', organizationId: C, reference: 'ORG-1001', name: 'Riverside Campus', description: 'Main campus: staff and visitors at the Riverside site.', contactEmail: 'riverside.office@brightwater.example',
+      status: 'active', createdAt: at(60), createdBy: 'Jordan Blake', updated: 12, members: [1, 2, 3, 4, 5].map((n) => m(C, n, 50, 'Jordan Blake')), activityIds: [`${C}_va_visitor_checkin`, `${C}_va_restricted_lounge`] }),
+    org({ id: 'morg_bw_northgate', organizationId: C, reference: 'ORG-1002', name: 'Northgate Contractors', description: 'Contracted maintenance and security staff.',
+      status: 'active', createdAt: at(45), createdBy: 'Jordan Blake', members: [m(C, 1, 40, 'Jordan Blake'), m(C, 6, 40, 'Jordan Blake'), m(C, 7, 20, 'Tobyson TE')], activityIds: [`${C}_va_badge_collection`] }),
+    org({ id: 'morg_bw_alumni', organizationId: C, reference: 'ORG-1003', name: 'Alumni Relations Office', status: 'active', createdAt: at(8), createdBy: 'Tobyson TE', members: [], activityIds: [] }),
+    org({ id: 'morg_bw_facilities', organizationId: C, reference: 'ORG-1004', name: 'Former Facilities Unit', description: 'Merged into Riverside Campus; kept for its records.',
+      status: 'inactive', createdAt: at(120), createdBy: 'Jordan Blake', updated: 30, members: [m(C, 8, 110, 'Jordan Blake')], activityIds: [`${C}_va_open_day`] }),
+    org({ id: 'morg_mg_operations', organizationId: B, reference: 'ORG-1001', name: 'Group Operations', description: 'Operations staff across Meridian sites.',
+      status: 'active', createdAt: at(90), createdBy: 'Victor Hale', members: [m(B, 2, 80, 'Victor Hale'), m(B, 4, 80, 'Victor Hale'), m(B, 6, 30, 'Victor Hale')], activityIds: [`${B}_va_staff_entry`] }),
+    org({ id: 'morg_mg_academy', organizationId: B, reference: 'ORG-1002', name: 'Training Academy', status: 'active', createdAt: at(15), createdBy: 'Victor Hale', members: [], activityIds: [] }),
+  ];
 }
 
 /**

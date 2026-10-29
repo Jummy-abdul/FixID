@@ -70,10 +70,10 @@ export const PERMISSION_DESCRIPTION: Record<Permission, string> = {
   'audit.view': 'Read the audit log.',
   'integrations.view': 'See connected identity services (never their credentials).',
   'integrations.manage': 'Configure, test, activate and deactivate identity services.',
-  'organizations.view': 'See sub-organizations and their onboarding status.',
-  'organizations.manage': 'Create sub-organizations and resend their first invitation.',
-  'organizations.edit': 'Edit organization details and their activity associations (Organization Management, coming soon).',
-  'organizations.members': 'Assign users to organizations and manage membership (Organization Management, coming soon). Membership never grants administrator access.',
+  'organizations.view': 'See the organizations this workspace manages, their users and activities, and sub-organizations’ onboarding status.',
+  'organizations.manage': 'Create organizations, and create sub-organization workspaces and resend their first invitation.',
+  'organizations.edit': 'Edit organization details, activate or deactivate them, and associate verification activities.',
+  'organizations.members': 'Assign existing users to organizations and remove them. Membership never grants administrator access.',
 };
 
 export const PERMISSIONS: PermissionInfo[] = [
@@ -112,11 +112,10 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'audit.view', label: 'View the audit log', area: 'Administration' },
   { id: 'integrations.view', label: 'View custom identity services (no credentials)', area: 'Integrations' },
   { id: 'integrations.manage', label: 'Configure, test, activate and deactivate custom identity services', area: 'Integrations', sensitive: true },
-  { id: 'organizations.view', label: 'View sub-organizations and their onboarding', area: 'Organizations' },
-  { id: 'organizations.manage', label: 'Create sub-organizations and resend their initial invitations', area: 'Organizations', sensitive: true },
-  // Prepared for Organization Management; no screen uses them yet.
-  { id: 'organizations.edit', label: 'Edit organizations', area: 'Organizations', sensitive: true, planned: true },
-  { id: 'organizations.members', label: 'Manage organization membership', area: 'Organizations', sensitive: true, planned: true },
+  { id: 'organizations.view', label: 'View organizations and sub-organizations', area: 'Organizations' },
+  { id: 'organizations.manage', label: 'Create organizations and sub-organizations', area: 'Organizations', sensitive: true },
+  { id: 'organizations.edit', label: 'Edit organizations, change their status and associate activities', area: 'Organizations', sensitive: true },
+  { id: 'organizations.members', label: 'Assign users to organizations and remove them', area: 'Organizations', sensitive: true },
 ];
 
 export const PERMISSION_AREAS = [...new Set(PERMISSIONS.map((p) => p.area))];

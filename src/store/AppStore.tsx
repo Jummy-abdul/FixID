@@ -1,3 +1,4 @@
+import { applyAssignOrgMembers, applyLinkOrgActivity, applyManagedOrgStatus, applyRemoveOrgMember, applySaveManagedOrg } from './managedOrgOps';
 import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
 import type { ResolutionOutcome } from '@/domain/exceptions';
 import { applyApprovalDecision, applyAssignException, applyCloseException, applyEvidenceViewed, applyExceptionNote, applyExceptionWorkflow, applyReopenException, applyRequestInformation, applyResolveException, applyStartReview } from './exceptionOps';
@@ -345,6 +346,27 @@ export function useActions() {
       setExceptionWorkflow: (organizationId: string, approvalRequired: boolean) => {
         const at = new Date().toISOString();
         return run(() => applyExceptionWorkflow(getState(), { organizationId, approvalRequired, at }), { type: 'exceptions/workflow', organizationId, approvalRequired, at });
+      },
+      /** Creates (new id) or edits a managed organization. */
+      saveManagedOrganization: (input: { organizationId: string; id: string; name: string; description?: string; contactEmail?: string }) => {
+        const at = new Date().toISOString();
+        return run(() => applySaveManagedOrg(getState(), { ...input, at }), { type: 'managedOrgs/save', ...input, at });
+      },
+      setManagedOrganizationStatus: (organizationId: string, id: string, status: 'active' | 'inactive') => {
+        const at = new Date().toISOString();
+        return run(() => applyManagedOrgStatus(getState(), { organizationId, id, status, at }), { type: 'managedOrgs/status', organizationId, id, status, at });
+      },
+      assignOrganizationMembers: (organizationId: string, id: string, memberIds: string[]) => {
+        const at = new Date().toISOString();
+        return run(() => applyAssignOrgMembers(getState(), { organizationId, id, memberIds, at }), { type: 'managedOrgs/assign', organizationId, id, memberIds, at });
+      },
+      removeOrganizationMember: (organizationId: string, id: string, memberId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyRemoveOrgMember(getState(), { organizationId, id, memberId, at }), { type: 'managedOrgs/remove', organizationId, id, memberId, at });
+      },
+      linkOrganizationActivity: (organizationId: string, id: string, activityId: string, link: boolean) => {
+        const at = new Date().toISOString();
+        return run(() => applyLinkOrgActivity(getState(), { organizationId, id, activityId, link, at }), { type: 'managedOrgs/activity', organizationId, id, activityId, link, at });
       },
       /** Records a refused attempt to open another organization's transaction or exception. */
       recordAccessDenied: (organizationId: string, resourceType: 'verification-transaction' | 'exception', resourceId: string) =>

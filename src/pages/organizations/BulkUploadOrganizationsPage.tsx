@@ -160,7 +160,7 @@ export function BulkUploadOrganizationsPage() {
             )}
             <p className="text-sm text-slate-600">To invite organizations, open a shared activity and choose them under Participating organizations.</p>
             <div className="flex flex-wrap gap-2">
-              <ButtonLink to="/organizations" variant="primary">Back to Organizations</ButtonLink>
+              <ButtonLink to="/organizations?view=sub-organizations" variant="primary">Back to Organizations</ButtonLink>
               <Button variant="secondary" icon={<Download className="h-4 w-4" />}
                 onClick={() => downloadCsv('fixid-organization-upload-results.csv', [['Row', 'Organization name', 'Administrator email', 'Result', 'Issue'],
                   ...step.results.map((r) => [String(r.row), r.name, r.adminEmail, r.outcome === 'created' ? 'Created' : r.outcome === 'exists' ? 'Skipped' : 'Failed', r.reason ?? ''])])}>Download results</Button>

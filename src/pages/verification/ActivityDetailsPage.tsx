@@ -1,3 +1,4 @@
+import { organizationOfActivity } from '@/store/managedOrgOps';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Building2, CalendarClock, ChevronRight, MapPin, Pencil, ShieldCheck, Undo2, Users } from 'lucide-react';
@@ -218,6 +219,7 @@ function Overview({ activity, records, onTab }: { activity: ActivityConfig; reco
             <Item label="Identity source">{sourceLabel(policy.effective.identitySource, policy.integration)}</Item>
             <Item label="Who can be verified">{ELIGIBILITY_MODE_LABEL[mode]}</Item>
             <Item label="Schedule">{scheduleSummary(activity.schedule) ?? 'Not scheduled'}</Item>
+            {(() => { const o = organizationOfActivity(state, organization.id, activity.id); return o ? <Item label="Organization">{can('organizations.view') ? <Link to={`/organizations/${o.id}`} className="text-brand-700 hover:underline">{o.name}</Link> : o.name}{o.status === 'inactive' && <span className="ml-1 text-xs text-slate-500">(inactive)</span>}</Item> : null; })()}
             <Item label="Assigned verifiers">{verifiers.length ? <ul aria-label="Assigned verifiers">{verifiers.map((v) => <li key={v}>{v}</li>)}</ul> : 'None yet'}</Item>
             {delegated.length > 0 && <Item label="Authorised sub-organizations">{delegated.map((p) => state.data.organizations.find((o) => o.id === p.organizationId)?.name ?? p.organizationId).join(', ')}</Item>}
           </dl>

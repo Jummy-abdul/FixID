@@ -1,3 +1,4 @@
+import { applyAssignOrgMembers, applyLinkOrgActivity, applyManagedOrgStatus, applyRemoveOrgMember, applySaveManagedOrg } from './managedOrgOps';
 import { seedDemoTransactions } from './demoTransactions';
 import type { ResolutionOutcome } from '@/domain/exceptions';
 import {
@@ -131,6 +132,11 @@ export type Action =
   | { type: 'exceptions/reopen'; organizationId: string; exceptionId: string; reason: string; at: string }
   | { type: 'exceptions/evidenceViewed'; organizationId: string; exceptionId: string; at: string }
   | { type: 'exceptions/workflow'; organizationId: string; approvalRequired: boolean; at: string }
+  | { type: 'managedOrgs/save'; organizationId: string; id: string; name: string; description?: string; contactEmail?: string; at: string }
+  | { type: 'managedOrgs/status'; organizationId: string; id: string; status: 'active' | 'inactive'; at: string }
+  | { type: 'managedOrgs/assign'; organizationId: string; id: string; memberIds: string[]; at: string }
+  | { type: 'managedOrgs/remove'; organizationId: string; id: string; memberId: string; at: string }
+  | { type: 'managedOrgs/activity'; organizationId: string; id: string; activityId: string; link: boolean; at: string }
   | { type: 'audit/accessDenied'; organizationId: string; resourceType: 'verification-transaction' | 'exception'; resourceId: string; at: string }
   | { type: 'api/statusRequest'; clientId?: string; transactionId: string; at: string }
   | { type: 'verify/lookup'; attemptId: string; at: string; reference: string; requestId: string; result: IdentityLookupResult }
@@ -213,6 +219,12 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'exceptions/reopen': ['exceptions.reopen'],
   'exceptions/evidenceViewed': ['exceptions.review'],
   'exceptions/workflow': ['exceptions.configure'],
+  // Creating needs organizations.manage, editing organizations.edit: the operation checks which applies.
+  'managedOrgs/save': ['organizations.manage', 'organizations.edit'],
+  'managedOrgs/status': ['organizations.edit'],
+  'managedOrgs/assign': ['organizations.members'],
+  'managedOrgs/remove': ['organizations.members'],
+  'managedOrgs/activity': ['organizations.edit'],
   'verify/lookup': ['verification.execute'],
   'verify/externalComplete': ['verification.execute'],
   'verify/end': ['verification.execute'],
@@ -444,6 +456,7 @@ export function reducer(state: AppState, action: Action): AppState {
           verifierAssignments: keep(n.verifierAssignments, d.verifierAssignments),
           verificationAttempts: keep(n.verificationAttempts, d.verificationAttempts),
           verificationExceptions: keep(n.verificationExceptions ?? [], d.verificationExceptions ?? []),
+          managedOrganizations: keep(n.managedOrganizations ?? [], d.managedOrganizations ?? []),
           customRoles: keep(n.customRoles, d.customRoles),
           logoAssets: keep(n.logoAssets, d.logoAssets ?? []),
           ssoConnections: keep(n.ssoConnections, d.ssoConnections ?? []),
@@ -544,6 +557,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'exceptions/reopen': return orKeep(state, applyReopenException(state, action));
     case 'exceptions/evidenceViewed': return orKeep(state, applyEvidenceViewed(state, action));
     case 'exceptions/workflow': return orKeep(state, applyExceptionWorkflow(state, action));
+    case 'managedOrgs/save': return orKeep(state, applySaveManagedOrg(state, action));
+    case 'managedOrgs/status': return orKeep(state, applyManagedOrgStatus(state, action));
+    case 'managedOrgs/assign': return orKeep(state, applyAssignOrgMembers(state, action));
+    case 'managedOrgs/remove': return orKeep(state, applyRemoveOrgMember(state, action));
+    case 'managedOrgs/activity': return orKeep(state, applyLinkOrgActivity(state, action));
     case 'audit/accessDenied': return applyAccessDenied(state, action);
     case 'api/statusRequest': return applyStatusRequestAudit(state, action);
     case 'verify/fail': return orKeep(state, applyFailAttempt(state, action));

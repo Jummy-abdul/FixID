@@ -457,6 +457,13 @@ export type AuditAction =
   | 'activity.updated'
   | 'organization.updated'
   | 'organization.created'
+  | 'managed-organization.created'
+  | 'managed-organization.updated'
+  | 'managed-organization.status-changed'
+  | 'managed-organization.member-assigned'
+  | 'managed-organization.member-removed'
+  | 'managed-organization.activity-linked'
+  | 'managed-organization.activity-unlinked'
   | 'admin.invited'
   | 'admin.invitation-resent'
   | 'admin.invitation-revoked'
@@ -549,7 +556,7 @@ export interface AuditEvent {
   action: AuditAction;
   actor: string;
   actorType: 'admin' | 'system' | 'integration';
-  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'exception' | 'verification-transaction' | 'status-api';
+  resourceType: 'member' | 'credential' | 'credential-type' | 'identifier' | 'activity' | 'organization' | 'administrator' | 'group' | 'verification-activity' | 'role' | 'sso' | 'integration' | 'exception' | 'verification-transaction' | 'status-api' | 'managed-organization';
   resourceId: string;
   /** `partial` when an operation on several records succeeded for some and not others; `denied` when access was refused. */
   result: 'success' | 'partial' | 'failure' | 'denied';

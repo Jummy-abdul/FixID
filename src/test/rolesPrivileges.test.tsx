@@ -27,9 +27,9 @@ function steward(): AppState {
 }
 
 describe('privilege catalogue', () => {
-  it('every privilege has a plain-language explanation; organization management is prepared but marked coming soon', () => {
+  it('every privilege has a plain-language explanation; organization membership is explicitly not administrator access', () => {
     for (const p of PERMISSIONS) expect(PERMISSION_DESCRIPTION[p.id]?.length).toBeGreaterThan(10);
-    expect(PERMISSIONS.filter((p) => p.area === 'Organizations' && p.planned).map((p) => p.id)).toEqual(['organizations.edit', 'organizations.members']);
+    expect(PERMISSIONS.filter((p) => p.area === 'Organizations').map((p) => p.id)).toEqual(['organizations.view', 'organizations.manage', 'organizations.edit', 'organizations.members']);
     expect(PERMISSION_DESCRIPTION['organizations.members']).toMatch(/never grants administrator access/);
     // Only the Organization Admin gets the prepared privileges; Auditor and Verifier don't.
     expect(SYSTEM_ROLES.find((r) => r.id === 'auditor')!.permissions).not.toContain('organizations.members');

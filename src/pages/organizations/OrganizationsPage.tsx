@@ -1,8 +1,10 @@
+import { ManagedOrganizationDetail, ManagedOrganizationsList, useManagedOrganization } from './ManagedOrganizationsPage';
+import { useQueryState } from '@/hooks/useQueryState';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Building2, Eye, Lock, Mail, Plus, Upload } from 'lucide-react';
 import {
-  Badge, Button, ButtonLink, Card, CardBody, CardHeader, DataTable, Drawer, EmptyState, Field, Input, Modal, OverflowMenu, PageHeader, SearchInput, Select, Skeleton, useToast,
+  Badge, Button, ButtonLink, Card, CardBody, CardHeader, DataTable, Drawer, EmptyState, Field, Input, Modal, OverflowMenu, PageHeader, SearchInput, Select, Skeleton, Tabs, useToast,
   type OverflowMenuItem,
 } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
@@ -50,10 +52,16 @@ export function OrganizationsPage() {
   const parent = parentRelationship(state, organization.id);
   const parentOrg = parent && state.data.organizations.find((o) => o.id === parent.parentOrganizationId);
 
+  const [view, setView] = useQueryState('view', 'organizations');
+  const selected = view === 'sub-organizations' ? 'sub-organizations' : 'organizations';
+
   return (
     <>
-      <PageHeader title="Organizations" description="Organizations related to yours. Each has its own workspace." />
-      {parent && parentOrg ? (
+      <PageHeader title="Organizations" description={`Organizations ${organization.name} manages, and related sub-organization workspaces.`} />
+      <div className="mb-4"><Tabs value={selected} onChange={(v) => setView(v === 'organizations' ? '' : v)}
+        tabs={[{ value: 'organizations', label: 'Organizations' }, { value: 'sub-organizations', label: parent ? 'Parent organization' : 'Sub-organizations' }]} /></div>
+      {selected === 'organizations' ? <ManagedOrganizationsList /> : parent && parentOrg ? (
+
         <Card>
           <CardHeader title="Parent organization" description="This organization is a sub-organization." />
           <CardBody className="space-y-4 text-sm">
@@ -217,6 +225,11 @@ function CreateOrganizationDrawer({ onClose, onCreated }: { onClose: () => void;
 
 /** Organization details, as the parent may see them. Anything else (or a guessed ID) shows the same not-found page. */
 export function OrganizationDetailPage() {
+  const managed = useManagedOrganization();
+  return managed ? <ManagedOrganizationDetail org={managed} /> : <SubOrganizationDetail />;
+}
+
+function SubOrganizationDetail() {
   const { orgId = '' } = useParams();
   const { organization: current } = useSession();
   const { state } = useStore();
@@ -231,7 +244,7 @@ export function OrganizationDetailPage() {
         <Building2 className="mx-auto h-8 w-8 text-slate-400" aria-hidden="true" />
         <h1 className="mt-3 text-lg font-semibold text-slate-900">Organization not available</h1>
         <p className="mt-1 text-slate-500">It isn’t a sub-organization of {current.name}, or it doesn’t exist.</p>
-        <Link to="/organizations" className="mt-5 inline-block text-sm font-semibold text-brand-600 hover:text-brand-700">Back to Organizations</Link>
+        <Link to="/organizations?view=sub-organizations" className="mt-5 inline-block text-sm font-semibold text-brand-600 hover:text-brand-700">Back to Organizations</Link>
       </Card>
     );
   }
@@ -248,7 +261,7 @@ export function OrganizationDetailPage() {
 
   return (
     <>
-      <PageHeader title={o.name} breadcrumbs={[{ label: 'Organizations', to: '/organizations' }, { label: o.name }]} meta={<OrgStatusBadge organization={o} />}
+      <PageHeader title={o.name} breadcrumbs={[{ label: 'Sub-organizations', to: '/organizations?view=sub-organizations' }, { label: o.name }]} meta={<OrgStatusBadge organization={o} />}
         description={`Sub-organization of ${current.name}.`} />
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">

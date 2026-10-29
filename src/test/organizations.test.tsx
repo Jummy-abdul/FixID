@@ -131,6 +131,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     // A single membership: no switcher.
     expect(within(screen.getByRole('region', { name: 'Workspace' })).queryByRole('combobox')).toBeNull();
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
+    await user.click(await screen.findByRole('tab', { name: /^(Sub-organizations|Parent organization)$/ }));
     const table = await screen.findByRole('table');
     expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Organization Name', 'Organization ID', 'Administrator', 'Status', 'Date Created', 'Actions']);
     expect(within(table).getByRole('row', { name: /Meridian Harbourside/ })).toHaveTextContent('Lina Ford');
@@ -147,6 +148,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     await signInAs(first.user, 'Organization Admin — independent organization');
     expect(await workspace()).toHaveTextContent('Northbridge Group');
     await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
+    await first.user.click(await screen.findByRole('tab', { name: /^(Sub-organizations|Parent organization)$/ }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
     await first.user.click(screen.getAllByRole('button', { name: 'Add organization' })[0]);
     const drawer = screen.getByRole('dialog', { name: 'Create organization' });
@@ -181,6 +183,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(org.onboarding).toBe('complete');
     // The new sub-organization's administrator sees its parent, and can't create nested organizations.
     await second.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
+    await second.user.click(await screen.findByRole('tab', { name: /^(Sub-organizations|Parent organization)$/ }));
     expect(await screen.findByLabelText('Parent relationship')).toHaveTextContent('Northbridge Group');
     expect(screen.queryByRole('button', { name: 'Add organization' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Bulk upload' })).toBeNull();
@@ -214,6 +217,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(await workspace()).toHaveTextContent('Northbridge Group');
     expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
+    await user.click(await screen.findByRole('tab', { name: /^(Sub-organizations|Parent organization)$/ }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add organization' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Bulk upload' })).toBeNull();
@@ -257,6 +261,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     expect(screen.queryByText(northbridgePerson.displayName)).toBeNull();
     // Meridian's Organizations page lists its sub-organizations, but switching never offers them.
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
+    await user.click(await screen.findByRole('tab', { name: /^(Sub-organizations|Parent organization)$/ }));
     expect(await screen.findByText('Meridian Harbourside')).toBeInTheDocument();
   }, 20_000);
 

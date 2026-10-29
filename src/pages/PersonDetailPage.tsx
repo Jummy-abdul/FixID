@@ -1,3 +1,4 @@
+import { organizationsOfMember } from '@/store/managedOrgOps';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { BadgePlus, ChevronRight, Printer, ShieldCheck } from 'lucide-react';
@@ -11,7 +12,7 @@ import { formatDate, formatDateTime } from '@/lib/dates';
 import { usePortrait } from '@/hooks/usePortrait';
 import { useQueryState } from '@/hooks/useQueryState';
 import { useServices } from '@/services/ServicesProvider';
-import { useOrgData } from '@/store/AppStore';
+import { useOrgData, useSession, useStore } from '@/store/AppStore';
 import { NotFoundPage } from './NotFoundPage';
 import { useAuthorization } from '@/auth/authorization';
 import { MemberGroupsCard } from '@/components/groups/MemberGroupsCard';
@@ -36,6 +37,7 @@ function UserDetails({ member }: { member: Member }) {
   const portrait = usePortrait(member);
   const current = (['profile', 'credentials', 'verifications'] as const).includes(tab as TabId) ? (tab as TabId) : 'profile';
   const canViewGroups = useAuthorization().can('groups.view');
+  const canViewOrgs = useAuthorization().can('organizations.view');
 
   return (
     <>
@@ -66,6 +68,7 @@ function UserDetails({ member }: { member: Member }) {
           <>
             <ProfileTab member={member} />
             {canViewGroups && <MemberGroupsCard member={member} />}
+            {canViewOrgs && <MemberOrganizationsCard member={member} />}
           </>
         )}
         {current === 'credentials' && <CredentialsTab member={member} creds={memberCreds} />}
@@ -229,6 +232,24 @@ function VerificationsTab({ member, rows }: { member: Member; rows: ReturnType<t
           ]}
         />
       )}
+    </Card>
+  );
+}
+
+/** The organizations this user belongs to (read-only here; assignments are made on the organization). */
+function MemberOrganizationsCard({ member }: { member: Member }) {
+  const { state } = useStore();
+  const { organization } = useSession();
+  const orgs = organizationsOfMember(state, organization.id, member.id);
+  return (
+    <Card className="mt-6 px-6 py-5">
+      <h2 className="text-sm font-semibold text-slate-900">Organizations</h2>
+      {orgs.length === 0 ? <p className="mt-2 text-sm text-slate-500">Not assigned to any organization.</p> : (
+        <ul className="mt-2 space-y-1 text-sm" aria-label="Organizations">
+          {orgs.map((o) => <li key={o.id}><Link to={`/organizations/${o.id}`} className="font-medium text-brand-700 hover:underline">{o.name}</Link> <span className="font-mono text-xs text-slate-500">{o.reference}</span>{o.status === 'inactive' && <span className="ml-1 text-xs text-slate-500">(inactive)</span>}</li>)}
+        </ul>
+      )}
+      <p className="mt-3 text-xs text-slate-500">Organization membership doesn’t give access to FixID.</p>
     </Card>
   );
 }
