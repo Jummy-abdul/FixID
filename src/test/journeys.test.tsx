@@ -360,9 +360,8 @@ describe('screens', () => {
     const user = renderApp('/verification-history', h.state, 'usr_tobyson');
     const rows = await screen.findAllByRole('row');
     const extRow = rows.find((r) => r.textContent?.includes(ext.id))!;
-    expect(extRow).toHaveTextContent('Brightwater Identity Service');
-    expect(extRow).toHaveTextContent('Verified');
-    expect(rows.some((r) => r.textContent?.includes('FixID Local Records') && r.textContent.includes('Not verified'))).toBe(true);
+    expect(extRow).toHaveTextContent('Successful');
+    expect(rows.some((r) => r.textContent?.includes('Unsuccessful'))).toBe(true);
     await user.click(within(extRow).getByRole('link', { name: `View details for ${ext.id}` }));
     const tx = await screen.findByLabelText('Verification transaction');
     expect(tx).toHaveTextContent('External Reference IDDEMO-10001');

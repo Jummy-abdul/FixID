@@ -305,6 +305,24 @@ Every check runs in the store (`authorizeAction` and the reducer, plus the `appl
 - **Any approver:** approvals aren't assigned to a named approver; any eligible approver other than the proposer can decide.
 - **Saved data:** stored custom roles created before this change keep only the permissions they had; use Settings → Demo data → Reset to load the new demo cases.
 
+## Verification History
+
+*Verification History* in the Verification menu (`/verification-history`, `/verification-history/:id`; `src/pages/verification/VerificationHistoryPage.tsx`, `src/domain/history.ts`). A read-only record of every completed attempt: there are no verify, review, approve, edit or delete actions here.
+
+- **One attempt, one record:** each row is one verification attempt. Raising, reviewing, approving, returning or reopening an exception updates the linked review information on that row; it never adds a row. Follow-up attempts (retries and reverifications) are separate rows, linked to the earlier attempt or exception.
+- **Original result** (from the attempt itself, never the review): *Successful* (Allow), *Unsuccessful* (Deny), *Incomplete* (unable to decide, cancelled, expired or errored), or *Referred for review* (the activity's policy sent it to review). Referred attempts are counted in the total, not as unsuccessful or incomplete.
+- **Final review outcome:** read from the linked exception: *Identity confirmed*, *Identity could not be established* or *Unable to resolve* (with the approver when approval was required), *Awaiting approval* with the proposed decision, or nothing when no decision exists.
+- **Summary cards:** Total attempts, Successful, Unsuccessful, Incomplete, for the selected period, search and filters.
+- **Columns:** participant, masked identifier, activity, original result, final review outcome, verifier, date and time (with the attempt reference), exception (reference and status), and a View action.
+- **Search** by participant, activity, attempt or exception reference, or identifier. **Filters:** date range (presets or custom), activity, original result, final review outcome, verifier, exception status. *Clear filters* resets them.
+- **Details:** *Attempt information* (reference, participant, masked identifier, date, verifier, identity source, method, original result and explanation), *Review information* (exception reference, reason, status, human-review decision, approval, final verification state, earlier decisions after a reopen), and *Activity context* (activity link, schedule, the activity's other attempts), followed by the existing transaction record. No exception means no review section is invented.
+- **Eligibility:** a confirmed identity shows the final verification state separately; an ineligible person stays *Not verified*.
+- **Privacy:** no portraits or biometric data anywhere in history. Evidence is inspected only in the exception review workspace, by people permitted to.
+- **Permissions:** `verification.results.view` (existing) opens history. Exception links appear only to people who can see that exception (`exceptions.view`, `review` or `approve`); others see *Exception raised*. Activity and participant links follow `verification.activities.view` and `users.view`. History holds the organization's own attempts and those participating organizations performed for its shared activities; other organizations' records are refused and audited.
+- **Links in:** activity details (*View verification history*), a person's page, dashboard figures, and the verifier's *Open the full verification record*.
+- **Demo (Brightwater, Jordan Blake):** Visitor Check-in D06 (successful), D07 (unsuccessful), D09 (incomplete); Restricted Lounge Access D08 (open exception), D16 (referred → identity confirmed, approved, still not eligible), D17 (awaiting approval), D18 (returned), D19 (approved), D15 (another attempt requested); Sample Person A has several attempts, each its own row. All identity results are simulated.
+- **Limitations:** records live in browser storage; the demo transactions were all performed by the demo administrator account, so the verifier filter has few values until new attempts are made.
+
 ## Verification journeys and transactions (Phase 4)
 
 Both identity models run through the same Verification Activity framework. The activity's configuration (and, for a programme-linked activity, the programme's authoritative requirements) decides the journey; the verifier never chooses the identity source, the matching service or whether liveness applies.

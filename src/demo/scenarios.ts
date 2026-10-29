@@ -345,7 +345,7 @@ export const SCENARIOS: ScenarioDefinition[] = [
     steps: [
       { title: 'Matching unavailable', account: ACCOUNTS.cVerifier, route: `/verify/activities/${VISITOR}`, instructions: 'DEMO-10001 → Continue → simulated capture → Passed → Matching: Service unavailable → Verify Identity. Optionally use Retry Verification.' },
       { title: 'Lookup unavailable (optional)', account: ACCOUNTS.cVerifier, route: `/verify/activities/${VISITOR}`, instructions: 'DEMO-50001 → Find Identity → End Verification.' },
-      { title: 'History and reporting', account: ACCOUNTS.cAuditor, route: '/verification-history?status=unable-to-complete', instructions: 'Find the transaction, then open Reports.' },
+      { title: 'History and reporting', account: ACCOUNTS.cAuditor, route: '/verification-history?result=incomplete&range=all', instructions: 'Find the transaction, then open Reports.' },
     ],
     resetBehavior: 'Reset Demo Data removes the transactions.',
     prerequisites: (s) => activityExists(s, VISITOR, 'Visitor Check-in'),

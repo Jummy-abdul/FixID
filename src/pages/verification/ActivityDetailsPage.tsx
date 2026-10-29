@@ -191,7 +191,12 @@ function Overview({ activity, records, onTab }: { activity: ActivityConfig; reco
       {delegated.length > 0 && <ResultsByOrganization activity={activity} records={records} />}
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">
-          <CardHeader title="Recent activity" action={records.length > 0 ? <button type="button" onClick={() => onTab('participants')} className="text-sm font-semibold text-brand-600 hover:text-brand-700">View participants</button> : undefined} />
+          <CardHeader title="Recent activity" action={records.length > 0 ? (
+            <span className="flex gap-4">
+              <button type="button" onClick={() => onTab('participants')} className="text-sm font-semibold text-brand-600 hover:text-brand-700">View participants</button>
+              {can('verification.results.view') && <Link to={`/verification-history?activity=${encodeURIComponent(activity.id)}&range=all`} className="text-sm font-semibold text-brand-600 hover:text-brand-700">View verification history</Link>}
+            </span>
+          ) : undefined} />
           {recent.length === 0 ? <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No verifications yet" description="Results appear here as verifiers record them." /> : (
             <ul className="divide-y divide-slate-100" aria-label="Recent activity">
               {recent.map((a) => (

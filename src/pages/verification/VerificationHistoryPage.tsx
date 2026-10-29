@@ -1,25 +1,27 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { Download, FlaskConical, Repeat, X } from 'lucide-react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { FlaskConical, Repeat, X } from 'lucide-react';
 import { DecisionBadge, EligibilityStatusBadge, LivenessBadge, MatchBadge, SimulatedBadge, StageBadge, lookupLabel, sourceName } from '@/components/verification/transactionParts';
 import { useAuthorization } from '@/auth/authorization';
 import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
-import { DECISION_LABEL, ELIGIBILITY_STATUS_LABEL, MATCH_LABEL, STAGE_LABEL, stageOf } from '@/domain/transactions';
-import { currentDecision, exceptionFor } from '@/store/exceptionOps';
+import { stageOf } from '@/domain/transactions';
+import { attemptSubject, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
 import type { ActivityDecision } from '@/domain/activitySettings';
-import { Badge, Card, DataTable, EmptyState, FilterSelect, PageHeader, Pagination, SearchInput, usePageSlice, type Column } from '@/components/ui';
-import { ResultBadge } from '@/components/domain/StatusBadges';
+import { Badge, Button, Card, DataTable, EmptyState, FilterSelect, Input, PageHeader, Pagination, SearchInput, StatCard, usePageSlice, type Column } from '@/components/ui';
 import { AccessAndEntry, AccessBadge, EligibilityBadge, EntryBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
 import { rangeStart, type TimeRange } from '@/domain/metrics';
-import type { Transaction, VerificationAttempt, VerificationOutcome } from '@/domain/types';
-import { OUTCOME_LABEL, checkById, providersFor } from '@/domain/verification';
+import type { VerificationAttempt, VerificationOutcome } from '@/domain/types';
+import { checkById, providersFor } from '@/domain/verification';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDateTime } from '@/lib/dates';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
-import { RESOLUTION_LABEL } from '@/domain/exceptions';
+import { EXCEPTION_REASON_LABEL, EXCEPTION_STATUS_LABEL, RESOLUTION_LABEL, type ExceptionStatus, type VerificationException } from '@/domain/exceptions';
+import { ORIGINAL_RESULT_LABEL, REVIEW_FILTER_LABEL, legacyResult, originalResultOf, reviewOutcomeOf, type OriginalResult } from '@/domain/history';
+import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
 import { AttemptBadge } from '@/components/verification/attemptParts';
 import { TransactionDetailPage } from '../TransactionDetailPage';
 import { activityPath } from './paths';
+import { scheduleSummary } from '@/domain/activityLifecycle';
 
 const PAGE_SIZE = 20;
 
@@ -78,11 +80,6 @@ function fromAttempt(a: VerificationAttempt, organization = '', current: Activit
   };
 }
 
-// Earlier records kept a verification result and an allow/deny decision; shown in today's vocabulary.
-const LEGACY_OUTCOME = { allow: 'verified', deny: 'not-verified', indeterminate: 'unable-to-verify' } as const;
-const LEGACY_ACCESS = { allow: 'permitted', deny: 'not-permitted', indeterminate: 'review-required' } as const;
-const LEGACY_DECISION = { allow: 'allow', deny: 'deny', indeterminate: 'unable-to-decide' } as const;
-
 export function AttemptsTable({ rows, hideActivity, orgName, hideColumns = [] }: { rows: VerificationAttempt[]; hideActivity?: boolean; orgName?: (id: string) => string; hideColumns?: string[] }) {
   const sorted = useMemo(() => [...rows].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).map((a) => fromAttempt(a, orgName?.(a.organizationId) ?? '')), [rows, orgName]);
   const hide = [...(hideActivity ? ['activity'] : []), ...(orgName ? [] : ['organization']), ...hideColumns];
@@ -109,116 +106,163 @@ function HistoryTable({ rows, hide = [], empty }: { rows: HistoryRow[]; hide?: s
   return <DataTable columns={columns.filter((c) => !hide.includes(c.key))} rows={rows} rowKey={(r) => r.id} rowHref={(r) => `/verification-history/${r.id}`} empty={empty} />;
 }
 
+/** One attempt in the global history: the original result, and the linked review (never a second record). */
+interface GlobalRow {
+  id: string;
+  at: string;
+  activityId: string;
+  activityName: string;
+  /** Activity configuration that can be opened (engine activities only). */
+  activityHref?: string;
+  memberId?: string;
+  participant: string;
+  identifier: string;
+  verifier: string;
+  organizationId: string;
+  result: OriginalResult;
+  explanation?: string;
+  review: ReturnType<typeof reviewOutcomeOf>;
+  exception?: VerificationException;
+  search: string;
+}
+
+const RESULT_TONE: Record<OriginalResult, 'success' | 'danger' | 'warning' | 'brand'> = { successful: 'success', unsuccessful: 'danger', incomplete: 'warning', review: 'brand' };
+export const OriginalResultBadge = ({ result }: { result: OriginalResult }) => <Badge tone={RESULT_TONE[result]} dot>{ORIGINAL_RESULT_LABEL[result]}</Badge>;
+// Older links (dashboard, scenarios) used decision and status filters; they map onto the original result.
+const LEGACY_PARAM: Record<string, OriginalResult> = { allow: 'successful', deny: 'unsuccessful', 'unable-to-decide': 'incomplete', 'unable-to-complete': 'incomplete', 'pending-review': 'review' };
+
+/**
+ * Verification History: every completed attempt the organization may see (its own, and those participating
+ * organizations performed for its shared activities), one row per attempt. A record of what happened, never a
+ * place to verify, review or approve.
+ */
 export function VerificationHistoryPage() {
   const { can } = useAuthorization();
   const { state } = useStore();
-  const { organization, transactions, activities, memberById, credentialById } = useOrgData();
+  const { organization, transactions, activities, memberById } = useOrgData();
   const [q, setQ] = useQueryState('q');
   const [range, setRange] = useQueryState('range', '30d');
-  const [outcome, setOutcome] = useQueryState('outcome', 'all');
+  const [from, setFrom] = useQueryState('from');
+  const [to, setTo] = useQueryState('to');
+  const [legacyDecision, setLegacyDecision] = useQueryState('decision', '');
+  const [legacyStatus, setLegacyStatus] = useQueryState('status', '');
+  const [result, setResult] = useQueryState('result', LEGACY_PARAM[legacyDecision] ?? LEGACY_PARAM[legacyStatus] ?? 'all');
+  const [review, setReview] = useQueryState('review', 'all');
+  const [exc, setExc] = useQueryState('exception', 'all');
   const [activity, setActivity] = useQueryState('activity', 'all');
-  const [entry, setEntry] = useQueryState('entry', 'all');
-  const [decision, setDecision] = useQueryState('decision', 'all');
-  const [source, setSource] = useQueryState('source', 'all');
-  const [performer, setPerformer] = useQueryState('organization', 'all');
-  const [match, setMatch] = useQueryState('match', 'all');
-  const [elig, setElig] = useQueryState('eligibility', 'all');
-  const [stage, setStage] = useQueryState('status', 'all');
-  const [sim, setSim] = useQueryState('simulated', 'all');
+  const [verifier, setVerifier] = useQueryState('verifier', 'all');
   const [person, setPerson] = useQueryState('person', '');
   const [page, setPage] = usePageParam();
+  const [, setParams] = useSearchParams();
   const now = useMemo(() => new Date(), []);
+  const canSeeExceptions = can('exceptions.view') || can('exceptions.review') || can('exceptions.approve');
+  const visibleExceptions = useMemo(() => new Set(canSeeExceptions ? exceptionsVisibleTo(state, organization.id).map((e) => e.id) : []), [state, organization.id, canSeeExceptions]);
 
-  // Its own transactions, and those participating organizations performed for its shared activities.
-  const attempts = useMemo(() => state.data.verificationAttempts.filter((a) => (a.organizationId === organization.id || a.activityOwnerId === organization.id) && a.status !== 'in-progress'), [state.data.verificationAttempts, organization.id]);
-  const configs = state.data.activityConfigs.filter((a) => a.organizationId === organization.id);
-  // Organizations that performed these transactions (by name only): this one, and participants in its shared activities.
-  const performers = [...new Set(attempts.map((a) => a.organizationId))].map((id) => ({ id, name: state.data.organizations.find((o) => o.id === id)?.name ?? id }));
-  const all = useMemo(() => {
-    const legacyName = new Map(activities.map((a) => [a.id, a.name]));
-    const legacy = (t: Transaction): HistoryRow => {
-      const m = t.memberId ? memberById.get(t.memberId) : undefined;
+  const all = useMemo<GlobalRow[]>(() => {
+    const orgAttempts = state.data.verificationAttempts.filter((a) => (a.organizationId === organization.id || a.activityOwnerId === organization.id) && a.status !== 'in-progress');
+    const rows: GlobalRow[] = orgAttempts.map((a) => {
+      const who = attemptSubject(state, a);
+      const e = a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined;
       return {
-        id: t.id, at: t.occurredAt, activityId: t.activityId, activityName: legacyName.get(t.activityId) ?? '—', memberId: m?.id, subject: m?.displayName ?? 'Unknown', verifier: t.verifier,
-        organization: organization.name, source: 'FixID Local Records', sourceKey: 'local', stageKey: 'completed', simulated: false, decision: <DecisionBadge decision={LEGACY_DECISION[t.decision]} />, decisionKey: LEGACY_DECISION[t.decision],
-        status: <StageBadge attempt={{ status: 'completed', outcome: LEGACY_OUTCOME[t.decision] }} />,
-        identity: <ResultBadge result={t.result} />, eligibility: <span className="text-slate-400">—</span>,
-        outcome: <AttemptBadge attempt={{ status: 'completed', outcome: LEGACY_OUTCOME[t.decision] }} />, outcomeKey: LEGACY_OUTCOME[t.decision],
-        access: <AccessBadge attempt={{ accessDecision: LEGACY_ACCESS[t.decision] }} />, location: <span className="text-slate-400">—</span>, entry: <span className="text-slate-400">—</span>, entered: false,
-        search: [t.id, t.reason, m?.displayName, t.credentialId && credentialById.get(t.credentialId)?.identifier, legacyName.get(t.activityId)].join(' ').toLowerCase(),
+        id: a.id, at: a.completedAt ?? a.startedAt, activityId: a.activityId, activityName: a.activityName, activityHref: activityPath(a.activityId),
+        memberId: a.subject?.memberId, participant: who.name, identifier: who.identifier, verifier: a.verifierName, organizationId: a.organizationId,
+        result: originalResultOf(a)!, explanation: a.decisionExplanation ?? a.reasons[0], review: reviewOutcomeOf(e), exception: e,
+        search: [a.id, a.activityName, who.name, who.identifier, a.lookup?.reference, a.exceptionId, a.verifierName].join(' ').toLowerCase(),
       };
-    };
-    const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? '';
-    return [...attempts.map((a) => fromAttempt(a, orgName(a.organizationId), a.status === 'completed' ? currentDecision(a, a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined) : undefined)), ...transactions.map(legacy)].sort((a, b) => b.at.localeCompare(a.at));
-  }, [attempts, transactions, activities, memberById, credentialById, organization.name, state]);
+    });
+    const legacyName = new Map(activities.map((x) => [x.id, x.name]));
+    for (const t of transactions) {
+      const m = t.memberId ? memberById.get(t.memberId) : undefined;
+      const id = m?.identifier?.value;
+      const identifier = !id ? '—' : id.length <= 4 ? '••••' : `••••${id.slice(-4)}`;
+      rows.push({
+        id: t.id, at: t.occurredAt, activityId: t.activityId, activityName: legacyName.get(t.activityId) ?? '—', memberId: m?.id, participant: m?.displayName ?? 'Unknown',
+        identifier, verifier: t.verifier, organizationId: organization.id, result: legacyResult(t.decision), explanation: t.reason, review: reviewOutcomeOf(),
+        search: [t.id, legacyName.get(t.activityId), m?.displayName, identifier, t.verifier].join(' ').toLowerCase(),
+      });
+    }
+    return rows.sort((a, b) => b.at.localeCompare(a.at));
+  }, [state, organization.id, transactions, activities, memberById]);
 
   const filtered = useMemo(() => {
-    const start = rangeStart(range as TimeRange, now)?.toISOString();
+    const start = range === 'custom' ? (from || undefined) : rangeStart(range as TimeRange, now)?.toISOString();
+    const end = range === 'custom' && to ? `${to}T23:59:59.999Z` : undefined;
     const query = q.trim().toLowerCase();
     return all.filter((r) =>
-      (!start || r.at >= start) &&
-      (outcome === 'all' || r.outcomeKey === outcome) &&
-      (decision === 'all' || r.decisionKey === decision) &&
-      (source === 'all' || r.sourceKey === source) &&
-      (performer === 'all' || (r.performedBy ?? organization.id) === performer) &&
-      (match === 'all' || r.matchKey === match) &&
-      (elig === 'all' || r.eligibilityKey === elig) &&
-      (stage === 'all' || r.stageKey === stage) &&
-      (sim === 'all' || (sim === 'yes') === r.simulated) &&
-      (activity === 'all' || r.activityId === activity) &&
-      (entry === 'all' || (entry === 'entered') === r.entered) &&
-      (!person || r.memberId === person) &&
-      (!query || r.search.includes(query)));
-  }, [all, range, outcome, decision, source, performer, match, elig, stage, sim, activity, entry, person, q, now]);
+      (!start || r.at >= start) && (!end || r.at <= end)
+      && (result === 'all' || r.result === result)
+      && (review === 'all' || r.review.key === review)
+      && (exc === 'all' || (exc === 'none' ? !r.exception : exc === 'any' ? !!r.exception : r.exception?.status === exc))
+      && (activity === 'all' || r.activityId === activity)
+      && (verifier === 'all' || r.verifier === verifier)
+      && (!person || r.memberId === person)
+      && (!query || r.search.includes(query)));
+  }, [all, range, from, to, result, review, exc, activity, verifier, person, q, now]);
 
   const { pageRows, pageCount, current } = usePageSlice(filtered, page, PAGE_SIZE);
   const personName = person ? memberById.get(person)?.displayName : null;
-  const activityOptions = [...configs.map((a) => ({ value: a.id, label: a.name })), ...activities.map((a) => ({ value: a.id, label: a.name }))];
+  const activityOptions = [...new Map(all.map((r) => [r.activityId, r.activityName])).entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  const verifiers = [...new Set(all.map((r) => r.verifier))].sort();
+  const performers = new Set(all.map((r) => r.organizationId));
+  const orgName = (id: string) => state.data.organizations.find((o) => o.id === id)?.name ?? '';
+  const filtersOn = [result, review, exc, activity, verifier].some((v) => v !== 'all') || !!q.trim() || !!person;
+  const clear = () => setParams((prev) => { const n = new URLSearchParams(prev); ['q', 'result', 'review', 'exception', 'activity', 'verifier', 'person', 'decision', 'status', 'page', 'from', 'to'].forEach((k) => n.delete(k)); n.set('range', 'all'); return n; }, { replace: true });
+  const count = (k: OriginalResult) => filtered.filter((r) => r.result === k).length;
+  const period = range === 'custom' ? `${from || 'the first record'} to ${to || 'today'}` : ({ today: 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days', all: 'All time' } as Record<string, string>)[range] ?? range;
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  const columns: Column<GlobalRow>[] = [
+    { key: 'participant', header: 'Participant', className: '!whitespace-normal min-w-[9rem]', cell: (r) => (r.memberId && can('users.view') ? <Link to={`/users/${r.memberId}`} onClick={stop} className="font-medium text-slate-900 hover:text-brand-700">{r.participant}</Link> : <span className="font-medium text-slate-900">{r.participant}</span>) },
+    { key: 'identifier', header: 'Identifier', cell: (r) => <span className="font-mono text-xs text-slate-600">{r.identifier}</span> },
+    { key: 'activity', header: 'Verification activity', className: '!whitespace-normal min-w-[9rem]', cell: (r) => <span>{r.activityHref && can('verification.activities.view') ? <Link to={r.activityHref} onClick={stop} className="text-slate-900 hover:text-brand-700">{r.activityName}</Link> : r.activityName}{performers.size > 1 && r.organizationId !== organization.id && <span className="block text-xs text-slate-500">{orgName(r.organizationId)}</span>}</span> },
+    { key: 'result', header: 'Original result', cell: (r) => <OriginalResultBadge result={r.result} /> },
+    { key: 'review', header: 'Final review outcome', className: '!whitespace-normal min-w-[9rem]', cell: (r) => (r.exception && (r.review.key !== 'none') ? <span className="text-sm text-slate-900">{r.review.label}{r.review.detail && <span className="block text-xs text-slate-500">{r.review.detail}</span>}</span> : <span className="text-slate-400">—</span>) },
+    { key: 'verifier', header: 'Verifier', cell: (r) => r.verifier },
+    { key: 'time', header: 'Date & time', cell: (r) => <span className="tabular-nums text-slate-600">{formatDateTime(r.at)}<span className="block font-mono text-[11px] text-slate-400">{r.id}</span></span> },
+    { key: 'exception', header: 'Exception', cell: (r) => (!r.exception ? <span className="text-slate-400">—</span> : visibleExceptions.has(r.exception.id)
+      ? <span><Link to={`/exceptions/${r.exception.id}`} onClick={stop} className="font-mono text-xs font-medium text-brand-700 hover:underline">{r.exception.id}</Link><span className="block"><ExceptionStatusBadge status={r.exception.status} /></span></span>
+      : <span className="text-xs text-slate-600">Exception raised</span>) },
+    { key: 'details', header: <span className="sr-only">Action</span>, cell: (r) => <Link to={`/verification-history/${r.id}`} onClick={stop} className="text-sm font-medium text-brand-600 hover:text-brand-700">View<span className="sr-only"> details for {r.id}</span></Link> },
+  ];
 
   return (
     <>
       <PageHeader
         title="Verification History"
-        description="Every verification: what was checked, the outcome, the access decision, and whether entry was recorded."
-        actions={(
-          <div className="flex flex-wrap gap-2">
-            {DEMO_AUTH_ENABLED && <Link to="/developer/status-api" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-amber-800 ring-1 ring-inset ring-amber-300 hover:bg-amber-50"><FlaskConical className="h-4 w-4" aria-hidden="true" />Status API (simulated)</Link>}
-            {can('reports.view') && <Link to="/reports" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50"><Download className="h-4 w-4" aria-hidden="true" />Reports &amp; export</Link>}
-          </div>
-        )}
+        description="A record of every verification attempt: who was verified, where, by whom, the original result and any human review that followed."
+        actions={DEMO_AUTH_ENABLED ? <Link to="/developer/status-api" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-amber-800 ring-1 ring-inset ring-amber-300 hover:bg-amber-50"><FlaskConical className="h-4 w-4" aria-hidden="true" />Status API (simulated)</Link> : undefined}
       />
+      <section aria-label="Summary" className="mb-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Total attempts" value={filtered.length} hint={count('review') ? `${count('review')} referred for review` : undefined} />
+        <StatCard label="Successful" value={count('successful')} tone="emerald" />
+        <StatCard label="Unsuccessful" value={count('unsuccessful')} tone="violet" />
+        <StatCard label="Incomplete" value={count('incomplete')} tone="amber" />
+      </section>
+      <p className="mb-4 text-xs text-slate-500" role="status">{period}{filtersOn ? ' · totals reflect the current search and filters' : ''}. Original results only: a review decision is never counted as another attempt.</p>
       <Card>
-        <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
-          <SearchInput value={q} onChange={setQ} placeholder="Search reference, person, verifier or reason" className="sm:w-72" />
-          <FilterSelect label="Time range" value={range} onChange={setRange}
-            options={[{ value: 'today', label: 'Today' }, { value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: 'all', label: 'All time' }]} />
+        <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end">
+          <SearchInput value={q} onChange={setQ} placeholder="Search participant, activity, reference or identifier" className="sm:w-80" label="Search verification history" />
+          <FilterSelect label="Date range" value={range} onChange={setRange} options={[{ value: 'today', label: 'Today' }, { value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: 'all', label: 'All time' }, { value: 'custom', label: 'Custom range' }]} />
+          {range === 'custom' && <>
+            <label className="text-sm text-slate-600">From<Input type="date" value={from} onChange={(x) => setFrom(x.target.value)} className="mt-1" aria-label="From date" /></label>
+            <label className="text-sm text-slate-600">To<Input type="date" value={to} onChange={(x) => setTo(x.target.value)} className="mt-1" aria-label="To date" /></label>
+          </>}
           <FilterSelect label="Activity" value={activity} onChange={setActivity} options={[{ value: 'all', label: 'All activities' }, ...activityOptions]} />
-          <FilterSelect label="Outcome" value={outcome} onChange={setOutcome}
-            options={[{ value: 'all', label: 'All outcomes' }, ...(Object.keys(OUTCOME_LABEL) as VerificationOutcome[]).map((o) => ({ value: o, label: OUTCOME_LABEL[o] }))]} />
-          <FilterSelect label="Decision" value={decision} onChange={setDecision}
-            options={[{ value: 'all', label: 'All decisions' }, ...(Object.keys(DECISION_LABEL) as ActivityDecision[]).map((d) => ({ value: d, label: DECISION_LABEL[d] }))]} />
-          <FilterSelect label="Identity source" value={source} onChange={setSource}
-            options={[{ value: 'all', label: 'All identity sources' }, { value: 'local', label: 'FixID Local Records' }, { value: 'external', label: 'External identity services' }]} />
-          {performers.length > 1 && <FilterSelect label="Performed by" value={performer} onChange={setPerformer} options={[{ value: 'all', label: 'All organizations' }, ...performers.map((p) => ({ value: p.id, label: p.name }))]} />}
-          <FilterSelect label="Identity match" value={match} onChange={setMatch} options={[{ value: 'all', label: 'Any identity match' }, ...(Object.keys(MATCH_LABEL) as (keyof typeof MATCH_LABEL)[]).map((k) => ({ value: k, label: MATCH_LABEL[k] }))]} />
-          <FilterSelect label="Eligibility" value={elig} onChange={setElig} options={[{ value: 'all', label: 'Any eligibility' }, ...(Object.keys(ELIGIBILITY_STATUS_LABEL) as (keyof typeof ELIGIBILITY_STATUS_LABEL)[]).map((k) => ({ value: k, label: ELIGIBILITY_STATUS_LABEL[k] }))]} />
-          <FilterSelect label="Transaction status" value={stage} onChange={setStage} options={[{ value: 'all', label: 'Any status' }, ...(['completed', 'pending-review', 'failed', 'unable-to-complete', 'incomplete', 'cancelled'] as const).map((k) => ({ value: k, label: STAGE_LABEL[k] }))]} />
-          <FilterSelect label="Simulation" value={sim} onChange={setSim} options={[{ value: 'all', label: 'Simulated or not' }, { value: 'yes', label: 'Simulated' }, { value: 'no', label: 'Not simulated' }]} />
-          <FilterSelect label="Entry" value={entry} onChange={setEntry}
-            options={[{ value: 'all', label: 'Any entry status' }, { value: 'entered', label: 'Entered' }, { value: 'not-entered', label: 'Not entered' }]} />
+          <FilterSelect label="Original result" value={result} onChange={(v) => { setResult(v); if (legacyDecision) setLegacyDecision(''); if (legacyStatus) setLegacyStatus(''); }} options={[{ value: 'all', label: 'Any original result' }, ...(Object.keys(ORIGINAL_RESULT_LABEL) as OriginalResult[]).map((k) => ({ value: k, label: ORIGINAL_RESULT_LABEL[k] }))]} />
+          <FilterSelect label="Final review outcome" value={review} onChange={setReview} options={[{ value: 'all', label: 'Any review outcome' }, ...Object.entries(REVIEW_FILTER_LABEL).map(([value, label]) => ({ value, label }))]} />
+          <FilterSelect label="Verifier" value={verifier} onChange={setVerifier} options={[{ value: 'all', label: 'All verifiers' }, ...verifiers.map((v) => ({ value: v, label: v }))]} />
+          <FilterSelect label="Exception" value={exc} onChange={setExc} options={[{ value: 'all', label: 'With or without exception' }, { value: 'none', label: 'No exception' }, { value: 'any', label: 'Any exception' }, ...(Object.keys(EXCEPTION_STATUS_LABEL) as ExceptionStatus[]).map((k) => ({ value: k, label: `Exception: ${EXCEPTION_STATUS_LABEL[k]}` }))]} />
           {personName && (
             <Badge tone="brand" className="py-1">
-              Person: {personName}
-              <button type="button" onClick={() => setPerson('')} aria-label="Remove person filter"><X className="h-3 w-3" /></button>
+              Participant: {personName}
+              <button type="button" onClick={() => setPerson('')} aria-label="Remove participant filter"><X className="h-3 w-3" /></button>
             </Badge>
           )}
         </div>
-        <div className="flex flex-wrap gap-6 border-b border-slate-100 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-600">
-          <span><span className="font-semibold tabular-nums text-slate-900">{filtered.length.toLocaleString()}</span> verifications</span>
-          <span><span className="font-semibold tabular-nums text-slate-900">{filtered.filter((r) => r.outcomeKey === 'verified').length.toLocaleString()}</span> verified</span>
-          <span><span className="font-semibold tabular-nums text-slate-900">{filtered.filter((r) => r.entered).length.toLocaleString()}</span> {filtered.filter((r) => r.entered).length === 1 ? 'entry' : 'entries'} recorded</span>
-        </div>
-        <HistoryTable rows={pageRows} empty={<EmptyState title="No verifications match" description="Try widening the time range or clearing filters." />} />
+          <DataTable columns={columns} rows={pageRows} rowKey={(r) => r.id} rowHref={(r) => `/verification-history/${r.id}`}
+            empty={all.length === 0
+              ? <EmptyState title="No verification attempts recorded" description="Attempts appear here when verifiers in this organization, or in organizations taking part in its shared activities, complete them. Only records within your organization’s scope are shown." />
+              : <EmptyState title="No records match" description="Try a different search, widen the date range or clear the filters." action={<Button variant="secondary" onClick={clear}>Clear filters</Button>} />} />
         <Pagination page={current} pageCount={pageCount} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </Card>
     </>
@@ -252,7 +296,7 @@ function AttemptDetail({ attempt }: { attempt: VerificationAttempt }) {
         breadcrumbs={[{ label: 'Verification History', to: '/verification-history' }, { label: attempt.id }]}
         title={<span className="font-mono">{attempt.id}</span>}
         description={`${attempt.activityName} · ${formatDateTime(attempt.completedAt ?? attempt.startedAt)}`}
-        meta={<AttemptBadge attempt={attempt} />}
+        meta={originalResultOf(attempt) ? <OriginalResultBadge result={originalResultOf(attempt)!} /> : <AttemptBadge attempt={attempt} />}
       />
       {attempt.simulated && (
         <p className="mb-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 ring-1 ring-inset ring-amber-300">
@@ -260,6 +304,7 @@ function AttemptDetail({ attempt }: { attempt: VerificationAttempt }) {
         </p>
       )}
       <div className="space-y-6">
+        <AttemptSummary attempt={attempt} />
         <Card className="px-5 py-5">
           <h2 className="text-sm font-semibold text-slate-900">Verification outcome</h2>
           <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
@@ -350,5 +395,76 @@ function TransactionDetails({ attempt: a, performedBy, sharedBy }: { attempt: Ve
       </dl>
       <p className="mt-3 text-xs text-slate-500">No raw biometric images or templates are kept in the transaction. Captures were used once and discarded.</p>
     </Card>
+  );
+}
+
+/**
+ * The three things Verification History answers about one attempt: what happened, any human review that followed
+ * (linked, never merged), and the activity it belongs to. No portraits or biometric data: evidence is inspected
+ * only in the exception review workspace, by people permitted to.
+ */
+function AttemptSummary({ attempt: a }: { attempt: VerificationAttempt }) {
+  const { state } = useStore();
+  const { organization } = useSession();
+  const { can } = useAuthorization();
+  const who = attemptSubject(state, a);
+  const result = originalResultOf(a);
+  const e = a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined;
+  const canOpenException = !!e && (can('exceptions.view') || can('exceptions.review') || can('exceptions.approve')) && exceptionsVisibleTo(state, organization.id).some((x) => x.id === e.id);
+  const review = reviewOutcomeOf(e);
+  const config = state.data.activityConfigs.find((c) => c.id === a.activityId);
+  const schedule = config ? scheduleSummary(config.schedule) : null;
+  const method = a.identitySource === 'external'
+    ? ['Record lookup', a.liveness?.required ? 'liveness' : null, a.match && a.match.status !== 'not-required' && a.match.status !== 'record-confirmed' ? 'face match' : null].filter(Boolean).join(', ')
+    : a.checks.map((c) => checkById(c.type).name).join(', ');
+  const row = (label: string, value: ReactNode) => <div><dt className="text-slate-500">{label}</dt><dd className="mt-0.5 text-slate-900">{value}</dd></div>;
+  const lastEvent = (actions: string[]) => e?.history.filter((h) => actions.includes(h.action)).slice(-1)[0];
+  const proposed = lastEvent(['proposal-submitted']);
+  const decided = lastEvent(['proposal-approved', 'proposal-rejected', 'proposal-returned']);
+  return (
+    <>
+      <Card className="px-5 py-5">
+        <h2 className="text-sm font-semibold text-slate-900">Attempt information</h2>
+        <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Attempt information">
+          {row('Attempt reference', <span className="font-mono text-xs">{a.id}</span>)}
+          {row('Participant', <>{a.subject?.memberId && can('users.view') ? <Link to={`/users/${a.subject.memberId}`} className="text-brand-700 hover:underline">{who.name}</Link> : who.name} <span className="font-mono text-xs text-slate-500">{who.identifier}</span></>)}
+          {row('Date and time', formatDateTime(a.completedAt ?? a.startedAt))}
+          {row('Verifier', a.verifierName)}
+          {row('Identity source', <>{sourceName(a)}{a.simulated && <span className="ml-1"><SimulatedBadge /></span>}</>)}
+          {method && row('Verification method', method)}
+          {row('Original result', result ? <OriginalResultBadge result={result} /> : 'In progress')}
+          {row('Explanation', a.decisionExplanation ?? a.reasons[0] ?? '—')}
+          {a.retryOf && row('Earlier attempt', <Link to={`/verification-history/${a.retryOf}`} className="font-mono text-xs text-brand-700 hover:underline">{a.retryOf}</Link>)}
+          {a.reverificationOf && row('Follow-up attempt for exception', (can('exceptions.view') || can('exceptions.review')) && exceptionsVisibleTo(state, organization.id).some((x) => x.id === a.reverificationOf) ? <Link to={`/exceptions/${a.reverificationOf}`} className="font-mono text-xs text-brand-700 hover:underline">{a.reverificationOf}</Link> : <span className="font-mono text-xs">{a.reverificationOf}</span>)}
+        </dl>
+      </Card>
+      <Card className="px-5 py-5">
+        <h2 className="text-sm font-semibold text-slate-900">Review information</h2>
+        {!e ? <p className="mt-2 text-sm text-slate-600">No exception was raised for this attempt. Its original result is final.</p> : (
+          <>
+            <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Review information">
+              {row('Exception', canOpenException ? <Link to={`/exceptions/${e.id}`} className="font-mono text-xs font-medium text-brand-700 hover:underline">{e.id}</Link> : <span className="font-mono text-xs">{e.id}</span>)}
+              {row('Reason', EXCEPTION_REASON_LABEL[e.reason])}
+              {row('Exception status', <ExceptionStatusBadge status={e.status} />)}
+              {row('Human-review decision', e.resolution ? <>{review.label}<span className="block text-xs text-slate-500">{e.resolution.by}, {formatDateTime(e.resolution.at)}</span></> : e.proposal ? <>Proposed: {RESOLUTION_LABEL[e.proposal.outcome]}<span className="block text-xs text-slate-500">{e.proposal.by}, {formatDateTime(e.proposal.at)}</span></> : 'Not yet decided')}
+              {(e.approval || proposed) && row('Approval', e.approval ? <>Approved by {e.approval.by}<span className="block text-xs text-slate-500">{formatDateTime(e.approval.at)}</span></>
+                : e.status === 'pending-approval' ? 'Awaiting a different approver'
+                : decided ? <>{decided.action === 'proposal-rejected' ? 'Rejected' : 'Returned for review'} by {decided.actorName}<span className="block text-xs text-slate-500">{formatDateTime(decided.at)}</span></> : '—')}
+              {a.reviewDisposition && row('Final verification state', <><DecisionBadge decision={a.reviewDisposition.decision} /><span className="block text-xs text-slate-500">After review. Eligibility still follows the activity’s rules.</span></>)}
+              {(e.previousResolutions?.length ?? 0) > 0 && row('Earlier decisions', e.previousResolutions!.map((r) => `${RESOLUTION_LABEL[r.outcome]} (${r.by}, ${formatDateTime(r.at)})`).join('; '))}
+            </dl>
+            <p className="mt-3 text-xs text-slate-500">The original result above is kept unchanged. {canOpenException ? 'Evidence, including any portrait comparison, is reviewed in the exception workspace.' : 'You don’t have access to the exception’s details.'}</p>
+          </>
+        )}
+      </Card>
+      <Card className="px-5 py-5">
+        <h2 className="text-sm font-semibold text-slate-900">Activity context</h2>
+        <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Activity context">
+          {row('Verification activity', can('verification.activities.view') ? <Link to={activityPath(a.activityId)} className="font-medium text-brand-700 hover:underline">{a.activityName}</Link> : a.activityName)}
+          {schedule && row('Schedule', schedule)}
+          {row('Other attempts in this activity', <Link to={`/verification-history?activity=${encodeURIComponent(a.activityId)}&range=all`} className="text-brand-700 hover:underline">View history for this activity</Link>)}
+        </dl>
+      </Card>
+    </>
   );
 }

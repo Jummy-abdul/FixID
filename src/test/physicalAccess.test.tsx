@@ -154,12 +154,9 @@ describe('screens', () => {
     const h = harness(adminVerifier(base()));
     const a = await verify(h, people(h.state).insider);
     const user = renderApp('/verification-history', h.state);
-    expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual(['Date & time', 'Reference', 'Activity', 'Organization', 'Person', 'Verifier', 'Identity source', 'Identity', 'Eligibility', 'Outcome', 'Status', 'Entry', 'Details']);
+    expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual(['Participant', 'Identifier', 'Verification activity', 'Original result', 'Final review outcome', 'Verifier', 'Date & time', 'Exception', 'Action']);
     const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Annual Staff Conference'))!;
-    // Identity match, eligibility and the decision are separate columns.
-    expect(row).toHaveTextContent('FixID Local Records');
-    expect(row).toHaveTextContent('Verified');
-    expect(row).toHaveTextContent('Not recorded');
+    expect(row).toHaveTextContent('Successful');
     await user.click(row);
     expect(await screen.findByRole('heading', { level: 1, name: a.id })).toBeInTheDocument();
     const panel = screen.getByRole('region', { name: 'Access and entry' });

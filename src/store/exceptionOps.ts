@@ -486,7 +486,11 @@ export function applyStatusRequestAudit(state: AppState, input: { clientId?: str
 
 /** The person an exception concerns: their name and a masked identifier. Never the full identifier or any biometric data. */
 export function exceptionSubject(state: AppState, e: Pick<VerificationException, 'transactionId'>): { name: string; identifier: string } {
-  const a = state.data.verificationAttempts.find((x) => x.id === e.transactionId);
+  return attemptSubject(state, state.data.verificationAttempts.find((x) => x.id === e.transactionId));
+}
+
+/** The person a verification attempt concerns: name and masked identifier only. */
+export function attemptSubject(state: AppState, a: VerificationAttempt | undefined): { name: string; identifier: string } {
   const mask = (v?: string) => (!v ? '—' : v.trim().length <= 4 ? '••••' : `••••${v.trim().slice(-4)}`);
   const m = a?.subject?.memberId ? state.data.members.find((x) => x.id === a.subject!.memberId) : undefined;
   if (m) return { name: m.displayName, identifier: mask(m.identifier?.value) };
