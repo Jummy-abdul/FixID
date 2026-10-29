@@ -209,8 +209,9 @@ describe('sign in, demo account, recovery and sign out', () => {
     const seeded = createInitialState(new Date());
     const first = renderApp('/signin', seeded);
     await signIn(first.user, 'demo@fixid.app', 'FixIDDemo2026!');
-    expect(await screen.findByRole('heading', { name: 'Welcome to FixID, Tobyson.' }, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByLabelText('Dashboard preview')).toBeInTheDocument();
+    // The demo account is the sample organization's second approver: a password sign-in opens Brightwater.
+    expect(await screen.findByRole('heading', { name: /Tobyson/ }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Brightwater Collective');
     await first.user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Settings' }));
     // Settings shows Organization, Administrators & Roles and Security; the demo tools aren't in the navigation.
     expect((await screen.findAllByRole('tab')).map((t) => t.textContent)).toEqual(['Organization', 'Administrators & Roles', 'Integrations', 'Security']);

@@ -62,7 +62,7 @@ function ConfigRedirect() {
 /** The former separate page for earlier verification records: those records are now in Verification History. */
 function EventRedirect() {
   const { activityId = '' } = useParams();
-  return <Navigate to={`/verification-history?activity=${encodeURIComponent(activityId)}&range=all`} replace />;
+  return <Navigate to={`/verification-history?activity=${encodeURIComponent(activityId)}&range=all&earlier=1`} replace />;
 }
 
 function RenamedRoute({ to }: { to: string }) {

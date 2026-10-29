@@ -20,6 +20,14 @@ export function organizationTransactions(state: AppState, organizationId: string
   return state.data.verificationAttempts.filter((a) => a.organizationId === organizationId && a.status !== 'in-progress' && inPeriod(a.completedAt ?? a.startedAt, period));
 }
 
+/**
+ * The attempts Verification History lists for an organization: its own, and those participating organizations
+ * performed for its shared activities. The dashboard counts the same set so their figures agree.
+ */
+export function historyTransactions(state: AppState, organizationId: string, period: Period = {}): VerificationAttempt[] {
+  return state.data.verificationAttempts.filter((a) => (a.organizationId === organizationId || a.activityOwnerId === organizationId) && a.status !== 'in-progress' && inPeriod(a.completedAt ?? a.startedAt, period));
+}
+
 export interface Summary {
   attempts: number;
   completed: number;

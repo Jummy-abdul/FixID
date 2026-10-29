@@ -354,7 +354,7 @@ describe('settings', () => {
 
 describe('transactions', () => {
   it('opens a transaction and explains the decision pipeline', async () => {
-    const { user } = renderApp('/verification-history?range=30d');
+    const { user } = renderApp('/verification-history?range=30d&earlier=1');
     const rows = await screen.findAllByRole('row');
     await user.click(rows[1]);
     expect(await screen.findByText('How this decision was reached')).toBeInTheDocument();

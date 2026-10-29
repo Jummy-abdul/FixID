@@ -21,6 +21,7 @@ import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
 import { AttemptBadge } from '@/components/verification/attemptParts';
 import { TransactionDetailPage } from '../TransactionDetailPage';
 import { activityPath } from './paths';
+import { historyTransactions } from '@/store/reporting';
 import { scheduleSummary } from '@/domain/activityLifecycle';
 
 const PAGE_SIZE = 20;
@@ -152,6 +153,7 @@ export function VerificationHistoryPage() {
   const [activity, setActivity] = useQueryState('activity', 'all');
   const [verifier, setVerifier] = useQueryState('verifier', 'all');
   const [person, setPerson] = useQueryState('person', '');
+  const [earlier, setEarlier] = useQueryState('earlier', '');
   const [page, setPage] = usePageParam();
   const [, setParams] = useSearchParams();
   const now = useMemo(() => new Date(), []);
@@ -159,7 +161,7 @@ export function VerificationHistoryPage() {
   const visibleExceptions = useMemo(() => new Set(canSeeExceptions ? exceptionsVisibleTo(state, organization.id).map((e) => e.id) : []), [state, organization.id, canSeeExceptions]);
 
   const all = useMemo<GlobalRow[]>(() => {
-    const orgAttempts = state.data.verificationAttempts.filter((a) => (a.organizationId === organization.id || a.activityOwnerId === organization.id) && a.status !== 'in-progress');
+    const orgAttempts = historyTransactions(state, organization.id);
     const rows: GlobalRow[] = orgAttempts.map((a) => {
       const who = attemptSubject(state, a);
       const e = a.exceptionId ? exceptionFor(state, a.exceptionId) : undefined;
@@ -171,7 +173,8 @@ export function VerificationHistoryPage() {
       };
     });
     const legacyName = new Map(activities.map((x) => [x.id, x.name]));
-    for (const t of transactions) {
+    // Earlier sample records (from the previous data model) are listed only on request.
+    for (const t of earlier ? transactions : []) {
       const m = t.memberId ? memberById.get(t.memberId) : undefined;
       const id = m?.identifier?.value;
       const identifier = !id ? '—' : id.length <= 4 ? '••••' : `••••${id.slice(-4)}`;
@@ -182,7 +185,7 @@ export function VerificationHistoryPage() {
       });
     }
     return rows.sort((a, b) => b.at.localeCompare(a.at));
-  }, [state, organization.id, transactions, activities, memberById]);
+  }, [state, organization.id, transactions, activities, memberById, earlier]);
 
   const filtered = useMemo(() => {
     const start = range === 'custom' ? (from || undefined) : rangeStart(range as TimeRange, now)?.toISOString();
@@ -238,7 +241,7 @@ export function VerificationHistoryPage() {
         <StatCard label="Unsuccessful" value={count('unsuccessful')} tone="violet" />
         <StatCard label="Incomplete" value={count('incomplete')} tone="amber" />
       </section>
-      <p className="mb-4 text-xs text-slate-500" role="status">{period}{filtersOn ? ' · totals reflect the current search and filters' : ''}. Original results only: a review decision is never counted as another attempt.</p>
+      <p className="mb-4 text-xs text-slate-500" role="status">{period}{filtersOn ? ' · totals reflect the current search and filters' : ''}. Original results only: a review decision is never counted as another attempt.{earlier ? ' Includes earlier sample records from the previous data model.' : ''}</p>
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end">
           <SearchInput value={q} onChange={setQ} placeholder="Search participant, activity, reference or identifier" className="sm:w-80" label="Search verification history" />
@@ -252,6 +255,12 @@ export function VerificationHistoryPage() {
           <FilterSelect label="Final review outcome" value={review} onChange={setReview} options={[{ value: 'all', label: 'Any review outcome' }, ...Object.entries(REVIEW_FILTER_LABEL).map(([value, label]) => ({ value, label }))]} />
           <FilterSelect label="Verifier" value={verifier} onChange={setVerifier} options={[{ value: 'all', label: 'All verifiers' }, ...verifiers.map((v) => ({ value: v, label: v }))]} />
           <FilterSelect label="Exception" value={exc} onChange={setExc} options={[{ value: 'all', label: 'With or without exception' }, { value: 'none', label: 'No exception' }, { value: 'any', label: 'Any exception' }, ...(Object.keys(EXCEPTION_STATUS_LABEL) as ExceptionStatus[]).map((k) => ({ value: k, label: `Exception: ${EXCEPTION_STATUS_LABEL[k]}` }))]} />
+          {transactions.length > 0 && (
+            <label className="flex items-center gap-2 self-center text-sm text-slate-600">
+              <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" checked={!!earlier} onChange={(e) => setEarlier(e.target.checked ? '1' : '')} />
+              Include earlier sample records ({transactions.length})
+            </label>
+          )}
           {personName && (
             <Badge tone="brand" className="py-1">
               Participant: {personName}

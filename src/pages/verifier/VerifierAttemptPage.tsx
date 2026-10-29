@@ -571,12 +571,12 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
         {canRefer && <Button variant="ghost" onClick={() => setReferring(true)}>Submit for Review</Button>}
       </div>
       {referring && (
-        <Modal open onClose={() => setReferring(false)} title="Refer for review" description="A reviewer will look at this verification. The original result and evidence stay as recorded."
+        <Modal open onClose={() => setReferring(false)} title="Submit for review" description="An authorised reviewer will look at this verification. The original result and evidence stay as recorded."
           footer={<><Button variant="secondary" onClick={() => setReferring(false)}>Cancel</Button><Button onClick={() => {
             const r = service.referForReview(attempt.id, reason);
             setReferring(false);
-            toast(r.ok ? { tone: 'success', title: 'Referred for review' } : { tone: 'error', title: 'Couldn’t refer this verification' });
-          }}>Refer</Button></>}>
+            toast(r.ok ? { tone: 'success', title: 'Submitted for review' } : { tone: 'error', title: 'Couldn’t submit this verification for review' });
+          }}>Submit for review</Button></>}>
           <Field label="Reason" hint="What should the reviewer know?">{(p) => <Textarea {...p} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
         </Modal>
       )}

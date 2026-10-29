@@ -9,7 +9,8 @@ import { formatDateTime } from '@/lib/dates';
 import { currentDecision, exceptionFor, exceptionsVisibleTo } from '@/store/exceptionOps';
 import { integrationsOf } from '@/store/integrationOps';
 import { participation, sharedWith } from '@/store/sharingOps';
-import { organizationTransactions, sharedResults, summarize } from '@/store/reporting';
+import { historyTransactions, sharedResults, summarize } from '@/store/reporting';
+import { originalResultOf, type OriginalResult } from '@/domain/history';
 import { useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { ExceptionStatusBadge } from '../exceptions/ExceptionsPage';
@@ -32,8 +33,11 @@ export function VerificationOperations() {
   const showExceptions = can('exceptions.view') || can('exceptions.review');
   if (!showResults && !showExceptions && !can('verification.activities.view')) return null;
 
-  const tx = organizationTransactions(state, organization.id, { from });
+  // The same attempts and definitions as Verification History, so each figure matches the page it opens.
+  const tx = historyTransactions(state, organization.id, { from });
   const s = summarize(state, tx);
+  const original = (k: OriginalResult) => tx.filter((a) => originalResultOf(a) === k).length;
+  const historyLink = (result?: OriginalResult) => `/verification-history?range=${period}${result ? `&result=${result}` : ''}`;
   const activities = state.data.activityConfigs.filter((a) => a.organizationId === organization.id);
   const recent = [...tx].sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt)).slice(0, 5);
   const exceptions = showExceptions ? exceptionsVisibleTo(state, organization.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [];
@@ -64,11 +68,11 @@ export function VerificationOperations() {
       {showResults && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatCard label="Active activities" value={activities.filter((a) => a.status === 'active').length} icon={<ListChecks className="h-4 w-4" />} to="/verification-activities" />
-          <StatCard label="Total attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to="/verification-history" hint={s.incomplete ? `${s.incomplete} incomplete` : undefined} />
-          <StatCard label="Verified" value={s.allowed} tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} to="/verification-history?result=successful" />
-          <StatCard label="Not verified" value={s.denied} icon={<XCircle className="h-4 w-4" />} to="/verification-history?result=unsuccessful" />
-          <StatCard label="Pending review" value={s.pendingReview} tone="violet" icon={<ShieldAlert className="h-4 w-4" />} to={showExceptions ? '/exceptions?status=unresolved' : undefined} />
-          <StatCard label="Unable to verify" value={s.unableToComplete} tone="amber" to="/verification-history?result=incomplete" />
+          <StatCard label="Total attempts" value={s.attempts} icon={<ClipboardList className="h-4 w-4" />} to={historyLink()} hint={original('review') ? `${original('review')} referred for review` : undefined} />
+          <StatCard label="Successful" value={original('successful')} tone="emerald" icon={<CheckCircle2 className="h-4 w-4" />} to={historyLink('successful')} />
+          <StatCard label="Unsuccessful" value={original('unsuccessful')} icon={<XCircle className="h-4 w-4" />} to={historyLink('unsuccessful')} />
+          <StatCard label="Pending review" value={s.pendingReview} tone="violet" icon={<ShieldAlert className="h-4 w-4" />} to={showExceptions ? '/exceptions?status=unresolved' : undefined} hint="Awaiting a review decision" />
+          <StatCard label="Incomplete" value={original('incomplete')} tone="amber" to={historyLink('incomplete')} />
         </div>
       )}
       <div className="grid gap-6 xl:grid-cols-2">

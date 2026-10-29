@@ -2,6 +2,7 @@ import { deriveShortName } from '@/domain/organization';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { countryByCode } from '@/data/countries';
 import { DEMO_ADMIN, NEW_ORGANIZATION_ID } from '@/data/seed';
+import { ORG_C } from '@/data/demoPersonas';
 import type { AdminUser, CardDesign, Organization } from '@/domain/types';
 import { useStore } from '@/store/AppStore';
 import { acceptProblem, invitationByToken } from '@/store/adminOps';
@@ -164,6 +165,10 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
         if (rec?.status === 'deactivated') return { ok: false, error: 'This administrator account is inactive. Contact your Organization Admin.' };
       }
       clearFailedSignIns(email);
+      // The demo account is the sample organization's second approver: a password sign-in opens Brightwater.
+      if (found.id === DEMO_ACCOUNT.id && getState().data.administrators.some((a) => a.organizationId === ORG_C && a.userId === DEMO_ADMIN.id && a.status === 'active')) {
+        dispatch({ type: 'session/switchOrganization', organizationId: ORG_C });
+      }
       setStore((s) => ({ ...s, session: newSession(found.id) }));
       return { ok: true, account: found };
     },
