@@ -383,6 +383,33 @@ Old `?tab=` links (`verifications`, `transactions`, `history`, `exceptions`, `pe
 
 **Simulated, not real:** identity sources, liveness and portrait matching are the existing labelled simulations; no biometric service, external API, QR or NFC is connected. QR retrieval and physical access control aren't part of this module, and no exception, review or override screens were added here. The existing Exceptions module is unchanged. A recurring schedule's daily time window and days are recorded and shown, but verification is only limited by its start and end dates.
 
+## Verifier experience
+
+The existing Verifier role and demo account (Halima Bello, `halima.bello@brightwater.example`) use the same workspace and data as administrators. Nothing here is a separate dataset.
+
+- **My Verification Activities** (`/verify`): every activity the verifier is assigned to (`listAssignedActivities`).
+  - Grouped as **Active**, **Upcoming**, **Paused** and **Completed**, with search and a status filter.
+  - Each card shows status, schedule, location, identity source and progress.
+  - Only Active activities can be started; the others can still be opened. Unassigned activities never appear.
+  - With no assignments, an empty state explains that nothing is available yet.
+  - An activity an administrator assigns appears straight away, including one just created in the wizard.
+- **Activity overview** (`/verify/activities/:id`): description, status, schedule, location, identity source, *How to verify* (the process the source prescribes), progress and **Start verification**.
+  - Upcoming, paused and completed activities explain why verification can't start.
+  - No configuration, assignment or user-management controls.
+- **Verifying:** the identity source decides the steps; there is no method selector.
+  - External sources: enter the reference (demonstration references are offered for the simulated service).
+  - FixID records: enter the identifier, or use **Scan QR code (simulated)**, which fills in the identifier read from a demo credential. The same lookup follows; no camera is used.
+  - A missing record says so and verifies nobody.
+  - Then a portrait capture (or a labelled simulated capture), the simulated liveness and match outcomes, a processing state, and the result.
+- **Result:** one headline, kept separate from eligibility:
+  - **Verified**, **Identity verified, not eligible**, **Not eligible**, **Unsuccessful**, **Pending** (no final outcome yet, for example awaiting review), or **Unable to complete**.
+  - A mismatch is never labelled fraud, and there's no override.
+  - **Verify next person** starts a new attempt in the same activity; **Return to activity** goes back to its overview. Every attempt is kept.
+- **My Verification History** (`/verify/history`, `?activity=` filter, also linked from each activity): person, masked identifier, activity, date and time, verifier, identity source, verification and eligibility outcomes, and a short system response. Never images, portraits, templates or integration payloads.
+- **Connected:** each attempt is saved in the shared workspace data, so the administrator's activity Overview counts, Participants tab and recent activity update immediately.
+
+**Simulated:** identity sources, QR scanning, liveness and portrait matching are labelled demonstrations; no real camera processing, biometric matching or external service is used.
+
 ## Verification Activities: one concept, for your organization or shared
 
 Verification Programmes were merged into Verification Activities. There is one concept, **Verification Activities** (`/verification-activities`). When an activity is created, the first decision is who it's for:

@@ -356,10 +356,10 @@ describe('screens', () => {
     const list = await screen.findByRole('list', { name: 'Your verification activities' });
     const card = within(list).getByRole('heading', { name: '2026 Restricted Session Clearance' }).closest('li')!;
     expect(card).toHaveTextContent(`0 of ${exam(s).participants!.memberIds.length} verified`);
-    await user.click(within(card).getByRole('link', { name: 'View details: 2026 Restricted Session Clearance' }));
+    await user.click(within(card).getByRole('link', { name: 'Open activity: 2026 Restricted Session Clearance' }));
     expect(await screen.findByRole('heading', { level: 1, name: '2026 Restricted Session Clearance' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Verification progress' })).toHaveTextContent(`Eligible participants${exam(s).participants!.memberIds.length}`);
-    await user.click(screen.getByRole('button', { name: 'Start Verification' }));
+    await user.click(screen.getByRole('button', { name: 'Start verification' }));
 
     // 1. Find Participant: the label is the activity's identifier.
     expect(await screen.findByLabelText(/Member number/)).toBeInTheDocument();
@@ -394,7 +394,7 @@ describe('screens', () => {
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Access and entry' })).getByText('Entered')).toBeInTheDocument());
 
     // Verify Next Participant starts clean.
-    await user.click(screen.getByRole('button', { name: 'Verify Next Participant' }));
+    await user.click(screen.getByRole('button', { name: 'Verify next person' }));
     expect(await screen.findByLabelText(/Member number/)).toHaveValue('');
     expect(screen.queryByRole('region', { name: 'Participant found' })).toBeNull();
     // The same person again: warned, and no second entry.
@@ -436,7 +436,7 @@ describe('screens', () => {
     const user = renderApp(`/verify/activities/${exam(s).id}`, s);
     expect(await screen.findByText(/Biometric verification unavailable/)).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/provider|integration required/i);
-    await user.click(screen.getByRole('button', { name: 'Start Verification' }));
+    await user.click(screen.getByRole('button', { name: 'Start verification' }));
     await findParticipant(user, people(s).enrolled.identifier!.value);
     await user.click(within(await screen.findByRole('region', { name: 'Participant found' })).getByRole('button', { name: 'Continue' }));
     expect(screen.getByRole('status')).toHaveTextContent('Biometric Verification Unavailable');
@@ -453,7 +453,7 @@ describe('screens', () => {
     const s = prepared(adminVerifier(base()));
     mockCamera(async () => { throw Object.assign(new Error('denied'), { name: 'NotAllowedError' }); });
     const user = renderApp(`/verify/activities/${exam(s).id}`, s, services(fakeFaceVerification(FACE.match)));
-    await user.click(await screen.findByRole('button', { name: 'Start Verification' }));
+    await user.click(await screen.findByRole('button', { name: 'Start verification' }));
     await findParticipant(user, people(s).enrolled.identifier!.value);
     await user.click(within(await screen.findByRole('region', { name: 'Participant found' })).getByRole('button', { name: /^Continue/ }));
     await user.click(screen.getByRole('button', { name: 'Capture Selfie' }));
@@ -471,7 +471,7 @@ describe('screens', () => {
     const s = prepared(adminVerifier(base()));
     const { outsider, noPortrait } = people(s);
     const user = renderApp(`/verify/activities/${exam(s).id}`, s, services(fakeFaceVerification(FACE.match)));
-    await user.click(await screen.findByRole('button', { name: 'Start Verification' }));
+    await user.click(await screen.findByRole('button', { name: 'Start verification' }));
     await findParticipant(user, noPortrait.identifier!.value);
     const found = await screen.findByRole('region', { name: 'Participant found' });
     expect(found).toHaveTextContent('Enrolled portraitNot enrolled');
@@ -497,7 +497,7 @@ describe('screens', () => {
     );
     expect(await screen.findByRole('heading', { name: 'You can’t perform this verification' })).toBeInTheDocument();
     expect(screen.getByText('Not assigned to this activity.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Start Verification' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Start verification' })).toBeNull();
     unmount();
     renderApp(`/verification-activities/${exam(s).id}`, s);
     expect(screen.getByRole('heading', { level: 1, name: /2026 Restricted Session Clearance/ })).toBeInTheDocument();

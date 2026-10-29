@@ -319,7 +319,7 @@ describe('screens', () => {
     expect(after.data.verifierAssignments.filter((v) => v.activityId === saved.id && v.status === 'active').map((v) => v.administratorId).sort()).toEqual([me.id, verifier.id].sort());
     // It starts in three days: verifiers can't verify before then.
     expect(authorizeVerifier(after.data, { organizationId: ORG_C, activityId: saved.id, administratorId: verifier.id })).toMatchObject({ authorized: false });
-    expect(authorizeVerifier(after.data, { organizationId: ORG_C, activityId: saved.id, administratorId: verifier.id, now: new Date(Date.now() + 3 * 86_400_000 + 3_600_000) })).toEqual({ authorized: true });
+    expect(authorizeVerifier(after.data, { organizationId: ORG_C, activityId: saved.id, administratorId: verifier.id, now: new Date(localInput(3, 12)) })).toEqual({ authorized: true });
     // Created once, then activated.
     expect(after.data.audit[0].action).toBe('verification-activity.activated');
     expect(after.data.audit.filter((e) => e.resourceId === saved.id && e.action === 'verification-activity.created')).toHaveLength(1);

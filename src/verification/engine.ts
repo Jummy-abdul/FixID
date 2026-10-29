@@ -435,6 +435,24 @@ export function createVerificationService(deps: ServiceDeps) {
         .filter((x) => x.version);
     },
 
+    /**
+     * Every activity the signed-in administrator is assigned to in this organization (its own, or a shared
+     * activity it actively takes part in), drafts aside, with whether verification can start now and why not.
+     * Nothing is listed for someone whose role can't perform verifications, or who isn't assigned.
+     */
+    listAssignedActivities(organizationId: string): { activity: ActivityConfig; runnable: boolean; reason?: string }[] {
+      const s = deps.getState();
+      const rec = actorRecord(s, organizationId);
+      if (!rec || !actorPermissions(s, organizationId).has('verification.execute')) return [];
+      return s.data.activityConfigs
+        .filter((a) => a.status !== 'draft' && (a.organizationId === organizationId || a.sharing?.participants.some((p) => p.organizationId === organizationId && p.status === 'active')))
+        .filter((a) => s.data.verifierAssignments.some((v) => v.organizationId === organizationId && v.activityId === a.id && v.administratorId === rec.id && v.status === 'active'))
+        .map((a) => {
+          const r = authorizeExecution(s, organizationId, a.id, client);
+          return r.ok ? { activity: a, runnable: true } : { activity: a, runnable: false, reason: r.error };
+        });
+    },
+
     /** Whether the signed-in administrator may perform verifications for this activity right now. */
     authorize(organizationId: string, activityId: string) {
       return authorizeExecution(deps.getState(), organizationId, activityId, client);

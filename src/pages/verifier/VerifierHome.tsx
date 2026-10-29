@@ -1,31 +1,49 @@
 import { DecisionBadge } from '@/components/verification/transactionParts';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarClock, MapPin, Play, ScanFace, ShieldOff } from 'lucide-react';
-import { Button, ButtonLink, Card, EmptyState, SearchInput } from '@/components/ui';
+import { ArrowLeft, CalendarClock, Fingerprint, MapPin, Play, ScanFace, ShieldOff } from 'lucide-react';
+import { Badge, Button, ButtonLink, Card, DataTable, EmptyState, FilterSelect, Pagination, SearchInput, Skeleton, usePageSlice } from '@/components/ui';
+import { sourceName } from '@/components/verification/transactionParts';
 import type { ActivityConfig } from '@/domain/types';
-import { ActivityStatusBadge } from '@/components/verification/parts';
-import { activityPlace, useActivityProgress } from './VerifierActivityPage';
+import { DisplayStatusBadge } from '@/components/verification/parts';
+import { ELIGIBILITY_OUTCOME_LABEL, ELIGIBILITY_OUTCOME_TONE, displayStatus, eligibilityOutcome } from '@/domain/activityLifecycle';
+import { usePageParam, useQueryState } from '@/hooks/useQueryState';
+import { HistoryRow, OUTCOME_TONE, progressLine, useActivityProgress, useSubjectOf, useVerifierActivity, verifierOutcome } from './verifierParts';
 import { useAuthorization } from '@/auth/authorization';
-import { AccessBadge, EntryBadge } from '@/components/verification/attemptParts';
-import { scheduleText } from '../verification/ActivityDetailsPage';
+import { EntryBadge } from '@/components/verification/attemptParts';
 import { useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
 import { formatDateTime } from '@/lib/dates';
 import { AttemptBadge } from '@/components/verification/attemptParts';
 
+const GROUPS: { id: 'active' | 'scheduled' | 'paused' | 'completed'; label: string; empty: string }[] = [
+  { id: 'active', label: 'Active', empty: '' },
+  { id: 'scheduled', label: 'Upcoming', empty: '' },
+  { id: 'paused', label: 'Paused', empty: '' },
+  { id: 'completed', label: 'Completed', empty: '' },
+];
+
+/**
+ * My Verification Activities: every activity the verifier is assigned to, grouped by status. Only Active ones
+ * can be started; upcoming, paused and completed ones can still be opened.
+ */
 export function VerifierHome() {
   const { organization } = useSession();
   const { state } = useStore();
   const { record, readOnly, can } = useAuthorization();
   const service = useVerificationService();
   const navigate = useNavigate();
-  const [q, setQ] = useState('');
+  const [q, setQ] = useQueryState('q');
+  const [status, setStatus] = useQueryState('status', 'all');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setLoading(false), 200); return () => clearTimeout(t); }, []);
   // What the (possibly previewed) role allows; starting a verification is still checked by the service.
   const canExecute = can('verification.execute');
-  const activities = useMemo(() => service.listAuthorizedActivities(organization.id), [service, organization.id, state]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shown = activities.filter(({ activity }) => !q.trim() || `${activity.name} ${activity.description}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const assigned = useMemo(() => service.listAssignedActivities(organization.id), [service, organization.id, state]); // eslint-disable-line react-hooks/exhaustive-deps
+  const query = q.trim().toLowerCase();
+  const shown = assigned.filter(({ activity }) => (status === 'all' || displayStatus(activity) === status)
+    && (!query || `${activity.name} ${activity.description} ${activity.location ?? ''}`.toLowerCase().includes(query)));
   const recent = state.data.verificationAttempts.filter((a) => a.organizationId === organization.id && a.verifierId === record?.id).slice(0, 8);
 
   const start = (activityId: string) => {
@@ -38,23 +56,41 @@ export function VerifierHome() {
   return (
     <>
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">My Verification Activities</h1>
-      <p className="mt-1 text-slate-500">Choose an activity to start.</p>
+      <p className="mt-1 text-slate-500">Activities you’re assigned to verify for {organization.name}.</p>
 
       {readOnly && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">Role preview is read-only, so verifications can’t be performed. Exit the preview to verify.</p>}
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
 
       <div className="mt-6">
         {!canExecute ? <NoExecute />
-          : activities.length === 0 ? (
+          : loading ? (
+            <div className="grid gap-4 md:grid-cols-2" aria-busy="true" aria-label="Loading activities">{[0, 1].map((i) => <Skeleton key={i} className="h-44 w-full" />)}</div>
+          ) : assigned.length === 0 ? (
             <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No verification activities assigned to you."
-              description="Ask an administrator to assign you to an activity." /></Card>
+              description="No verification activities are available to you right now. When an administrator assigns you to an activity, it appears here." /></Card>
           ) : (
-            <div className="space-y-4">
-              {activities.length > 4 && <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities" />}
-              <ul className="grid gap-4 md:grid-cols-2" aria-label="Your verification activities">
-                {shown.map(({ activity }) => <ActivityCard key={activity.id} activity={activity} disabled={readOnly} onStart={() => start(activity.id)} />)}
-              </ul>
-              {shown.length === 0 && <p className="text-sm text-slate-500">No activities match your search.</p>}
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <SearchInput value={q} onChange={setQ} placeholder="Search activities" label="Search activities" className="sm:w-72" />
+                <FilterSelect label="Status" value={status} onChange={setStatus}
+                  options={[{ value: 'all', label: 'All statuses' }, ...GROUPS.map((g) => ({ value: g.id, label: g.label }))]} />
+              </div>
+              {shown.length === 0 && (
+                <Card><EmptyState title="No activities match" description="Try a different search or status."
+                  action={<Button variant="secondary" onClick={() => { setQ(''); }}>Clear search</Button>} /></Card>
+              )}
+              {GROUPS.map((g) => {
+                const items = shown.filter(({ activity }) => displayStatus(activity) === g.id);
+                if (!items.length) return null;
+                return (
+                  <section key={g.id} aria-labelledby={`group-${g.id}`}>
+                    <h2 id={`group-${g.id}`} className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">{g.label}<span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{items.length}</span></h2>
+                    <ul className="grid gap-4 md:grid-cols-2" aria-label={g.id === 'active' ? 'Your verification activities' : `${g.label} activities`}>
+                      {items.map(({ activity, runnable }) => <ActivityCard key={activity.id} activity={activity} canStart={runnable && !readOnly} onStart={() => start(activity.id)} />)}
+                    </ul>
+                  </section>
+                );
+              })}
             </div>
           )}
       </div>
@@ -63,18 +99,7 @@ export function VerifierHome() {
         <section className="mt-10" aria-labelledby="recent">
           <h2 id="recent" className="flex items-center justify-between text-sm font-semibold text-slate-900">Your recent verifications<Link to="/verify/history" className="font-medium text-brand-600 hover:text-brand-700">View all</Link></h2>
           <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
-            {recent.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-slate-900">{a.activityName}</span>
-                  <span className="block text-xs text-slate-500">{a.id} · {formatDateTime(a.startedAt)}{a.subject ? ` · ${a.subject.label}` : ''}</span>
-                </span>
-                <AttemptBadge attempt={a} />
-                {a.accessDecision && <AccessBadge attempt={a} />}
-                {a.entry && <EntryBadge attempt={a} />}
-                <Link to={`/verify/attempts/${a.id}`} className="font-medium text-brand-600 hover:text-brand-700">{a.status === 'in-progress' ? 'Resume' : 'View'}<span className="sr-only"> {a.id}</span></Link>
-              </li>
-            ))}
+            {recent.map((a) => <HistoryRow key={a.id} attempt={a} showActivity />)}
           </ul>
         </section>
       )}
@@ -82,28 +107,25 @@ export function VerifierHome() {
   );
 }
 
-function ActivityCard({ activity, disabled, onStart }: { activity: ActivityConfig; disabled: boolean; onStart: () => void }) {
-  const progress = useActivityProgress(activity);
-  const place = activityPlace(activity);
-  const when = scheduleText(activity.schedule);
+function ActivityCard({ activity, canStart, onStart }: { activity: ActivityConfig; canStart: boolean; onStart: () => void }) {
+  const v = useVerifierActivity(activity);
   return (
     <li>
       <Card className="flex h-full flex-col p-5">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold text-slate-900">{activity.name}</h2>
-          <ActivityStatusBadge status={activity.status} />
+          <h3 className="text-lg font-semibold text-slate-900">{activity.name}</h3>
+          <DisplayStatusBadge activity={activity} />
         </div>
         {(activity.description || activity.purpose) && <p className="mt-1 text-sm text-slate-500">{activity.description || activity.purpose}</p>}
-        {(place || when) && (
-          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-            {place && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" aria-hidden="true" />{place}</span>}
-            {when && <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{when}</span>}
-          </p>
-        )}
-        <p className="mt-3 flex-1 text-sm text-slate-700" aria-label="Progress">{useProgressLine(activity, progress)}</p>
+        <dl className="mt-3 space-y-1 text-sm text-slate-600">
+          {v.schedule && <div className="flex items-start gap-1.5"><dt><CalendarClock className="mt-0.5 h-4 w-4 text-slate-400" aria-label="Schedule" /></dt><dd>{v.schedule}</dd></div>}
+          {v.place && <div className="flex items-start gap-1.5"><dt><MapPin className="mt-0.5 h-4 w-4 text-slate-400" aria-label="Location" /></dt><dd>{v.place}</dd></div>}
+          <div className="flex items-start gap-1.5"><dt><Fingerprint className="mt-0.5 h-4 w-4 text-slate-400" aria-label="Identity source" /></dt><dd>{v.source}{v.owner ? ` · from ${v.owner}` : ''}</dd></div>
+        </dl>
+        <p className="mt-3 flex-1 text-sm font-medium text-slate-800" aria-label="Progress">{progressLine(v)}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button icon={<Play className="h-4 w-4" />} disabled={disabled} onClick={onStart} aria-label={`Start verification: ${activity.name}`}>Start Verification</Button>
-          <ButtonLink to={`/verify/activities/${activity.id}`} variant="secondary" aria-label={`View details: ${activity.name}`}>View Details</ButtonLink>
+          {canStart && <Button icon={<Play className="h-4 w-4" />} onClick={onStart} aria-label={`Start verification: ${activity.name}`}>Start verification</Button>}
+          <ButtonLink to={`/verify/activities/${activity.id}`} variant="secondary" aria-label={`Open activity: ${activity.name}`}>Open activity</ButtonLink>
         </div>
       </Card>
     </li>
@@ -120,41 +142,70 @@ function NoExecute() {
   );
 }
 
-/** My Verification History: the verifications this administrator performed, and nobody else's. */
+/**
+ * My Verification History: the verifications this administrator performed, and nobody else's. Filterable by
+ * activity (`?activity=`) and outcome. Identifiers are masked; no images or biometric data are shown.
+ */
 export function VerifierHistoryPage() {
   const { organization } = useSession();
   const { state } = useStore();
   const { record } = useAuthorization();
+  const subjectOf = useSubjectOf();
+  const [activityId, setActivityId] = useQueryState('activity', 'all');
+  const [outcome, setOutcome] = useQueryState('outcome', 'all');
+  const [q, setQ] = useQueryState('q');
+  const [page, setPage] = usePageParam();
   const mine = state.data.verificationAttempts
     .filter((a) => a.organizationId === organization.id && !!record && a.verifierId === record.id && a.status !== 'in-progress')
     .sort((a, b) => (b.completedAt ?? b.startedAt).localeCompare(a.completedAt ?? a.startedAt));
+  const activities = [...new Map(mine.map((a) => [a.activityId, a.activityName])).entries()];
+  const query = q.trim().toLowerCase();
+  const rows = mine.filter((a) => (activityId === 'all' || a.activityId === activityId) && (outcome === 'all' || verifierOutcome(a).key === outcome)
+    && (!query || `${subjectOf(a).name} ${a.activityName}`.toLowerCase().includes(query)));
+  const { pageRows, pageCount, current } = usePageSlice(rows, page, 15);
+  const activityName = activityId !== 'all' ? activities.find(([id]) => id === activityId)?.[1] : undefined;
   return (
     <>
+      {activityName && <Link to={`/verify/activities/${activityId}`} className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"><ArrowLeft className="h-4 w-4" aria-hidden="true" />{activityName}</Link>}
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">My Verification History</h1>
-      <p className="mt-1 text-slate-500">Verifications you performed.</p>
+      <p className="mt-1 text-slate-500">Verifications you performed{activityName ? ` for ${activityName}` : ''}. Identifiers are masked, and no images or biometric data are kept.</p>
       <div className="mt-6">
         {mine.length === 0 ? (
           <Card><EmptyState icon={<ScanFace className="h-5 w-5" />} title="No verifications yet" description="Verifications you perform appear here." /></Card>
         ) : (
-          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white" aria-label="Your verifications">
-            {mine.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-slate-900">{a.activityName}</span>
-                  <span className="block text-xs text-slate-500">{formatDateTime(a.completedAt ?? a.startedAt)}{a.subject ? ` · ${a.subject.label}` : ''} · {a.id}</span>
-                </span>
-                <AttemptBadge attempt={a} />
-                {a.accessDecision && <AccessBadge attempt={a} />}
-                {a.entry && <EntryBadge attempt={a} />}
-                <Link to={`/verify/attempts/${a.id}`} className="font-medium text-brand-600 hover:text-brand-700">View<span className="sr-only"> {a.id}</span></Link>
-              </li>
-            ))}
-          </ul>
+          <Card>
+            <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
+              <SearchInput value={q} onChange={setQ} placeholder="Search by name or activity" label="Search verifications" className="sm:w-64" />
+              <FilterSelect label="Activity" value={activityId} onChange={setActivityId} options={[{ value: 'all', label: 'All activities' }, ...activities.map(([value, label]) => ({ value, label }))]} />
+              <FilterSelect label="Outcome" value={outcome} onChange={setOutcome} options={[{ value: 'all', label: 'All outcomes' }, ...OUTCOME_FILTERS]} />
+            </div>
+            <DataTable
+              rows={pageRows}
+              rowKey={(a) => a.id}
+              rowHref={(a) => `/verify/attempts/${a.id}`}
+              empty={<EmptyState title="No verifications match" description="Try a different search or filter." />}
+              columns={[
+                { key: 'who', header: 'Person', className: '!whitespace-normal min-w-[9rem]', cell: (a) => { const w = subjectOf(a); return <span><span className="block font-medium text-slate-900">{w.name}</span><span className="font-mono text-xs text-slate-500">{w.identifier}</span></span>; } },
+                { key: 'activity', header: 'Activity', className: '!whitespace-normal min-w-[8rem]', cell: (a) => <span className="text-slate-700">{a.activityName}</span> },
+                { key: 'at', header: 'Date and time', cell: (a) => <span className="text-slate-600">{formatDateTime(a.completedAt ?? a.startedAt)}</span> },
+                { key: 'source', header: 'Identity source', className: '!whitespace-normal min-w-[8rem]', cell: (a) => <span className="text-slate-600">{sourceName(a)}</span> },
+                { key: 'outcome', header: 'Verification', cell: (a) => { const o = verifierOutcome(a); return <Badge tone={OUTCOME_TONE[o.key]}>{o.title}</Badge>; } },
+                { key: 'eligibility', header: 'Eligibility', cell: (a) => { const e = eligibilityOutcome(a); return <Badge tone={ELIGIBILITY_OUTCOME_TONE[e]}>{ELIGIBILITY_OUTCOME_LABEL[e]}</Badge>; } },
+                { key: 'response', header: 'System response', className: '!whitespace-normal min-w-[14rem]', cell: (a) => <span className="text-xs text-slate-600">{verifierOutcome(a).explanation}</span> },
+              ]}
+            />
+            <Pagination page={current} pageCount={pageCount} total={rows.length} pageSize={15} onPage={setPage} />
+          </Card>
         )}
       </div>
     </>
   );
 }
+
+const OUTCOME_FILTERS = [
+  { value: 'verified', label: 'Verified' }, { value: 'verified-not-eligible', label: 'Identity verified, not eligible' }, { value: 'not-eligible', label: 'Not eligible' },
+  { value: 'unsuccessful', label: 'Unsuccessful' }, { value: 'pending', label: 'Pending' }, { value: 'unable', label: 'Unable to complete' }, { value: 'cancelled', label: 'Cancelled' },
+];
 
 /** The dashboard for a role whose only job is verifying: their assignments and their recent work. */
 export function VerifierDashboard() {

@@ -48,12 +48,13 @@ const PANEL = {
  * decision with its explanation, then identity, liveness and eligibility as separate results. A biometric
  * match is never presented as approval, and simulated results are labelled as such.
  */
-export function TransactionOutcome({ attempt, sharedBy }: { attempt: VerificationAttempt; sharedBy?: string }) {
+export function TransactionOutcome({ attempt, sharedBy, hideDecision, person }: { attempt: VerificationAttempt; sharedBy?: string; hideDecision?: boolean; person?: string }) {
   if (!attempt.decision) return null;
   const p = PANEL[attempt.decision];
   return (
     <section aria-label="Verification outcome" className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
-      <div className={cn('flex items-start gap-3 px-5 py-4 ring-1 ring-inset', p.cls)}>
+      {/* The verifier's result page shows its own headline instead of the combined decision. */}
+      {!hideDecision && <div className={cn('flex items-start gap-3 px-5 py-4 ring-1 ring-inset', p.cls)}>
         <p.icon className="mt-0.5 h-7 w-7 shrink-0" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-wide opacity-80">Verification Outcome</p>
@@ -61,7 +62,7 @@ export function TransactionOutcome({ attempt, sharedBy }: { attempt: Verificatio
           <p className="mt-0.5 text-sm">{attempt.decisionExplanation}</p>
         </div>
         {attempt.simulated && <SimulatedBadge label="Simulated Result" />}
-      </div>
+      </div>}
       {attempt.simulated && (
         <p className="border-b border-slate-100 bg-amber-50/60 px-5 py-2 text-xs text-amber-900">
           Simulated results come from a demonstration service: no faces were compared and no real liveness or presentation-attack detection took place. This isn’t an identity assurance claim.
@@ -91,7 +92,7 @@ export function TransactionOutcome({ attempt, sharedBy }: { attempt: Verificatio
         </Row>
         <Row label="Activity">{attempt.activityName}{sharedBy ? <span className="block text-xs text-slate-500">Shared activity from {sharedBy}</span> : null}</Row>
         <Row label="Verification Source">{sourceName(attempt)}</Row>
-        <Row label="Person">{attempt.subject?.label ?? 'Not identified'}</Row>
+        <Row label="Person">{person ?? attempt.subject?.label ?? 'Not identified'}</Row>
         <Row label="Transaction Reference"><span className="font-mono text-xs">{attempt.id}</span></Row>
         <Row label="Date and Time">{formatDateTime(attempt.completedAt ?? attempt.startedAt)}</Row>
         <Row label="Status"><StageBadge attempt={attempt} /></Row>

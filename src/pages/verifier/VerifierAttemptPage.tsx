@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, CircleSlash, Clock, FlaskConical, Loader2, MapPin, MinusCircle, RotateCcw, ScanFace, Search, ShieldCheck, UserRound, XCircle,
+  AlertTriangle, ArrowLeft, CheckCircle2, CircleDashed, Clock, FlaskConical, Loader2, MapPin, MinusCircle, RotateCcw, ScanFace, Search, QrCode, ShieldCheck, UserPlus, UserRound, XCircle,
 } from 'lucide-react';
 import { Badge, Button, Card, ConfirmDialog, Field, Input, Modal, Textarea, useToast } from '@/components/ui';
 import type { CheckRun, VerificationAttempt } from '@/domain/types';
-import { TYPE_INFO, checkById, providersFor } from '@/domain/verification';
+import { TYPE_INFO, checkById, eligibleParticipants, providersFor } from '@/domain/verification';
 import { formatDateTime } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { useActions, useSession, useStore } from '@/store/AppStore';
@@ -16,7 +16,8 @@ import { useServices } from '@/services/ServicesProvider';
 import { FACE_UNAVAILABLE_REASON } from '@/services/faceVerification';
 import type { DeviceLocation } from '@/services/location';
 import { CameraCapture } from '@/components/verification/CameraCapture';
-import { TransactionOutcome } from '@/components/verification/transactionParts';
+import { TransactionOutcome, sourceName } from '@/components/verification/transactionParts';
+import { OutcomeHeadline, useSubjectOf } from './verifierParts';
 import { SIMULATED_FACE_OUTCOMES, SIMULATED_LIVENESS_OUTCOMES } from '@/services/simulatedFaceVerification';
 import { useAuthorization } from '@/auth/authorization';
 import { RunExternal } from './ExternalAttempt';
@@ -131,9 +132,13 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
 
   const find = async (e: FormEvent) => {
     e.preventDefault();
+    await runLookup(identifier);
+  };
+  /** Looks the identifier up. A simulated QR scan reads the identifier from the credential and uses this same lookup. */
+  const runLookup = async (value: string) => {
     if (finding) return;
     setFinding(true); setLookup(null); setLookupError(null); setCapture(null); setError(null);
-    const r = await service.lookupParticipant(attempt.id, identifier);
+    const r = await service.lookupParticipant(attempt.id, value);
     setFinding(false);
     if (r.ok) return setLookup(r);
     setLookupError(r.error);
@@ -210,7 +215,13 @@ function RunAttempt({ attempt }: { attempt: VerificationAttempt }) {
               </Field>
               <Button type="submit" size="lg" className="w-full sm:w-auto" loading={finding} icon={finding ? undefined : <Search className="h-5 w-5" />} disabled={!identifier.trim()}>Find Participant</Button>
             </form>
-            {lookupError && <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{lookupError}</p>}
+            {lookupError && (
+              <div role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">
+                <p className="font-medium">{lookupError}</p>
+                <p className="mt-1 text-red-700">Nobody has been verified. Check the identifier with the person and search again, or cancel this verification.</p>
+              </div>
+            )}
+            {!lookup && <SimulatedQrScan activityId={attempt.activityId} disabled={finding} onScan={(value) => { setIdentifier(value); void runLookup(value); }} />}
           </Card>
           {lookup && (
             <ParticipantCard lookup={lookup} faceAvailable={!!steps.biometric?.available} canManageEnrollment={canManageEnrollment}
@@ -426,16 +437,14 @@ function ResultSummary({ attempt }: { attempt: VerificationAttempt }) {
   const loc = attempt.location;
   return (
     <section aria-label="Outcome" className="rounded-2xl bg-white px-5 py-5 ring-1 ring-slate-200">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Participant</p>
-      <h1 className="mt-1 text-2xl font-semibold text-slate-900">{attempt.subject?.label ?? 'Not identified'}</h1>
       {biometricUnavailable && (
-        <p className="mt-3 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
+        <p className="mb-1 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-300">
           <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span><span className="font-semibold">Biometric Verification Unavailable.</span> No face comparison was made, so identity wasn’t verified.</span>
         </p>
       )}
-      <dl className="mt-4 divide-y divide-slate-100">
-        <div className="py-3">
+      <dl className="divide-y divide-slate-100">
+        <div className="pb-3">
           <dt className="text-sm text-slate-500">Identity verification</dt>
           <dd className="mt-1"><span className={cn('inline-flex items-center gap-1.5 text-lg font-semibold', { success: 'text-emerald-700', danger: 'text-red-700', warning: 'text-amber-700', violet: 'text-violet-700' }[id.tone])}><id.icon className="h-5 w-5" aria-hidden="true" />{id.label}</span>
             <span className="block text-sm text-slate-600">{identityExplanation(attempt)}</span></dd>
@@ -461,6 +470,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   const toast = useToast();
   const { state } = useStore();
   const [details, setDetails] = useState(false);
+  const subjectOf = useSubjectOf();
   const [referring, setReferring] = useState(false);
   const [reason, setReason] = useState('');
   const version = state.data.activityVersions.find((v) => v.id === attempt.versionId);
@@ -487,9 +497,19 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
   };
 
   const done = attempt.status === 'completed' && !!attempt.outcome;
+  const who = subjectOf(attempt);
   return (
     <div className="mx-auto max-w-3xl">
-      {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} sharedBy={owner?.name} /></div>}
+      <Link to={`/verify/activities/${attempt.activityId}`} className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"><ArrowLeft className="h-4 w-4" aria-hidden="true" />{attempt.activityName}</Link>
+      <OutcomeHeadline attempt={attempt} name={who.name} identifier={who.identifier} />
+      <p className="mb-4 mt-2 text-xs text-slate-500" role="status">Recorded {formatDateTime(attempt.completedAt ?? attempt.startedAt)} · Reference <span className="font-mono">{attempt.id}</span> · {sourceName(attempt)}</p>
+      {isMine && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          <Button size="lg" icon={<UserPlus className="h-5 w-5" />} onClick={() => startNew()}>Verify next person</Button>
+          <Button size="lg" variant="secondary" onClick={() => navigate(`/verify/activities/${attempt.activityId}`)}>Return to activity</Button>
+        </div>
+      )}
+      {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} sharedBy={owner?.name} hideDecision person={`${who.name} ${who.identifier}`} /></div>}
       {exception && (
         <div className="mb-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">
           <p>Exception <span className="font-mono font-semibold">{exception.id}</span> · {EXCEPTION_STATUS_LABEL[exception.status]}{exception.resolution && exception.resolution.outcome !== 'reverification-required' ? ` · ${RESOLUTION_LABEL[exception.resolution.outcome]}` : ''}</p>
@@ -500,13 +520,8 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
       )}
       {attempt.reverificationOf && <p className="mb-4 text-sm text-slate-600">Reverification for exception <span className="font-mono">{attempt.reverificationOf}</span>.</p>}
       {attempt.retryOf && <p className="mb-4 text-sm text-slate-600">Retry of transaction <Link to={`/verify/attempts/${attempt.retryOf}`} className="font-mono text-brand-700 underline">{attempt.retryOf}</Link>.</p>}
-      {done ? (!external && <ResultSummary attempt={attempt} />) : (
-        <section className="rounded-2xl bg-slate-700 px-6 py-6 text-white" aria-label="Outcome">
-          {attempt.status === 'cancelled' ? <CircleSlash className="h-8 w-8" aria-hidden="true" /> : <AlertTriangle className="h-8 w-8" aria-hidden="true" />}
-          <h1 className="mt-2 text-2xl font-semibold">{attempt.status === 'cancelled' ? 'Verification cancelled' : attempt.status === 'expired' ? 'Verification interrupted' : 'Verification couldn’t be completed'}</h1>
-          <p className="mt-1 text-white/90">{attempt.reasons[0] ?? 'No outcome was recorded for the person.'}</p>
-        </section>
-      )}
+      {done && !external && <ResultSummary attempt={attempt} />}
+      {!done && attempt.reasons[0] && <p className="rounded-xl bg-white px-4 py-3 text-sm text-slate-700 ring-1 ring-slate-200">{attempt.reasons[0]}</p>}
       {attempt.simulated && !attempt.decision && (
         <p className="mt-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 ring-1 ring-inset ring-amber-300">
           <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Demonstration result: some checks used simulated providers. This is not real identity or credential assurance.
@@ -525,7 +540,7 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
             <div><dt className="text-slate-500">Identity and credential</dt><dd className="mt-0.5"><IdentityResultBadge attempt={attempt} /></dd></div>
             <div><dt className="text-slate-500">Eligibility</dt><dd className="mt-0.5"><EligibilityBadge attempt={attempt} /></dd></div>
           </>}
-          <div><dt className="text-slate-500">Subject</dt><dd className="text-slate-900">{attempt.subject?.label ?? 'Not identified'}</dd></div>
+          <div><dt className="text-slate-500">Person</dt><dd className="text-slate-900">{who.name} <span className="font-mono text-xs text-slate-500">{who.identifier}</span></dd></div>
           <div><dt className="text-slate-500">Verifier</dt><dd className="text-slate-900">{attempt.verifierName}</dd></div>
           <div><dt className="text-slate-500">Organization</dt><dd className="text-slate-900">{organization.name}</dd></div>
           <div><dt className="text-slate-500">Status</dt><dd><AttemptBadge attempt={attempt} /></dd></div>
@@ -549,9 +564,8 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
         )}
       </section>}
       <div className="mt-6 flex flex-wrap gap-2">
-        {canRetry && <Button size="lg" icon={<RotateCcw className="h-5 w-5" />} onClick={() => startNew(true)}>Retry Verification</Button>}
-        {isMine && <Button size="lg" variant={canRetry ? 'secondary' : 'primary'} icon={<RotateCcw className="h-5 w-5" />} onClick={() => startNew()}>Verify Next Participant</Button>}
-        <Button size="lg" variant="secondary" onClick={() => navigate(isMine ? `/verify/activities/${attempt.activityId}` : '/verify')}>{isMine ? 'Complete' : 'Return'}</Button>
+        {canRetry && <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} onClick={() => startNew(true)}>Retry Verification</Button>}
+        {!isMine && <Button variant="secondary" onClick={() => navigate('/verify')}>Return</Button>}
         <Button variant="secondary" onClick={() => setDetails((d) => !d)} aria-expanded={details}>{details ? 'Hide details' : 'View details'}</Button>
         {canRefer && <Button variant="ghost" onClick={() => setReferring(true)}>Submit for Review</Button>}
       </div>
@@ -564,6 +578,44 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
           }}>Refer</Button></>}>
           <Field label="Reason" hint="What should the reviewer know?">{(p) => <Textarea {...p} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
         </Modal>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Demonstration only: stands in for scanning the code on a person's FixID credential. No camera is used; the
+ * code carries the same identifier that could be typed, and the same lookup and portrait match follow.
+ */
+function SimulatedQrScan({ activityId, disabled, onScan }: { activityId: string; disabled: boolean; onScan: (identifier: string) => void }) {
+  const { state } = useStore();
+  const { organization } = useSession();
+  const [open, setOpen] = useState(false);
+  const activity = state.data.activityConfigs.find((a) => a.id === activityId);
+  const listed = activity ? eligibleParticipants(state.data, activity.organizationId, activity.participants) : new Set<string>();
+  const people = state.data.members.filter((m) => m.organizationId === organization.id && m.status === 'active' && m.identifier).sort((a, b) => a.id.localeCompare(b.id));
+  // A few eligible people first, then a couple who aren't on the list, so each outcome can be shown.
+  const samples = [...people.filter((m) => listed.has(m.id)).slice(0, 3), ...people.filter((m) => !listed.has(m.id)).slice(0, listed.size ? 2 : 3)];
+  if (!samples.length) return null;
+  return (
+    <div className="mt-4 rounded-xl bg-amber-50/60 p-3 ring-1 ring-inset ring-amber-200">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+        <QrCode className="h-4 w-4" aria-hidden="true" />Scan QR code (simulated)
+      </button>
+      {open && (
+        <div className="mt-2">
+          <p className="text-xs text-amber-900">Demonstration only: no camera is used. Choose whose FixID credential to “scan”; its code carries their identifier, and the same lookup and portrait match follow.</p>
+          <ul className="mt-2 flex flex-wrap gap-2" aria-label="Simulated credentials to scan">
+            {samples.map((m) => (
+              <li key={m.id}>
+                <button type="button" disabled={disabled} onClick={() => onScan(m.identifier!.value)}
+                  className="rounded-lg bg-white px-2.5 py-1 text-xs ring-1 ring-inset ring-amber-200 hover:ring-amber-400 disabled:opacity-50">
+                  {m.displayName}<span className="ml-1 text-slate-500">{listed.size ? (listed.has(m.id) ? '· selected' : '· not selected') : ''}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

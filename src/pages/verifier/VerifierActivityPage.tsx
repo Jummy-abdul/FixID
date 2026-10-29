@@ -1,97 +1,82 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Lock, MapPin, Play, ScanFace, XCircle } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Fingerprint, Lock, MapPin, Play, ScanFace, XCircle } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { useAuthorization } from '@/auth/authorization';
-import { ActivityStatusBadge } from '@/components/verification/parts';
-import { AccessBadge, AttemptBadge, EntryBadge } from '@/components/verification/attemptParts';
-import { formatCoordinate, formatRadius } from '@/domain/location';
-import { participantProgress, participantStatuses } from '@/domain/participantStatus';
+import { DisplayStatusBadge } from '@/components/verification/parts';
+import { PORTRAIT_BASELINE, describeSource } from '@/domain/activityLifecycle';
 import type { ActivityConfig } from '@/domain/types';
-import { activeAssignments, eligibleParticipants } from '@/domain/verification';
-import { checksLabel, sourceLabel } from '@/components/verification/RequirementsSummary';
 import { formatDateTime } from '@/lib/dates';
+import { useServices } from '@/services/ServicesProvider';
 import { useSession, useStore } from '@/store/AppStore';
 import { useVerificationService } from '@/verification/useVerificationService';
-import { activityFor, activityPolicy, executionUnavailable } from '@/store/sharingOps';
-import { summarize } from '@/store/reporting';
+import { activityFor, executionUnavailable } from '@/store/sharingOps';
+import { HistoryRow, useVerifierActivity } from './verifierParts';
 
-/** Where the activity takes place, from its location check or its descriptive location. */
-export function activityPlace(a: ActivityConfig): string | null {
-  const loc = a.locationCheck;
-  if (loc?.enabled) return `${loc.label ? `${loc.label.split(',')[0]} · ` : ''}${formatCoordinate(loc.lat)}, ${formatCoordinate(loc.lng)} · within ${formatRadius(loc.radiusM)}`;
-  return a.location || null;
-}
-
-/** Progress for the people eligible for an activity, from persisted verification results. */
-export function useActivityProgress(activity: ActivityConfig) {
-  const { state } = useStore();
-  return participantProgress(participantStatuses(state.data.verificationAttempts, activity.id), eligibleParticipants(state.data, activity.organizationId, activity.participants));
-}
-
-/** An assigned activity in the Verifier Workspace: what it is, progress so far, and Start Verification. */
+/** An assigned activity in the Verifier Workspace: what it is, how to verify, progress so far, and Start verification. */
 export function VerifierActivityPage() {
   const { activityId } = useParams();
   const { organization } = useSession();
   const { state } = useStore();
   const service = useVerificationService();
-  // Its own activity, or a shared activity it takes part in.
+  // Its own activity, or a shared activity it takes part in, and only when the verifier is assigned to it.
   const activity = activityId ? activityFor(state, organization.id, activityId) : undefined;
-  const auth = activityId ? service.authorize(organization.id, activityId) : null;
+  const assigned = activity ? service.listAssignedActivities(organization.id).find((x) => x.activity.id === activity.id) : undefined;
 
-  // Another organization's activity, or one that doesn't exist, looks the same: nothing is revealed.
-  if (!activity || !auth || (!auth.ok && auth.code !== 'inactive')) {
+  // Another organization's activity, an unassigned one, or one that doesn't exist, looks the same: nothing is revealed.
+  if (!activity || !assigned) {
+    const auth = activity ? service.authorize(organization.id, activity.id) : null;
+    const refusal = auth && !auth.ok ? auth.error : 'This activity doesn’t exist in this organization, or you don’t have access to it.';
     return (
       <Card className="px-6 py-10 text-center">
         <XCircle className="mx-auto h-8 w-8 text-red-500" aria-hidden="true" />
         <h1 className="mt-3 text-lg font-semibold text-slate-900">You can’t perform this verification</h1>
-        <p className="mt-1 text-slate-500">{activity && auth && !auth.ok ? auth.error : 'This activity doesn’t exist in this organization, or you don’t have access to it.'}</p>
+        <p className="mt-1 text-slate-500">{refusal}</p>
         <Link to="/verify" className="mt-5 inline-block text-sm font-semibold text-brand-600 hover:text-brand-700">Back to your activities</Link>
       </Card>
     );
   }
-  return <Details activity={activity} inactive={!auth.ok} />;
+  return <Details activity={activity} runnable={assigned.runnable} />;
 }
 
-function Details({ activity, inactive }: { activity: ActivityConfig; inactive: boolean }) {
+function Details({ activity, runnable }: { activity: ActivityConfig; runnable: boolean }) {
   const { organization } = useSession();
   const { state } = useStore();
   const { record, readOnly } = useAuthorization();
   const service = useVerificationService();
   const navigate = useNavigate();
+  const { faceVerification } = useServices();
   const [error, setError] = useState<string | null>(null);
-  const version = state.data.activityVersions.find((v) => v.id === activity.activeVersionId);
-  const progress = useActivityProgress(activity);
-  const place = activityPlace(activity);
-  const usesFace = !!version?.checks.some((c) => c.type === 'face-match');
-  const policy = activityPolicy(state, activity);
-  const shared = activity.organizationId !== organization.id || !!activity.sharing;
-  const ownerName = state.data.organizations.find((o) => o.id === activity.organizationId)?.name ?? organization.name;
-  const unavailable = executionUnavailable(state, activity, organization.id);
-  const verifiers = activeAssignments(state.data, organization.id, activity.id).map((x) => { const a = state.data.administrators.find((y) => y.id === x.administratorId); return a?.name ?? a?.email ?? 'Former administrator'; });
+  const [starting, setStarting] = useState(false);
+  const v = useVerifierActivity(activity);
+  const integration = v.policy.integration;
+  const process = describeSource(v.policy.effective.identitySource.kind === 'external' ? { kind: 'external', integration } : { kind: 'local' }, v.mode, !faceVerification.available);
+  const unavailable = runnable ? executionUnavailable(state, activity, organization.id) : null;
+  const faceMode = v.policy.effective.identitySource.kind === 'local' ? service.faceMode(organization.id) : null;
   const mine = state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.verifierId === record?.id && a.status !== 'in-progress').slice(0, 5);
 
   const start = () => {
     setError(null);
+    setStarting(true);
     const r = service.startAttempt(organization.id, activity.id);
+    setStarting(false);
     if (!r.ok) return setError(r.error);
     navigate(`/verify/attempts/${r.attempt.id}`);
   };
 
-  // An activity with a list of people shows progress against it; otherwise this organization's results so far.
-  const hasList = !!(activity.participants?.groupIds.length || activity.participants?.memberIds.length);
-  const results = summarize(state, state.data.verificationAttempts.filter((a) => a.activityId === activity.id && a.organizationId === organization.id && a.status !== 'in-progress'));
-  const entry = activity.entryPolicy && activity.entryPolicy !== 'off';
-  const stats = hasList ? [
-    { label: 'Eligible participants', value: progress.eligible },
-    { label: 'Verified', value: progress.verified },
-    { label: 'Pending verification', value: progress.pending },
-    ...(entry || progress.granted ? [{ label: 'Entry granted', value: progress.granted }, { label: 'Entry denied', value: progress.denied }] : []),
-  ] : [
-    { label: 'Total attempts', value: results.attempts },
-    { label: 'Verified', value: results.allowed },
-    { label: 'Not verified', value: results.denied },
-    { label: 'Pending review', value: results.pendingReview },
+  const notRunning = {
+    draft: '', active: '',
+    scheduled: `This activity hasn’t started yet${activity.schedule?.startsAt ? `: verification opens on ${formatDateTime(activity.schedule.startsAt)}` : ''}.`,
+    paused: 'This activity is paused, so new verifications can’t be started. Earlier results are kept.',
+    completed: 'This activity is completed, so new verifications can’t be started. Earlier results are kept.',
+  }[v.status];
+  const c = v.counts;
+  const stats = [
+    ...(v.eligible !== null ? [{ label: 'Eligible participants', value: v.eligible }, { label: 'Verified participants', value: v.verifiedPeople }] : []),
+    { label: 'Total attempts', value: c.attempts },
+    { label: 'Verified', value: c.verified },
+    { label: 'Unsuccessful', value: c.unsuccessful },
+    { label: 'Pending or incomplete', value: c.pending + c.unable },
   ];
 
   return (
@@ -99,35 +84,28 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
       <Link to="/verify" className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"><ArrowLeft className="h-4 w-4" aria-hidden="true" />My activities</Link>
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{activity.name}</h1>
-        <ActivityStatusBadge status={activity.status} />
+        <DisplayStatusBadge activity={activity} />
       </div>
       {(activity.description || activity.purpose) && <p className="mt-1 text-slate-500">{activity.description || activity.purpose}</p>}
-      {place && <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" /><span><span className="sr-only">Location: </span>{place}{activity.locationCheck?.enabled && <span className="block text-xs text-slate-500">Your device’s location is checked when you run each verification. It’s reported, and doesn’t block verification or entry.</span>}</span></p>}
+      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm text-slate-600">
+        {v.schedule && <div className="flex items-center gap-1.5"><dt><CalendarClock className="h-4 w-4 text-slate-400" aria-label="Schedule" /></dt><dd>{v.schedule}</dd></div>}
+        {v.place && <div className="flex items-center gap-1.5"><dt><MapPin className="h-4 w-4 text-slate-400" aria-label="Location" /></dt><dd>{v.place}</dd></div>}
+        <div className="flex items-center gap-1.5"><dt><Fingerprint className="h-4 w-4 text-slate-400" aria-label="Identity source" /></dt><dd>{v.source}{v.owner ? ` · set by ${v.owner}` : ''}</dd></div>
+      </dl>
+      {activity.locationCheck?.enabled && <p className="mt-2 text-xs text-slate-500">Your device’s location is checked when you run each verification. It’s reported, and doesn’t block verification or entry.</p>}
 
-      {inactive ? (
-        <p role="alert" className="mt-5 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">This activity isn’t active, so new verifications can’t be started. Earlier results stay in your history.</p>
+      {!runnable ? (
+        <p role="status" className="mt-5 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">{notRunning}</p>
       ) : (
         <div className="mt-5">
           {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{error}</p>}
           {unavailable && <p role="status" className="mb-3 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{unavailable}</p>}
-          <Button size="lg" className="w-full sm:w-auto" icon={<Play className="h-5 w-5" />} disabled={readOnly || !!unavailable} onClick={start}>Start Verification</Button>
+          <Button size="lg" className="w-full sm:w-auto" icon={<Play className="h-5 w-5" />} loading={starting} disabled={readOnly || !!unavailable} onClick={start}>Start verification</Button>
           {readOnly && <p className="mt-2 text-sm text-amber-800">Role preview is read-only. Exit the preview to verify.</p>}
         </div>
       )}
-      {usesFace && policy.effective.identitySource.kind === 'local' && service.faceMode(organization.id) === 'simulated' && (
-        <p className="mt-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-          <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><span className="font-semibold">Simulated facial verification.</span> No facial verification provider is configured, so this demonstration organization uses a labelled simulation. Results are marked Simulated and aren’t real biometric verification.</span>
-        </p>
-      )}
-      {usesFace && policy.effective.identitySource.kind === 'local' && service.faceMode(organization.id) === 'unavailable' && (
-        <p className="mt-4 flex gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
-          <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span><span className="font-semibold">Biometric verification unavailable.</span> Identity can’t be verified right now. You can find participants and capture a selfie, but every verification records Unable to Verify.</span>
-        </p>
-      )}
 
-      <section aria-label="Verification progress" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+      <section aria-label="Verification progress" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {stats.map((x) => (
           <Card key={x.label} className="p-4">
             <p className="text-xs text-slate-500">{x.label}</p>
@@ -136,38 +114,36 @@ function Details({ activity, inactive }: { activity: ActivityConfig; inactive: b
         ))}
       </section>
 
-      {version && (
-        <Card className="mt-6 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">Requirements</h2>
-          <dl className="mt-3 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2" aria-label="Verification requirements">
-            <div><dt className="text-slate-500">Owned by</dt><dd className="text-slate-900">{ownerName}{shared ? ' (shared activity)' : ''}</dd></div>
-            <div><dt className="text-slate-500">Identity Source</dt><dd className="text-slate-900">{sourceLabel(policy.effective.identitySource, policy.integration)}</dd></div>
-            <div><dt className="text-slate-500">Required Checks</dt><dd className="text-slate-900">{checksLabel(policy.effective)}</dd></div>
-            <div><dt className="text-slate-500">Assigned Verifiers</dt><dd className="text-slate-900">{verifiers.join(', ') || 'None'}</dd></div>
-          </dl>
-          {shared && <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Set by {ownerName}.</p>}
-        </Card>
-      )}
+      <Card className="mt-6 px-5 py-4">
+        <h2 className="text-sm font-semibold text-slate-900">How to verify</h2>
+        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-slate-700" aria-label="Verification instructions">
+          {process.steps.map((x) => <li key={x}>{x}</li>)}
+        </ol>
+        <p className="mt-3 text-sm text-slate-600">{PORTRAIT_BASELINE} Results are recorded automatically; you can’t override them.</p>
+        {v.owner && <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><Lock className="h-3 w-3" aria-hidden="true" />Set by {v.owner}.</p>}
+        {(process.simulated || faceMode === 'simulated') && (
+          <p className="mt-3 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+            <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span><span className="font-semibold">Simulated in this prototype.</span> No real identity service, face matching or liveness detection is connected. You choose the simulated outcomes, and results are marked Simulated.</span>
+          </p>
+        )}
+        {faceMode === 'unavailable' && (
+          <p className="mt-3 flex gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
+            <ScanFace className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span><span className="font-semibold">Biometric verification unavailable.</span> Identity can’t be verified right now. You can find participants and capture a selfie, but every verification records Unable to Verify.</span>
+          </p>
+        )}
+      </Card>
 
-      {mine.length > 0 && (
-        <section className="mt-6" aria-labelledby="mine">
-          <h2 id="mine" className="text-sm font-semibold text-slate-900">Your recent verifications here</h2>
+      <section className="mt-6" aria-labelledby="mine">
+        <h2 id="mine" className="flex items-center justify-between text-sm font-semibold text-slate-900">Your recent verifications here
+          {mine.length > 0 && <Link to={`/verify/history?activity=${encodeURIComponent(activity.id)}`} className="font-medium text-brand-600 hover:text-brand-700">View history for this activity</Link>}</h2>
+        {mine.length === 0 ? <p className="mt-3 rounded-xl bg-white px-4 py-4 text-sm text-slate-500 ring-1 ring-slate-200">You haven’t verified anyone for this activity yet.</p> : (
           <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
-            {mine.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-slate-900">{a.subject?.label ?? 'Not identified'}</span>
-                  <span className="block text-xs text-slate-500">{formatDateTime(a.completedAt ?? a.startedAt)}</span>
-                </span>
-                <AttemptBadge attempt={a} />
-                {a.accessDecision && <AccessBadge attempt={a} />}
-                {a.entry && <EntryBadge attempt={a} />}
-                <Link to={`/verify/attempts/${a.id}`} className="font-medium text-brand-600 hover:text-brand-700">View<span className="sr-only"> {a.id}</span></Link>
-              </li>
-            ))}
+            {mine.map((a) => <HistoryRow key={a.id} attempt={a} />)}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
     </>
   );
 }

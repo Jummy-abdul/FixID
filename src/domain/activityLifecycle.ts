@@ -109,7 +109,7 @@ export function describeSource(source: { kind: 'local' } | { kind: 'external'; i
   return {
     name: 'FixID records', external: false, simulated: localSimulated,
     steps: [
-      'Retrieve the person’s FixID record using their registered identifier.',
+      'Retrieve the person’s FixID record using their registered identifier, typed or read from the code on their FixID credential.',
       'Confirm a live person is present.',
       'Perform the required portrait match against the reference portrait enrolled in FixID.',
       mode === 'selected' ? 'Confirm the person is one of the selected participants.' : 'Anyone with an active FixID record in your organization can be verified.',

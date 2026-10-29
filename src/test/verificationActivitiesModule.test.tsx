@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
@@ -236,7 +236,11 @@ describe('screens', () => {
     expect(screen.getByLabelText('Activity name')).toHaveValue('Badge Desk');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByText('Changes saved')).toBeInTheDocument();
-    await user.click(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Verification Activities' }));
+    // Saving opens the activity's details.
+    expect(await screen.findByRole('heading', { level: 1, name: /^Badge Desk/ })).toBeInTheDocument();
+    // The list, from the saved data, shows the new name.
+    cleanup();
+    renderApp('/verification-activities', loadState()!);
     expect(await screen.findByRole('link', { name: 'Badge Desk' }, { timeout: 3000 })).toBeInTheDocument();
   });
 

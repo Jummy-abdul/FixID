@@ -303,10 +303,11 @@ describe('demonstration data', () => {
 describe('screens', () => {
   it('runs the external journey: Identify Person, Capture Face (simulated), result with separate identity and eligibility', async () => {
     const user = renderApp(`/verify/activities/${DELEGATE}`, tobyson(), 'usr_tobyson');
-    const reqs = await screen.findByLabelText('Verification requirements');
-    expect(reqs).toHaveTextContent('Identity SourceBrightwater Identity Service');
-    expect(reqs).toHaveTextContent('Required ChecksIdentifier, face match, liveness');
-    await user.click(screen.getByRole('button', { name: 'Start Verification' }));
+    // The overview says how people are verified, from the activity's identity source.
+    const steps = await screen.findByRole('list', { name: 'Verification instructions' });
+    expect(steps).toHaveTextContent('Retrieve the person’s record from Brightwater Identity Service');
+    expect(steps).toHaveTextContent('Perform the required portrait match against the reference portrait held by Brightwater Identity Service.');
+    await user.click(screen.getByRole('button', { name: 'Start verification' }));
     expect(await screen.findByRole('heading', { name: 'Identify Person' })).toBeInTheDocument();
     expect(screen.getByText('Enter the reference provided for this verification.')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Enter reference ID')).toBeInTheDocument();
@@ -326,26 +327,30 @@ describe('screens', () => {
     await user.click(screen.getByRole('radio', { name: 'Passed' }));
     await user.click(screen.getByRole('radio', { name: 'Match' }));
     await user.click(screen.getByRole('button', { name: 'Verify Identity' }));
-    const outcome = await screen.findByRole('region', { name: 'Verification outcome' }, { timeout: 4000 });
-    expect(outcome).toHaveTextContent('Verified');
-    expect(outcome).toHaveTextContent('Simulated Result');
+    const result = await screen.findByRole('region', { name: 'Result' }, { timeout: 4000 });
+    expect(result).toHaveTextContent('Verified');
+    expect(result).toHaveTextContent('Simulated');
+    const outcome = screen.getByRole('region', { name: 'Verification outcome' });
     expect(outcome).toHaveTextContent('Identity VerificationIdentity matched');
     expect(outcome).toHaveTextContent('EligibilityEligible');
     expect(outcome).toHaveTextContent('Verification SourceBrightwater Identity Service');
-    expect(screen.getByRole('button', { name: 'Complete' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Verify next person' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Return to activity' })).toBeInTheDocument();
     expect(loadState()!.data.members.some((m) => m.displayName === 'Sample Person A')).toBe(false);
   });
 
-  it('shows Pending Review in violet, never green, and offers Submit for Review only where it applies', async () => {
+  it('shows a result awaiting review as Pending in violet, never green', async () => {
     const h = harness(tomi());
     const a = await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' });
     renderApp(`/verify/attempts/${a.id}`, h.state, 'acct_demo_b1_verifier');
-    const outcome = await screen.findByRole('region', { name: 'Verification outcome' });
-    expect(outcome).toHaveTextContent('Pending review');
-    // The outcome banner itself is violet; green is reserved for Allow.
-    expect(outcome.firstElementChild!.className).toMatch(/violet/);
-    expect(outcome.firstElementChild!.className).not.toMatch(/emerald/);
-    expect(outcome).toHaveTextContent('Identity could not be confirmed.');
+    const result = await screen.findByRole('region', { name: 'Result' });
+    expect(result).toHaveTextContent('Pending');
+    expect(result).toHaveTextContent('There’s no final outcome yet');
+    // Violet; green is reserved for Verified. A mismatch is never labelled fraud.
+    expect(result.className).toMatch(/violet/);
+    expect(result.className).not.toMatch(/emerald/);
+    expect(result).not.toHaveTextContent(/fraud/i);
+    expect(screen.getByRole('region', { name: 'Verification outcome' })).toHaveTextContent('Identity VerificationNo match');
   });
 
   it('lists local and external transactions in Verification History with details, never raw biometrics', async () => {
