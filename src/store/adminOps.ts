@@ -90,7 +90,7 @@ function guard(state: AppState, organizationId: string, needs: Permission[], rol
     if (roleIds.length !== 1) return 'Choose one role.';
     // Only this organization's roles: another organization's custom role doesn't exist here.
     if (roleIds.some((id) => !findRole(state.data.customRoles ?? [], organizationId, id))) return 'Choose a valid role.';
-    if (!coversRoles(perms, roleIds, orgRoles(state, organizationId))) return "You can't grant permissions you don't have yourself.";
+    if (!coversRoles(perms, roleIds, orgRoles(state, organizationId))) return "You can't grant privileges you don't have yourself.";
   }
   return null;
 }
@@ -399,12 +399,12 @@ export function roleProblems(state: AppState, input: Omit<RoleInput, 'at'>): Rol
   else if (name.length > 60) e.name = 'Use 60 characters or fewer.';
   else if (orgRoles(state, input.organizationId).some((r) => r.id !== input.id && ci(r.name) === ci(name))) e.name = 'A role with this name already exists.';
   const perms = [...new Set(input.permissions)];
-  if (!perms.length) e.permissions = 'Choose at least one permission.';
-  else if (perms.some((p) => !PERMISSIONS.some((x) => x.id === p))) e.permissions = 'Choose valid permissions.';
+  if (!perms.length) e.permissions = 'Choose at least one privilege.';
+  else if (perms.some((p) => !PERMISSIONS.some((x) => x.id === p))) e.permissions = 'Choose valid privileges.';
   else if (perms.some((p) => !CUSTOM_ROLE_PERMISSIONS.includes(p))) e.permissions = `${perms.filter((p) => !CUSTOM_ROLE_PERMISSIONS.includes(p)).map((p) => permissionInfo(p).label).join(', ')} can only be granted by the Organization Admin role.`;
   else {
     const actor = actorPermissions(state, input.organizationId);
-    if (perms.some((p) => !canGrantPermission(actor, p))) e.permissions = "You can't grant permissions you don't have yourself.";
+    if (perms.some((p) => !canGrantPermission(actor, p))) e.permissions = "You can't grant privileges you don't have yourself.";
   }
   return e;
 }

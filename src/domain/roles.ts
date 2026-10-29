@@ -14,7 +14,7 @@ export type Permission =
   | 'verification.results.view'
   | 'administrators.view' | 'administrators.invite' | 'administrators.manage'
   | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'sso.manage' | 'audit.view'
-  | 'organizations.view' | 'organizations.manage' | 'integrations.view' | 'integrations.manage'
+  | 'organizations.view' | 'organizations.manage' | 'organizations.edit' | 'organizations.members' | 'integrations.view' | 'integrations.manage'
   | 'exceptions.view' | 'exceptions.review' | 'exceptions.resolve' | 'exceptions.approve' | 'exceptions.reopen' | 'exceptions.configure' | 'reports.view';
 
 export interface PermissionInfo {
@@ -32,6 +32,49 @@ export interface PermissionInfo {
   /** Defined for a capability whose workflow isn't available yet. */
   planned?: boolean;
 }
+
+/** What each privilege lets an administrator do, in plain language (shown beside its name). */
+export const PERMISSION_DESCRIPTION: Record<Permission, string> = {
+  'users.view': 'See the user list and each person’s profile, credentials and verifications.',
+  'users.create': 'Add people one at a time.',
+  'users.import': 'Add many people at once from a CSV file.',
+  'users.edit': 'Activate or deactivate people and send them enrolment invitations.',
+  'groups.view': 'See groups and their members.',
+  'groups.manage': 'Create, rename and remove groups.',
+  'groups.members': 'Add people to groups or remove them.',
+  'credentials.view': 'See credential configurations and who holds them.',
+  'credentials.manage': 'Set up and change credential configurations.',
+  'credentials.issue': 'Issue credentials to people.',
+  'verification.activities.view': 'See verification activities, their settings and results summaries.',
+  'verification.activities.create': 'Create new verification activities and drafts.',
+  'verification.activities.edit': 'Change activity settings and eligible participants.',
+  'verification.activities.activate': 'Start, pause, resume and end activities.',
+  'verification.verifiers.assign': 'Choose which administrators verify for each activity.',
+  'verification.execute': 'Verify people in the Verifier view, only for activities they’re assigned to.',
+  'verification.results.view': 'See Verification History: every attempt, its original result and any review outcome.',
+  'exceptions.view': 'See exceptions and their history without acting on them.',
+  'exceptions.review': 'Take on cases, view the simulated portrait comparison, add notes, request another attempt, escalate and propose decisions.',
+  'exceptions.resolve': 'Record final decisions directly when approval isn’t required, and close resolved cases.',
+  'exceptions.approve': 'Approve, reject or return another reviewer’s proposed decision.',
+  'exceptions.reopen': 'Reopen a resolved or closed case, with a reason.',
+  'exceptions.configure': 'Choose whether exception decisions need a second person’s approval.',
+  'reports.view': 'See verification and exception reports and export aggregate figures.',
+  'administrators.view': 'See administrators, their roles, and the roles and privileges.',
+  'administrators.invite': 'Invite new administrators with a role they’re allowed to grant.',
+  'administrators.manage': 'Deactivate and reactivate administrators.',
+  'roles.assign': 'Change an administrator’s role, only to roles within their own authority.',
+  'roles.manage': 'Create, edit and delete custom roles, only with privileges they hold themselves.',
+  'organization.view': 'See the organization profile.',
+  'settings.manage': 'Change the organization profile and branding.',
+  'sso.manage': 'Configure single sign-on.',
+  'audit.view': 'Read the audit log.',
+  'integrations.view': 'See connected identity services (never their credentials).',
+  'integrations.manage': 'Configure, test, activate and deactivate identity services.',
+  'organizations.view': 'See sub-organizations and their onboarding status.',
+  'organizations.manage': 'Create sub-organizations and resend their first invitation.',
+  'organizations.edit': 'Edit organization details and their activity associations (Organization Management, coming soon).',
+  'organizations.members': 'Assign users to organizations and manage membership (Organization Management, coming soon). Membership never grants administrator access.',
+};
 
 export const PERMISSIONS: PermissionInfo[] = [
   { id: 'users.view', label: 'View users', area: 'Users' },
@@ -71,6 +114,9 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'integrations.manage', label: 'Configure, test, activate and deactivate custom identity services', area: 'Integrations', sensitive: true },
   { id: 'organizations.view', label: 'View sub-organizations and their onboarding', area: 'Organizations' },
   { id: 'organizations.manage', label: 'Create sub-organizations and resend their initial invitations', area: 'Organizations', sensitive: true },
+  // Prepared for Organization Management; no screen uses them yet.
+  { id: 'organizations.edit', label: 'Edit organizations', area: 'Organizations', sensitive: true, planned: true },
+  { id: 'organizations.members', label: 'Manage organization membership', area: 'Organizations', sensitive: true, planned: true },
 ];
 
 export const PERMISSION_AREAS = [...new Set(PERMISSIONS.map((p) => p.area))];

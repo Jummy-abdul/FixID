@@ -312,13 +312,10 @@ describe('Administrators & Roles', () => {
     const s = createInitialState(new Date());
     s.session.currentOrganizationId = NEW_ORGANIZATION_ID;
     const { user } = renderApp('/settings?tab=admins&view=roles', s);
-    const system = screen.getByRole('region', { name: 'System roles' });
-    expect(within(system).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Organization AdminSystem role', 'VerifierSystem role', 'AuditorSystem role']);
-    expect(within(system).queryByRole('button', { name: /^Edit|^Delete/ })).toBeNull();
-    const custom = screen.getByRole('region', { name: 'Custom roles' });
-    expect(within(custom).getByText('No custom roles yet')).toBeInTheDocument();
-    expect(screen.queryByText('Credential Manager')).toBeNull();
-    expect(screen.queryByText('Verification Manager')).toBeNull();
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows.map((r) => r.querySelector('td')!.textContent)).toEqual(['Organization Admin: view details', 'Verifier: view details', 'Auditor: view details']);
+    expect(screen.queryByRole('button', { name: /^Edit|^Delete/ })).toBeNull();
+    expect(screen.getByText(/No custom roles yet/)).toBeInTheDocument();
 
     // Invite offers only the system roles.
     await user.click(screen.getByRole('tab', { name: 'Administrators' }));
@@ -328,19 +325,24 @@ describe('Administrators & Roles', () => {
     await user.click(within(drawer).getByRole('button', { name: 'Cancel' }));
 
     // Create one from the empty state.
-    await user.click(screen.getByRole('tab', { name: 'Roles & Permissions' }));
-    await user.click(within(screen.getByRole('region', { name: 'Custom roles' })).getByRole('button', { name: 'Create Custom Role' }));
+    await user.click(screen.getByRole('tab', { name: 'Roles & Privileges' }));
+    expect(screen.getByText(/No custom roles yet/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create Custom Role' }));
     const form = screen.getByRole('dialog', { name: 'Create custom role' });
     await user.type(within(form).getByLabelText(/Role name/), 'Records Officer');
     await user.type(within(form).getByLabelText(/Description/), 'Keeps user records up to date.');
     await user.click(within(within(form).getByRole('group', { name: 'Users' })).getByRole('checkbox', { name: 'View users' }));
     await user.click(within(form).getByRole('button', { name: 'Create Role' }));
-    const section = screen.getByRole('region', { name: 'Custom roles' });
-    expect(await within(section).findByRole('heading', { level: 3, name: 'Records Officer Custom role' })).toBeInTheDocument();
+    const section = await waitFor(() => screen.getAllByRole('row').find((r) => r.textContent?.includes('Records Officer'))!);
     expect(section).toHaveTextContent('Keeps user records up to date.');
-    expect(section).toHaveTextContent('View users (allowed)');
+    expect(section).toHaveTextContent('Custom');
     expect(within(section).getByRole('button', { name: 'Edit Records Officer' })).toBeInTheDocument();
     expect(within(section).getByRole('button', { name: 'Delete Records Officer' })).toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: 'View Records Officer' }));
+    expect(within(screen.getByRole('dialog', { name: 'Records Officer' })).getByRole('region', { name: 'Privileges' })).toHaveTextContent('View users');
+    await user.click(within(screen.getByRole('dialog', { name: 'Records Officer' })).getByRole('button', { name: 'Edit Role' }));
+    expect(within(screen.getByRole('dialog', { name: 'Edit Records Officer' })).getByRole('checkbox', { name: 'View users' })).toBeChecked();
+    await user.click(within(screen.getByRole('dialog', { name: 'Edit Records Officer' })).getByRole('button', { name: 'Cancel' }));
     expect(loadState()!.data.customRoles.filter((r) => r.organizationId === NEW_ORGANIZATION_ID)).toEqual([expect.objectContaining({ name: 'Records Officer', organizationId: NEW_ORGANIZATION_ID })]);
 
     // Now it can be chosen when inviting.
@@ -351,16 +353,24 @@ describe('Administrators & Roles', () => {
   });
 
   it('shows the three protected system roles and the organization’s custom roles with their permissions', async () => {
-    renderApp('/settings?tab=admins&view=roles', sampleState());
-    for (const [name, kind] of [['Organization Admin', 'System role'], ['Verifier', 'System role'], ['Auditor', 'System role'], ['Credential Manager', 'Custom role'], ['Verification Manager', 'Custom role']]) {
-      expect(screen.getByRole('heading', { level: 3, name: `${name} ${kind}` })).toBeInTheDocument();
+    const { user } = renderApp('/settings?tab=admins&view=roles', sampleState());
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual(['Role', 'Description', 'Assigned admins', 'Privileges', 'Role type', 'Actions']);
+    for (const [name, kind] of [['Organization Admin', 'System'], ['Verifier', 'System'], ['Auditor', 'System'], ['Credential Manager', 'Custom'], ['Verification Manager', 'Custom']]) {
+      expect(rows.find((r) => r.textContent?.startsWith(name))).toHaveTextContent(kind);
     }
     // Exactly three system roles; Viewer is gone.
-    expect(screen.getAllByText('System role')).toHaveLength(3);
-    expect(screen.queryByRole('heading', { level: 3, name: /^Viewer/ })).toBeNull();
-    const verifier = screen.getByRole('heading', { level: 3, name: "Verifier System role" }).closest('.rounded-xl')!;
-    const allowed = within(verifier as HTMLElement).getAllByRole('listitem').filter((li) => li.textContent?.includes('(allowed)')).map((li) => li.textContent);
-    expect(allowed).toEqual(['Perform verifications (assigned activities only) (allowed)']);
+    expect(rows.filter((r) => r.textContent?.includes('System'))).toHaveLength(3);
+    expect(rows.some((r) => r.textContent?.startsWith('Viewer'))).toBe(false);
+    // The Verifier role holds exactly one privilege, shown with its explanation.
+    await user.click(screen.getByRole('button', { name: 'View Verifier' }));
+    const details = screen.getByRole('dialog', { name: 'Verifier' });
+    const privileges = within(details).getByRole('region', { name: 'Privileges' });
+    expect(within(privileges).getAllByRole('listitem').map((li) => li.querySelector('.font-medium')!.textContent)).toEqual(['Perform verifications (assigned activities only)']);
+    expect(privileges).toHaveTextContent('only for activities they’re assigned to');
+    expect(within(details).queryByRole('button', { name: 'Edit Role' })).toBeNull();
+    expect(details).toHaveTextContent('can’t be edited or deleted');
+    await user.click(within(details).getAllByRole('button', { name: 'Close' }).at(-1)!);
     // System roles can't be edited or deleted; custom ones can.
     expect(screen.queryByRole('button', { name: 'Edit Verifier' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete Organization Admin' })).toBeNull();

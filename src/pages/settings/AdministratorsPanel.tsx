@@ -7,7 +7,7 @@ import {
 import { useAuthorization } from '@/auth/authorization';
 import { NoAccess } from '@/auth/authorization';
 import {
-  CUSTOM_ROLE_PERMISSIONS, PERMISSIONS, PERMISSION_AREAS, canGrantPermission, canGrantRoles, coversRoles, permissionsFor, type Permission, type Role,
+  CUSTOM_ROLE_PERMISSIONS, PERMISSIONS, PERMISSION_AREAS, PERMISSION_DESCRIPTION, canGrantPermission, canGrantRoles, coversRoles, permissionsFor, type Permission, type Role,
 } from '@/domain/roles';
 import type { OrgAdministrator } from '@/domain/types';
 import { formatDate, formatDateTime } from '@/lib/dates';
@@ -18,7 +18,7 @@ import {
   adminsOf, invitationExpired, invitationPath, inviteProblems, orgRoles, roleHolders, roleProblems, type InviteErrors, type RoleErrors,
 } from '@/store/adminOps';
 import { useActions, useSession, useStore } from '@/store/AppStore';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 type View = 'administrators' | 'roles';
 
@@ -139,7 +139,7 @@ export function AdministratorsPanel() {
   const { can } = useAuthorization();
   const [view, setView] = useQueryState('view', 'administrators');
   if (!can('administrators.view')) return <NoAccess />;
-  const tabs = [['administrators', 'Administrators'], ['roles', 'Roles & Permissions']] as const;
+  const tabs = [['administrators', 'Administrators'], ['roles', 'Roles & Privileges']] as const;
   const current: View = tabs.some(([id]) => id === view) ? (view as View) : tabs[0][0];
   return (
     <div>
@@ -486,6 +486,11 @@ function ChangeRoleDrawer({ adminId, onClose }: { adminId: string | null; onClos
   );
 }
 
+/**
+ * Roles & Privileges: every role in the organization (the protected system roles and its own custom roles),
+ * with how many administrators hold each and how many privileges it grants. Roles drive the permission
+ * checks everywhere; administrators themselves are managed in the Administrators tab.
+ */
 function RolesTab() {
   const { organization } = useSession();
   const { canPreview, can } = useAuthorization();
@@ -495,60 +500,32 @@ function RolesTab() {
   const { state } = useStore();
   const roles = useOrgRoles();
   const canManageRoles = can('roles.manage');
+  const [q, setQ] = useQueryState('roleQ');
+  const [type, setType] = useQueryState('roleType', 'all');
+  const [viewing, setViewing] = useQueryState('role');
+  const [, setParams] = useSearchParams();
   const [editing, setEditing] = useState<Role | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Role | null>(null);
   const preview = (id: string) => { startRolePreview(id); navigate('/'); };
+  const holdersOf = (r: Role) => roleHolders(state, organization.id, r.id).filter((a) => a.status !== 'deactivated');
+  const query = q.trim().toLowerCase();
+  const rows = roles.filter((r) => (type === 'all' || (type === 'system') === r.system) && (!query || `${r.name} ${r.description}`.toLowerCase().includes(query)));
   const custom = roles.filter((r) => !r.system);
+  const shown = roles.find((r) => r.id === viewing);
 
   const remove = () => {
     if (!deleting) return;
     const r = deleteRole(organization.id, deleting.id);
+    if (r.ok && viewing === deleting.id) setViewing('');
     setDeleting(null);
     toast(r.ok ? { tone: 'success', title: 'Role deleted', description: deleting.name } : { tone: 'error', title: 'Role not deleted', description: r.error });
   };
-
-  const roleCard = (r: Role) => {
-    const holders = roleHolders(state, organization.id, r.id).filter((a) => a.status !== 'deactivated').length;
-    return (
-      <Card key={r.id}>
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="min-w-0">
-            <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-slate-900">
-              {r.name}
-              {r.system ? <Badge tone="neutral"><Lock className="h-3 w-3" aria-hidden="true" />System role</Badge> : <Badge tone="violet">Custom role</Badge>}
-            </h3>
-            <p className="mt-0.5 text-sm text-slate-500">{r.description || 'No description.'}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-500">{holders} {holders === 1 ? 'administrator' : 'administrators'}</span>
-            {canPreview && r.id !== 'organization-admin' && (
-              <Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} aria-label={`Preview as ${r.name}`} onClick={() => preview(r.id)}>Preview</Button>
-            )}
-            {canManageRoles && !r.system && (
-              <>
-                <Button size="sm" variant="secondary" icon={<Pencil className="h-4 w-4" />} aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}>Edit</Button>
-                <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</Button>
-              </>
-            )}
-          </div>
-        </div>
-        <div className={cn('grid gap-6 px-6 py-5', r.highlights && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]')}>
-          {r.highlights && (
-            <ul className="space-y-1.5 text-sm text-slate-700">
-              {r.highlights.map((h) => <li key={h} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />{h}</li>)}
-              {r.limits?.map((h) => <li key={h} className="flex gap-2 text-slate-500"><ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{h}</li>)}
-            </ul>
-          )}
-          <PermissionList permissions={new Set(r.permissions)} compact />
-        </div>
-      </Card>
-    );
-  };
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="min-w-0 flex-1 text-sm text-slate-500">Each administrator has exactly one role. The system roles (Organization Admin, Verifier and Auditor) can’t be changed or deleted; custom roles belong to {organization.name} only.</p>
+        <p className="min-w-0 flex-1 text-sm text-slate-500">Each administrator has exactly one role, and the role’s privileges decide what they can see and do. System roles can’t be changed or deleted; custom roles belong to {organization.name} only.</p>
         {canPreview && (
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <Eye className="h-4 w-4 text-slate-400" aria-hidden="true" />
@@ -563,21 +540,48 @@ function RolesTab() {
         {canManageRoles && <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button>}
       </div>
 
-      <section aria-labelledby="system-roles" className="space-y-4">
-        <h2 id="system-roles" className="text-sm font-semibold text-slate-900">System roles</h2>
-        {roles.filter((r) => r.system).map(roleCard)}
-      </section>
-      <section aria-labelledby="custom-roles" className="space-y-4 pt-2">
-        <h2 id="custom-roles" className="text-sm font-semibold text-slate-900">Custom roles</h2>
-        {custom.length > 0 ? custom.map(roleCard) : (
-          <Card><EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No custom roles yet"
-            description={canManageRoles
-              ? 'Create a role for a specific responsibility, such as a records officer who manages users but not credentials or settings. It will be available when inviting administrators or changing their role.'
-              : 'Your organization hasn’t created any custom roles.'}
-            action={canManageRoles ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setEditing('new')}>Create Custom Role</Button> : undefined} /></Card>
-        )}
-      </section>
+      <Card>
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center">
+          <SearchInput value={q} onChange={setQ} placeholder="Search roles" className="sm:w-72" label="Search roles" />
+          <FilterSelect label="Role type" value={type} onChange={setType} options={[{ value: 'all', label: 'All role types' }, { value: 'system', label: 'System roles' }, { value: 'custom', label: 'Custom roles' }]} />
+        </div>
+        <DataTable
+          rows={rows}
+          rowKey={(r) => r.id}
+          rowHref={(r) => `/settings?tab=admins&view=roles&role=${encodeURIComponent(r.id)}`}
+          empty={query || type !== 'all'
+            ? <EmptyState title="No roles match" description="Try a different search or role type." action={<Button variant="secondary" onClick={() => setParams((prev) => { const n = new URLSearchParams(prev); n.delete('roleQ'); n.delete('roleType'); return n; }, { replace: true })}>Clear filters</Button>} />
+            : <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No roles" />}
+          columns={[
+            { key: 'name', header: 'Role', cell: (r) => <button type="button" onClick={(e) => { stop(e); setViewing(r.id); }} className="text-left font-medium text-slate-900 hover:text-brand-700">{r.name}<span className="sr-only">: view details</span></button> },
+            { key: 'description', header: 'Description', className: '!whitespace-normal min-w-[14rem]', cell: (r) => <span className="text-slate-600">{r.description || 'No description.'}</span> },
+            { key: 'admins', header: 'Assigned admins', cell: (r) => <span className="tabular-nums">{holdersOf(r).length}</span> },
+            { key: 'privileges', header: 'Privileges', cell: (r) => <span className="tabular-nums">{r.permissions.length} of {PERMISSIONS.length}</span> },
+            { key: 'type', header: 'Role type', cell: (r) => (r.system ? <Badge tone="neutral"><Lock className="h-3 w-3" aria-hidden="true" />System</Badge> : <Badge tone="violet">Custom</Badge>) },
+            { key: 'actions', header: <span className="sr-only">Actions</span>, cell: (r) => (
+              <span className="flex justify-end gap-1" onClick={stop}>
+                <Button size="sm" variant="ghost" aria-label={`View ${r.name}`} onClick={() => setViewing(r.id)}>View</Button>
+                {canManageRoles && !r.system && <>
+                  <Button size="sm" variant="ghost" icon={<Pencil className="h-4 w-4" />} aria-label={`Edit ${r.name}`} onClick={() => setEditing(r)}>Edit</Button>
+                  <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} aria-label={`Delete ${r.name}`} onClick={() => setDeleting(r)}>Delete</Button>
+                </>}
+              </span>
+            ) },
+          ]}
+        />
+      </Card>
+      {custom.length === 0 && !query && type === 'all' && (
+        <p className="text-sm text-slate-500">{canManageRoles
+          ? 'No custom roles yet. Create one for a specific responsibility, such as a records officer who manages users but not credentials or settings; it becomes available when inviting administrators or changing their role.'
+          : 'Your organization hasn’t created any custom roles.'}</p>
+      )}
 
+      {shown && !editing && (
+        <RoleDetailsDrawer role={shown} holders={holdersOf(shown)} onClose={() => setViewing('')}
+          onEdit={canManageRoles && !shown.system ? () => setEditing(shown) : undefined}
+          onDelete={canManageRoles && !shown.system ? () => setDeleting(shown) : undefined}
+          onPreview={canPreview && shown.id !== 'organization-admin' ? () => preview(shown.id) : undefined} />
+      )}
       {editing && <RoleDrawer role={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {deleting && (() => {
         const holders = roleHolders(state, organization.id, deleting.id);
@@ -590,6 +594,68 @@ function RolesTab() {
         );
       })()}
     </div>
+  );
+}
+
+/** A role's details: what it enables, its privileges by module, and who holds it. */
+function RoleDetailsDrawer({ role: r, holders, onClose, onEdit, onDelete, onPreview }: {
+  role: Role; holders: OrgAdministrator[]; onClose: () => void; onEdit?: () => void; onDelete?: () => void; onPreview?: () => void;
+}) {
+  const granted = PERMISSION_AREAS.map((area) => ({ area, items: PERMISSIONS.filter((p) => p.area === area && r.permissions.includes(p.id)) })).filter((g) => g.items.length);
+  return (
+    <Drawer open onClose={onClose} width="xl" title={r.name} description={r.description || 'No description.'}
+      footer={<>
+        {onPreview && <Button variant="secondary" icon={<Eye className="h-4 w-4" />} onClick={onPreview}>Preview as {r.name}</Button>}
+        {onDelete && <Button variant="ghost" icon={<Trash2 className="h-4 w-4" />} onClick={onDelete}>Delete</Button>}
+        {onEdit && <Button icon={<Pencil className="h-4 w-4" />} onClick={onEdit}>Edit Role</Button>}
+        {!onEdit && <Button variant="secondary" onClick={onClose}>Close</Button>}
+      </>}>
+      <div className="space-y-6">
+        <p className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          {r.system ? <Badge tone="neutral"><Lock className="h-3 w-3" aria-hidden="true" />System role</Badge> : <Badge tone="violet">Custom role</Badge>}
+          {r.system ? 'Protected: the same in every organization, and it can’t be edited or deleted.' : 'Belongs to this organization. Changes apply to everyone holding it as soon as they’re saved.'}
+        </p>
+        {(r.highlights || r.limits) && (
+          <section aria-label="What this role enables">
+            <ul className="space-y-1.5 text-sm text-slate-700">
+              {r.highlights?.map((h) => <li key={h} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />{h}</li>)}
+              {r.limits?.map((h) => <li key={h} className="flex gap-2 text-slate-500"><ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />{h}</li>)}
+            </ul>
+          </section>
+        )}
+        <section aria-label="Privileges">
+          <h3 className="text-sm font-semibold text-slate-900">Privileges ({r.permissions.length})</h3>
+          <div className="mt-3 space-y-4">
+            {granted.map((g) => (
+              <div key={g.area}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{g.area}</p>
+                <ul className="mt-1.5 space-y-2">
+                  {g.items.map((p) => (
+                    <li key={p.id} className="flex gap-2 text-sm">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                      <span><span className="font-medium text-slate-900">{p.label}</span>{p.planned && <Badge tone="neutral" className="ml-1.5">Coming soon</Badge>}<span className="block text-slate-500">{PERMISSION_DESCRIPTION[p.id]}</span></span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section aria-label="Assigned administrators">
+          <h3 className="text-sm font-semibold text-slate-900">Assigned administrators ({holders.length})</h3>
+          {holders.length === 0 ? <p className="mt-2 text-sm text-slate-500">Nobody has this role. Assign it from the Administrators tab, when inviting someone or changing their role.</p> : (
+            <ul className="mt-2 divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200">
+              {holders.map((a) => (
+                <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <span><span className="font-medium text-slate-900">{a.name ?? a.email}</span>{a.name && <span className="block text-xs text-slate-500">{a.email}</span>}</span>
+                  <AdminStatus admin={a} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </Drawer>
   );
 }
 
@@ -627,7 +693,7 @@ function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void 
         {errors.form && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-inset ring-red-200">{errors.form}</p>}
         {role && holders > 0 && (
           <p className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900 ring-1 ring-inset ring-sky-200">
-            {holders} {holders === 1 ? 'administrator has' : 'administrators have'} this role. Changes apply to them as soon as you save, including removed permissions.
+            {holders} {holders === 1 ? 'administrator has' : 'administrators have'} this role. Changes apply to them as soon as you save, including removed privileges.
           </p>
         )}
         <Field label="Role name" required error={errors.name} hint="e.g. Records Officer">
@@ -637,34 +703,46 @@ function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void 
           {(p) => <Input {...p} value={description} maxLength={160} onChange={(e) => setDescription(e.target.value)} />}
         </Field>
         <fieldset>
-          <legend className="text-sm font-medium text-slate-700">Permissions <span className="text-red-500">*</span></legend>
+          <legend className="text-sm font-medium text-slate-700">Privileges <span className="text-red-500">*</span></legend>
+          <p className="mt-1 text-xs text-slate-500">Choose privileges one by one, or tick a module to select only the privileges in it that you’re allowed to grant.</p>
           {errors.permissions && <p role="alert" className="mt-1 text-sm text-red-600">{errors.permissions}</p>}
           <div className="mt-3 grid gap-5 sm:grid-cols-2">
-            {PERMISSION_AREAS.map((area) => (
+            {PERMISSION_AREAS.map((area) => {
+              const selectable = PERMISSIONS.filter((p) => p.area === area && CUSTOM_ROLE_PERMISSIONS.includes(p.id) && canGrantPermission(mine, p.id)).map((p) => p.id);
+              const on = selectable.filter((p) => perms.includes(p)).length;
+              const all = selectable.length > 0 && on === selectable.length;
+              return (
               <div key={area} role="group" aria-label={area}>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{area}</p>
-                <ul className="mt-2 space-y-1.5">
+                <label className={cn('flex items-center gap-2 text-xs font-semibold uppercase tracking-wide', selectable.length ? 'cursor-pointer text-slate-500' : 'text-slate-400')}>
+                  <input type="checkbox" className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600" aria-label={`Select all ${area} privileges you can grant`}
+                    checked={all} ref={(el) => { if (el) el.indeterminate = on > 0 && !all; }} disabled={!selectable.length}
+                    onChange={() => { setPerms((x) => (all ? x.filter((p) => !selectable.includes(p)) : [...new Set([...x, ...selectable])])); setErrors((e) => ({ ...e, permissions: undefined })); }} />
+                  {area}
+                </label>
+                <ul className="mt-2 space-y-2">
                   {PERMISSIONS.filter((p) => p.area === area).map((p) => {
                     const locked = !CUSTOM_ROLE_PERMISSIONS.includes(p.id);
                     const grantable = canGrantPermission(mine, p.id);
                     return (
                       <li key={p.id}>
                         <label className={cn('flex items-start gap-2.5 text-sm', locked || !grantable ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-800')}>
-                          <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" checked={perms.includes(p.id)}
+                          <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600" checked={perms.includes(p.id)} aria-describedby={`${id}-${p.id}-help`}
                             disabled={locked || (!grantable && !perms.includes(p.id))} onChange={() => toggle(p.id)} />
-                          <span>
-                            {p.label}
-                            {locked && <span className="block text-xs">Organization Admin only</span>}
-                            {!locked && p.sensitive && <span className="block text-xs text-amber-700">Sensitive</span>}
-                            {!locked && p.planned && <span className="block text-xs text-slate-500">Workflow coming soon</span>}
-                          </span>
+                          <span>{p.label}</span>
                         </label>
+                        <span id={`${id}-${p.id}-help`} className="ml-[1.625rem] block text-xs text-slate-500">
+                          {PERMISSION_DESCRIPTION[p.id]}
+                          {locked && ' Organization Admin only.'}
+                          {!locked && !grantable && ' You can’t grant this: you don’t hold it yourself.'}
+                          {!locked && p.sensitive && <span className="text-amber-700"> Sensitive.</span>}
+                        </span>
                       </li>
                     );
                   })}
                 </ul>
               </div>
-            ))}
+              );
+            })}
           </div>
         </fieldset>
       </div>

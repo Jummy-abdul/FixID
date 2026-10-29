@@ -140,10 +140,10 @@ describe('custom roles', () => {
     const managerRole = { id: 'role_mgr', organizationId: ORG, name: 'Role Manager', description: '', permissions: ['administrators.view', 'roles.manage', 'users.view'] as Permission[], system: false as const, createdAt: AT, createdBy: 'T', updatedAt: AT, updatedBy: 'T' };
     const k = kwame(s);
     const asManager = as({ ...s, data: { ...s.data, customRoles: [...s.data.customRoles, managerRole], administrators: s.data.administrators.map((a) => (a.id === k.id ? { ...a, roleIds: ['role_mgr'] } : a)) } }, k.id);
-    expect(applySaveRole(asManager, officer({ id: 'role_x', name: 'Issuer', permissions: ['credentials.issue'] }))).toMatchObject({ ok: false, error: "You can't grant permissions you don't have yourself." });
+    expect(applySaveRole(asManager, officer({ id: 'role_x', name: 'Issuer', permissions: ['credentials.issue'] }))).toMatchObject({ ok: false, error: "You can't grant privileges you don't have yourself." });
     expect(applySaveRole(asManager, officer({ id: 'role_y', name: 'Lookup', permissions: ['users.view'] }))).toMatchObject({ ok: true });
     expect(roleProblems(s, officer({ name: 'auditor' })).name).toBe('A role with this name already exists.');
-    expect(roleProblems(s, officer({ permissions: [] })).permissions).toBe('Choose at least one permission.');
+    expect(roleProblems(s, officer({ permissions: [] })).permissions).toBe('Choose at least one privilege.');
     expect(roleProblems(s, officer({ name: ' ' })).name).toBe('Enter a role name.');
   });
 
@@ -240,13 +240,13 @@ describe('preview as role', () => {
 });
 
 describe('screens', () => {
-  it('creates a custom role in Roles & Permissions, previews it, and the interface follows its permissions', async () => {
+  it('creates a custom role in Roles & Privileges, previews it, and the interface follows its permissions', async () => {
     const { user } = renderApp('/settings?tab=admins&view=roles', base());
     await user.click(screen.getAllByRole('button', { name: 'Create Custom Role' })[0]);
     const drawer = screen.getByRole('dialog', { name: 'Create custom role' });
     await user.click(within(drawer).getByRole('button', { name: 'Create Role' }));
     expect(within(drawer).getByText('Enter a role name.')).toBeInTheDocument();
-    expect(within(drawer).getByText('Choose at least one permission.')).toBeInTheDocument();
+    expect(within(drawer).getByText('Choose at least one privilege.')).toBeInTheDocument();
     // Every catalogue permission can be chosen (the Organization Admin holds them all).
     expect(within(drawer).getByRole('checkbox', { name: /Create, edit and delete custom roles/ })).toBeEnabled();
     expect(within(drawer).getByRole('checkbox', { name: /Change administrators’ roles/ })).toBeEnabled();
@@ -259,9 +259,11 @@ describe('screens', () => {
     expect(await screen.findByText('Role created')).toBeInTheDocument();
     const saved = loadState()!.data.customRoles.find((r) => r.name === 'Student Records Officer')!;
     expect(saved).toMatchObject({ organizationId: ORG, system: false, permissions: ['users.view', 'users.create', 'groups.view'] });
-    expect(screen.getByRole('heading', { level: 3, name: 'Student Records Officer Custom role' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Preview as Student Records Officer' }));
+    const row = screen.getAllByRole('row').find((r) => r.textContent?.includes('Student Records Officer'))!;
+    expect(row).toHaveTextContent('Custom');
+    expect(row).toHaveTextContent(/3 of \d+/);
+    await user.click(within(row).getByRole('button', { name: 'View Student Records Officer' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Student Records Officer' })).getByRole('button', { name: 'Preview as Student Records Officer' }));
     expect(await screen.findByRole('region', { name: 'Role view' })).toHaveTextContent('Student Records Officer view');
     expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Users' }));
