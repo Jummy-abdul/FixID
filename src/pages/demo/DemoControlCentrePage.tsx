@@ -59,7 +59,7 @@ type View = 'scenarios' | 'accounts' | 'readiness';
 interface DemoAccountRow { email: string; name: string; persona: string; accountId: string; organizationId?: string; platform?: boolean }
 
 const ACCOUNT_ROWS: DemoAccountRow[] = [
-  { email: DEMO_ACCOUNT.email, name: displayName(DEMO_ACCOUNT), persona: 'Demo operator — multi-workspace Organization Admin', accountId: DEMO_ACCOUNT.id },
+  { email: DEMO_ACCOUNT.email, name: displayName(DEMO_ACCOUNT), persona: 'Administrator — second approver and demo operator', accountId: DEMO_ACCOUNT.id },
   ...DEMO_PERSONAS.map((p) => ({ email: p.email, name: personaName(p), persona: p.persona, accountId: p.accountId, organizationId: p.organizationId, platform: p.platform })),
 ];
 

@@ -3,7 +3,7 @@ import { seedDemoTransactions } from './demoTransactions';
 import type { ResolutionOutcome } from '@/domain/exceptions';
 import {
   applyAccessDenied, applyStatusRequestAudit, applyApprovalDecision, applyAssignException, applyCloseException, applyEvidenceViewed, applyExceptionWorkflow, applyReopenException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview,
-  auditTransactionChange, raiseException, syncExceptions,
+  raiseException, syncExceptions,
 } from './exceptionOps';
 import type { IdentityLookupResult } from '@/services/integrations/contract';
 import { applyEndExternal, applyExternalComplete, applyExternalLookup, applyReuseResult } from './transactionOps';
@@ -326,7 +326,8 @@ const orKeep = (state: AppState, r: { ok: true; state: AppState } | { ok: false 
 /** After a verification step: audit the transaction's lifecycle change and keep its exception in step. */
 function afterVerification(prev: AppState, next: AppState, attemptId: string, at: string): AppState {
   if (next === prev) return prev;
-  return syncExceptions(auditTransactionChange(prev, next, attemptId, at), attemptId, at);
+  // Attempts are recorded in Verification History, not duplicated in the audit log.
+  return syncExceptions(next, attemptId, at);
 }
 
 /** The editable profile fields from a change set, ignoring anything else it carries. */

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1 } from '@/data/demoPersonas';
+import { ALL_PERSONAS, ORG_A, ORG_B, ORG_B1 } from '@/data/demoPersonas';
 import { defaultSettings } from '@/domain/activitySettings';
 import { applyActivate, applySaveActivity } from '@/store/activityOps';
 import {
@@ -19,7 +19,7 @@ const AT = new Date().toISOString();
 const HEADER = ORG_IMPORT_COLUMNS.join(',');
 
 function as(accountId: string, s = createInitialState(new Date())): AppState {
-  const p = DEMO_PERSONAS.find((x) => x.accountId === accountId)!;
+  const p = ALL_PERSONAS.find((x) => x.accountId === accountId)!;
   return { ...s, data: { ...s.data, admin: { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner', organizationIds: [p.organizationId!] } }, session: { ...s.session, currentOrganizationId: p.organizationId! } };
 }
 const VICTOR = 'acct_demo_b_admin';

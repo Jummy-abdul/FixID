@@ -31,13 +31,13 @@ describe('navigation', () => {
   const headings: Record<string, RegExp> = {
     '/': /^dashboard$|good (morning|afternoon|evening)/i, '/users': /^users$/i, '/groups': /^groups$/i, '/credentials': /^credentials$/i,
     '/verification-activities': /^verification activities$/i, '/verification-history': /^verification history$/i,
-    '/audit': /^audit log$/i, '/settings': /^settings$/i,
+    '/audit': /^audit logs$/i, '/settings': /^settings$/i,
   };
 
   it('has the approved sidebar structure and order', () => {
     expect(NAVIGATION.map((g) => g.label)).toEqual([null, 'User Management', 'Credential Management', 'Verification', 'Organizations', 'Administration']);
     expect(items.map((i) => i.label)).toEqual([
-      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'My Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'My Verification History', 'Organizations', 'Audit Log', 'Settings',
+      'Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'My Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'My Verification History', 'Organizations', 'Audit Logs', 'Settings',
     ]);
   });
 
@@ -317,7 +317,7 @@ describe('settings', () => {
     // Other organizations are untouched.
     const other = createInitialState().data.organizations.find((o) => o.id !== SAMPLE_ORGANIZATION_ID)!;
     expect(loadState()!.data.organizations.find((o) => o.id === other.id)).toEqual(other);
-    await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Audit Log' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Audit Logs' }));
     expect(await screen.findByText(/Updated organization profile \(name, phone, address\)/)).toBeInTheDocument();
   });
 

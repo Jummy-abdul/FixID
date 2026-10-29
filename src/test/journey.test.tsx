@@ -454,7 +454,7 @@ describe('persistence and cross-module visibility', () => {
     const overview = screen.getByRole('region', { name: 'Overview' });
     expect(within(overview).getByText('Active credentials').nextSibling).toHaveTextContent('1');
 
-    await user.click(within(nav).getByRole('link', { name: 'Audit Log' }));
+    await user.click(within(nav).getByRole('link', { name: 'Audit Logs' }));
     for (const text of [/Created identifier "Registration Number"/, /Added Amara Okonkwo/, /Created credential "Member ID"/, /Issued Member ID/]) {
       expect(await screen.findByText(text)).toBeInTheDocument();
     }

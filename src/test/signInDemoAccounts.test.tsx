@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_PASSWORD } from '@/auth/authCore';
-import { DEMO_PERSONAS, FEATURED_DEMO_ACCOUNTS, personaById } from '@/data/demoPersonas';
+import { ALL_PERSONAS, DEMO_PERSONAS, FEATURED_DEMO_ACCOUNTS, personaById } from '@/data/demoPersonas';
 import { createInitialState } from '@/store/state';
 
 function renderSignIn() {
@@ -26,7 +26,7 @@ describe('sign-in demo accounts dialog', () => {
     expect(screen.getByRole('link', { name: /Sign in with SSO/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Forgot password?' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Sign up' })).toBeInTheDocument();
-    expect(screen.queryByRole('list', { name: 'Demonstration accounts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Demonstration accounts' })).not.toBeInTheDocument();
     expect(screen.queryByText(DEMO_PASSWORD)).not.toBeInTheDocument();
   });
 
@@ -56,7 +56,7 @@ describe('sign-in demo accounts dialog', () => {
 
   it('Use fills in the form and closes the dialog; signing in still goes through the password check', async () => {
     const user = renderSignIn();
-    const verifier = DEMO_PERSONAS.find((p) => p.accountId === 'acct_demo_b1_verifier')!;
+    const verifier = ALL_PERSONAS.find((p) => p.accountId === 'org_lts_usr_4')!;
     await user.click(await screen.findByRole('button', { name: 'View demo accounts' }));
     await user.click(screen.getByRole('button', { name: `Use ${verifier.persona} account` }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -87,11 +87,14 @@ describe('sign-in demo accounts dialog', () => {
     expect(rows[1]).toHaveTextContent(`${verifier.firstName} ${verifier.lastName}`);
     expect(within(featured).getByRole('button', { name: `Use ${admin.persona} account` })).toBeInTheDocument();
     expect(within(featured).getByRole('button', { name: `Use ${verifier.persona} account` })).toBeInTheDocument();
-    // Every other account is still listed, once.
-    const others = within(dialog).getByRole('list', { name: 'Demonstration accounts' });
-    expect(within(dialog).getByRole('heading', { name: 'Other demo accounts' })).toBeInTheDocument();
+    // Every other account is listed once, grouped: platform administration, administrators, verifiers.
+    const others = within(dialog).getByRole('region', { name: 'Demonstration accounts' });
+    expect(within(others).getAllByRole('heading').map((h) => h.textContent)).toEqual(['Platform administration', 'Administrators']);
     expect(within(others).getAllByRole('listitem')).toHaveLength(DEMO_PERSONAS.length + 1 - 2);
-    expect(within(others).getByText('demo@fixid.app', { exact: false })).toBeInTheDocument();
+    expect(within(within(others).getByRole('list', { name: 'Administrators' })).getByText('demo@fixid.app', { exact: false })).toBeInTheDocument();
+    // Removed sample-workspace accounts aren't offered.
+    for (const email of ['victor.hale@meridian.example', 'lina.ford@harbourside.example', 'esther.lawal@northbridge.example', 'tomi.okon@harbourside.example']) expect(within(dialog).queryByText(email, { exact: false })).toBeNull();
+    expect(dialog).not.toHaveTextContent(/multi-workspace|shared activity|sub-organization/i);
   });
 
   it('the featured administrator opens Brightwater as Organization Admin', async () => {

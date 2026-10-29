@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_SESSION } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C } from '@/data/demoPersonas';
+import { ALL_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C } from '@/data/demoPersonas';
 import { DEMO_SHARED_ACTIVITY } from '@/data/seed';
 import { permissionsFor } from '@/domain/roles';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
@@ -24,7 +24,7 @@ const SPEAKER = `${ORG_C}_va_restricted_lounge`;
 const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error((r as unknown as { error: string }).error); return r as Extract<T, { ok: true }>; };
 
 function as(accountId: string, orgId: string, s = createInitialState(new Date())): AppState {
-  const p = DEMO_PERSONAS.find((x) => x.accountId === accountId);
+  const p = ALL_PERSONAS.find((x) => x.accountId === accountId);
   const admin = p ? { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner' as const, organizationIds: [orgId] } : { ...s.data.admin, id: accountId };
   return { ...s, data: { ...s.data, admin }, session: { ...s.session, currentOrganizationId: orgId } };
 }

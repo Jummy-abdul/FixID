@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_SESSION } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
+import { ALL_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
 import { permissionsFor } from '@/domain/roles';
 import { emptyIntegrationForm, type CustomIntegration, type IntegrationFormValues } from '@/domain/integrations';
 import { lookupIdentity, matchBiometric, runConnectionTest } from '@/services/integrations/integrationService';
@@ -17,7 +17,7 @@ import { loadState } from '@/store/persistence';
 import { createInitialState, reducer, type AppState } from '@/store/state';
 
 const AT = new Date().toISOString();
-const persona = (id: string) => DEMO_PERSONAS.find((p) => p.accountId === id)!;
+const persona = (id: string) => ALL_PERSONAS.find((p) => p.accountId === id)!;
 function as(accountId: string, s = createInitialState(new Date())): AppState {
   const p = persona(accountId);
   return { ...s, data: { ...s.data, admin: { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner', organizationIds: [p.organizationId!] } }, session: { ...s.session, currentOrganizationId: p.organizationId! } };

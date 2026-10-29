@@ -182,10 +182,10 @@ describe('administrative audit records', () => {
     // A refused change records nothing.
     expect(applySetRoles(r.state, { organizationId: SAMPLE_ORGANIZATION_ID, adminId: kwame.id, roleIds: [], at: AT })).toMatchObject({ ok: false });
 
-    const user = renderApp('/audit?area=admin', r.state);
+    const user = renderApp('/audit?module=Roles+%26+Privileges', r.state);
     const row = screen.getByText(/changed Kwame Mensah's role/).closest('tr')!;
     await user.click(within(row).getByRole('button', { name: /Details for/ }));
-    const drawer = screen.getByRole('dialog', { name: 'Audit event' });
+    const drawer = screen.getByRole('dialog', { name: 'Administrator role changed' });
     expect(drawer).toHaveTextContent('Affected administratorKwame Mensah');
     expect(drawer).toHaveTextContent('RoleVerification ManagerCredential Manager');
     expect(drawer).toHaveTextContent('Outcomesuccess');

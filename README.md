@@ -338,6 +338,19 @@ Every check runs in the store (`authorizeAction` and the reducer, plus the `appl
 - **Demo:** Brightwater (Jordan Blake): Riverside Campus (5 users, Visitor Check-in and Restricted Lounge Access), Northgate Contractors (3 users, Badge Collection; Olamide Asante belongs to both), Alumni Relations Office (empty), Former Facilities Unit (inactive, 1 user, the ended Spring Open Day). Meridian (Victor Hale): Group Operations (3 users, Group Staff Entry) and Training Academy (empty). Most users belong to none. Use Settings → Demo data → Reset to load them into saved data.
 - **Limitations:** scope is the workspace (there's no per-organization administrator scope); everything runs in the browser.
 
+## Audit Logs
+
+*Audit Logs* in the Administration navigation (`/audit`; `src/pages/AuditPage.tsx`, `src/domain/auditCatalog.ts`). A read-only record of administrative activity in the current organization. It reuses the existing central audit mechanism (`appendAudit`, written by each module when an action actually happens), not a second store.
+
+- **Columns:** Activity (a short name such as *Administrative role created*, with the event's summary), Performed by, Module, Date and time, and Details. Newest first, paginated.
+- **Filters:** search (activity, person, record), Performed by, Module, Activity type (narrowed by module) and a date range; *Clear filters*. Empty states for no activity yet and no matches.
+- **Details drawer:** activity, module, event reference, date and time, organization, performer, record reference, action type, the affected record or users, outcome, and *What changed* (previous and new values) where the module records them, such as role privileges, organization details, activity settings and the exception approval setting. A link goes to the record.
+- **Recorded actions** (what the prototype implements): administrators invited, added, deactivated and reactivated, and their roles changed; custom roles created, updated (privileges added and removed) and deleted; organizations created, edited, activated or deactivated, users assigned or removed, activities associated or removed; verification activities created, updated, activated, paused, ended and duplicated, with checks, rules, participants and verifier assignments; exceptions raised, assigned, reviewed, escalated, proposed, approved, rejected, returned, resolved, reopened and closed, evidence viewed, and the approval setting changed; plus users, groups, credentials, integrations, settings, SSO, refused access and simulated status API requests.
+- **Not here:** verification attempts. Each is one record in Verification History, so attempts no longer write *started*, *completed* or *cancelled* audit events, and any such events in older saved data are hidden. Refused verifications and manual entry decisions are still audited.
+- **Safety:** no edit or delete actions exist. Events keep their names and values after the records they describe change or are deactivated. No passwords, tokens, secrets or biometric data are recorded.
+- **Access:** `audit.view` (Organization Admin and Auditor). Only the current organization's events are shown. Verifiers have no access.
+- **Limitations:** the log lives in browser storage. It is illustrative, not tamper-resistant production audit evidence.
+
 ## Verification journeys and transactions (Phase 4)
 
 Both identity models run through the same Verification Activity framework. The activity's configuration (and, for a programme-linked activity, the programme's authoritative requirements) decides the journey; the verifier never chooses the identity source, the matching service or whether liveness applies.
@@ -650,19 +663,17 @@ What works here is the product flow, end to end, in one browser. These are not p
 
 **Demonstration data** (fictional; `src/data/demoPersonas.ts`): **Organization A** = Northbridge Group (independent). **Organization B** = Meridian Group, with sub-organizations **B1** = Meridian Harbourside and **B2** = Meridian Eastgate, each with its own administrators, people and activities. B2 has one custom role, *Records Officer*, created by its administrator for the custom-role demonstration account: an intentional, documented exception to "no prepopulated custom roles". New organizations still start with none. Sample data no longer uses real place or regulator names.
 
-**Demo accounts** (demo builds only; Sign in → *Demonstration accounts (prototype only)* → Use; they sign in through the normal password check, all with `FixIDDemo2026!`; the list and credentials don't exist when `VITE_DEMO_AUTH=off`):
+**Demo accounts** (demo builds only; Sign in → *View demo accounts* → Use; they sign in through the normal password check, all with `FixIDDemo2026!`; the list and credentials don't exist when `VITE_DEMO_AUTH=off`). The selector groups them as *Start here*, *Platform administration*, *Administrators* and *Verifiers*. Everyone except the Platform Administrator is in the same sample organization, Brightwater Collective:
 
-| Account | Workspace and role |
+| Account | Role |
 | --- | --- |
-| platform.admin@fixid.example | Platform Administrator (`/platform`) |
-| esther.lawal@northbridge.example | Organization A — Organization Admin (independent) |
-| victor.hale@meridian.example | Organization B — Organization Admin (with sub-organizations) |
-| lina.ford@harbourside.example | B1 — Organization Admin (sub-organization) |
-| tomi.okon@harbourside.example | B1 — Verifier (assigned to two activities) |
-| adaora.nwosu@northbridge.example | Organization A — Auditor |
-| joel.park@eastgate.example | B2 — custom role *Records Officer* |
-| mira.santos@eastgate.example | B2 — Organization Admin |
-| demo@fixid.app | Multi-workspace Organization Admin (Crestfield, A, B, Brightwater; no sub-organizations) |
+| platform.admin@fixid.example (Priya Raman) | Platform Administrator: the platform console (`/platform`); no organization role |
+| jordan.blake@brightwater.example (Jordan Blake) | Administrator, full privileges (Organization Admin): administrators, roles and privileges, organizations, activities, exceptions |
+| demo@fixid.app (Tobyson TE) | Administrator (Organization Admin): the second approver for Jordan's exception decisions; can reset demo data |
+| adaora.nwosu@brightwater.example (Adaora Nwosu) | Restricted administrator (Auditor role): read-only |
+| halima.bello@brightwater.example (Halima Bello) | Verifier: only her assigned activities |
+
+Exception decisions in Brightwater need approval; turn it off in *Exceptions → Workflow settings* to see the approval-not-required path. The earlier accounts for other workspace models (independent organization, shared-activity owner, sub-organization administrators and verifier, the Eastgate records officer, the Meridian exception reviewer, the Northbridge auditor) were removed from the demo: they can't sign in. Their administrator records remain as data in the sample workspaces (`SAMPLE_WORKSPACE_PERSONAS`), and the automated test run can still sign in as them to cover the sub-organization and shared-activity code that remains. The Demo Control Centre's guided scenarios use only the accounts above; the two cross-organization shared-activity scenarios (S02, S10) were retired.
 
 ## Administrators & Roles
 

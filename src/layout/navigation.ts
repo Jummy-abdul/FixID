@@ -53,7 +53,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: 'Administration',
     items: [
-      { label: 'Audit Log', to: '/audit', icon: ScrollText, description: 'Administrative and security activity', permission: 'audit.view' },
+      { label: 'Audit Logs', to: '/audit', icon: ScrollText, description: 'Administrative and security activity', permission: 'audit.view' },
       { label: 'Settings', to: '/settings', icon: Settings, description: 'Organization profile, administrators and roles, integrations, security', permission: ['settings.manage', 'organization.view', 'administrators.view', 'sso.manage', 'integrations.view'] },
     ],
   },

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_SESSION } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
+import { ALL_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
 import { DEMO_LOCAL_PEOPLE, DEMO_SHARED_ACTIVITY, buildSeed } from '@/data/seed';
 import { defaultSettings } from '@/domain/activitySettings';
 import { evaluateDecision, externalEligibility, stageOf } from '@/domain/transactions';
@@ -22,7 +22,7 @@ let seq = 0;
 
 /** Signed in as an account, in its organization (Tobyson for Brightwater). */
 function as(accountId: string, orgId: string, s = createInitialState(new Date())): AppState {
-  const p = DEMO_PERSONAS.find((x) => x.accountId === accountId);
+  const p = ALL_PERSONAS.find((x) => x.accountId === accountId);
   const admin = p ? { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner' as const, organizationIds: [orgId] } : s.data.admin;
   return { ...s, data: { ...s.data, admin }, session: { ...s.session, currentOrganizationId: orgId } };
 }

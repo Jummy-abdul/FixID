@@ -37,77 +37,61 @@ export interface DemoPersona {
   platform?: boolean;
 }
 
+/**
+ * The demonstration accounts offered at sign-in: the Platform Administrator, administrators of the sample
+ * organization (Brightwater Collective) with full and restricted privileges, and a verifier. Exception decisions
+ * there need approval, so the demo account (Tobyson TE, in authCore) is the second approver.
+ */
 export const DEMO_PERSONAS: DemoPersona[] = [
   {
     accountId: 'acct_demo_platform', persona: 'Platform Administrator', platform: true,
-    description: 'FixID platform operations: registered organizations, statuses and relationships. No organization workspace.',
+    description: 'Platform-level console: every registered organization, its status and relationships. Holds no organization role.',
     firstName: 'Priya', lastName: 'Raman', email: 'platform.admin@fixid.example',
   },
   {
-    accountId: 'acct_demo_a_admin', persona: 'Organization Admin — independent organization', organizationId: ORG_A,
-    description: 'Runs Organization A, which has no sub-organizations.',
-    firstName: 'Esther', lastName: 'Lawal', email: 'esther.lawal@northbridge.example',
-  },
-  {
-    accountId: 'acct_demo_b_admin', persona: 'Organization Admin — owns a shared activity', organizationId: ORG_B,
-    description: 'Runs Organization B and owns a shared activity its two sub-organizations take part in. Sees that activity’s results and exceptions, not their other records.',
-    firstName: 'Victor', lastName: 'Hale', email: 'victor.hale@meridian.example',
-  },
-  {
-    accountId: 'acct_demo_b1_admin', persona: 'Sub-organization Admin', organizationId: ORG_B1,
-    description: 'Runs sub-organization B1 (its own administrators, people and activities).',
-    firstName: 'Lina', lastName: 'Ford', email: 'lina.ford@harbourside.example',
-  },
-  {
-    accountId: 'acct_demo_b1_verifier', persona: 'Verifier', organizationId: ORG_B1,
-    description: 'Verifies people for the B1 activities they’re assigned to.',
-    firstName: 'Tomi', lastName: 'Okon', email: 'tomi.okon@harbourside.example',
-  },
-  {
-    accountId: `${ORG_A}_usr_2`, persona: 'Auditor', organizationId: ORG_A,
-    description: 'Read-only access to Organization A’s records, history and audit log.',
-    firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@northbridge.example',
-  },
-  {
-    accountId: 'acct_demo_b2_records', persona: 'Custom role (Records Officer)', organizationId: ORG_B2,
-    description: 'Holds a custom role in sub-organization B2: manages users and views groups, nothing else.',
-    firstName: 'Joel', lastName: 'Park', email: 'joel.park@eastgate.example',
-  },
-  {
-    accountId: 'acct_demo_b2_admin', persona: 'Sub-organization Admin (B2)', organizationId: ORG_B2,
-    description: 'Runs sub-organization B2. Can’t see anything in B1.',
-    firstName: 'Mira', lastName: 'Santos', email: 'mira.santos@eastgate.example',
-  },
-  {
-    accountId: 'acct_demo_b_reviewer', persona: 'Custom role (Exception Reviewer)', organizationId: ORG_B,
-    description: 'Holds a custom role in Organization B: reviews exceptions, including those from its shared activity, and views reports. No configuration access.',
-    firstName: 'Sam', lastName: 'Rivera', email: 'sam.rivera@meridian.example',
-  },
-  {
-    accountId: 'acct_demo_c_admin', persona: 'Organization Admin — independent organization with an external identity service', organizationId: ORG_C,
-    description: 'Runs Organization C: its activities, its simulated identity source and its exception reviews. Has an invitation to Organization B’s shared activity.',
+    accountId: 'acct_demo_c_admin', persona: 'Administrator — full privileges (Organization Admin role)', organizationId: ORG_C,
+    description: 'Manages administrators, roles and privileges, organizations, verification activities and exceptions. Exception decisions need a second approver.',
     firstName: 'Jordan', lastName: 'Blake', email: 'jordan.blake@brightwater.example',
   },
   {
-    accountId: `${ORG_C}_usr_4`, persona: 'Verifier (Organization C)', organizationId: ORG_C,
-    description: 'Verifies people for Organization C’s local and external activities they’re assigned to.',
-    firstName: 'Halima', lastName: 'Bello', email: 'halima.bello@brightwater.example',
+    accountId: `${ORG_C}_usr_2`, persona: 'Administrator — restricted (Auditor role)', organizationId: ORG_C,
+    description: 'Read-only: verification history, exceptions, organizations, reports and the audit log. Can’t change anything.',
+    firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@brightwater.example',
   },
   {
-    accountId: `${ORG_C}_usr_2`, persona: 'Auditor (Organization C)', organizationId: ORG_C,
-    description: 'Read-only access to Organization C’s history, exceptions, reports and audit log.',
-    firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@brightwater.example',
+    accountId: `${ORG_C}_usr_4`, persona: 'Verifier', organizationId: ORG_C,
+    description: 'Verifies people only for the activities they’re assigned to (Visitor Check-in, Restricted Lounge Access, Badge Collection). No administration.',
+    firstName: 'Halima', lastName: 'Bello', email: 'halima.bello@brightwater.example',
   },
 ];
 
 /**
+ * Administrators of the other sample workspaces (Northbridge, Meridian and its sub-organizations). They're
+ * records in the seeded data only: they aren't demonstration accounts and can't sign in to the demo. Automated
+ * tests still sign in as them to cover the sub-organization and shared-activity features that remain in the code.
+ */
+export const SAMPLE_WORKSPACE_PERSONAS: DemoPersona[] = [
+  { accountId: 'acct_demo_a_admin', persona: 'Organization Admin (Northbridge)', organizationId: ORG_A, description: 'Sample workspace record.', firstName: 'Esther', lastName: 'Lawal', email: 'esther.lawal@northbridge.example' },
+  { accountId: 'acct_demo_b_admin', persona: 'Organization Admin (Meridian)', organizationId: ORG_B, description: 'Sample workspace record.', firstName: 'Victor', lastName: 'Hale', email: 'victor.hale@meridian.example' },
+  { accountId: 'acct_demo_b1_admin', persona: 'Organization Admin (Meridian Harbourside)', organizationId: ORG_B1, description: 'Sample workspace record.', firstName: 'Lina', lastName: 'Ford', email: 'lina.ford@harbourside.example' },
+  { accountId: 'acct_demo_b1_verifier', persona: 'Verifier (Meridian Harbourside)', organizationId: ORG_B1, description: 'Sample workspace record.', firstName: 'Tomi', lastName: 'Okon', email: 'tomi.okon@harbourside.example' },
+  { accountId: `${ORG_A}_usr_2`, persona: 'Auditor (Northbridge)', organizationId: ORG_A, description: 'Sample workspace record.', firstName: 'Adaora', lastName: 'Nwosu', email: 'adaora.nwosu@northbridge.example' },
+  { accountId: 'acct_demo_b2_records', persona: 'Records Officer (Meridian Eastgate)', organizationId: ORG_B2, description: 'Sample workspace record.', firstName: 'Joel', lastName: 'Park', email: 'joel.park@eastgate.example' },
+  { accountId: 'acct_demo_b2_admin', persona: 'Organization Admin (Meridian Eastgate)', organizationId: ORG_B2, description: 'Sample workspace record.', firstName: 'Mira', lastName: 'Santos', email: 'mira.santos@eastgate.example' },
+  { accountId: 'acct_demo_b_reviewer', persona: 'Exception Reviewer (Meridian)', organizationId: ORG_B, description: 'Sample workspace record.', firstName: 'Sam', lastName: 'Rivera', email: 'sam.rivera@meridian.example' },
+];
+
+/** Every fictional person behind an account ID (demonstration accounts and sample workspace records). */
+export const ALL_PERSONAS: DemoPersona[] = [...DEMO_PERSONAS, ...SAMPLE_WORKSPACE_PERSONAS];
+
+/**
  * The two accounts shown first in the sign-in "Demo accounts" dialog: an administrator and a verifier in the same
- * organization (C), whose seeded activities cover local and external verification, assignment and exceptions.
+ * organization, whose seeded activities cover local and external verification, assignment and exceptions.
  */
 export const FEATURED_DEMO_ACCOUNTS: { accountId: string; role: string }[] = [
   { accountId: 'acct_demo_c_admin', role: 'Administrator' },
   { accountId: `${ORG_C}_usr_4`, role: 'Verifier' },
 ];
 
-export const personaById = (id: string) => DEMO_PERSONAS.find((p) => p.accountId === id);
+export const personaById = (id: string) => ALL_PERSONAS.find((p) => p.accountId === id);
 export const personaName = (p: DemoPersona) => `${p.firstName} ${p.lastName}`;

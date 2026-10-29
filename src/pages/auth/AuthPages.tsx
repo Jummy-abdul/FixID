@@ -302,10 +302,10 @@ export function SignInPage() {
  * normal password check. Not rendered when demo mode is off (VITE_DEMO_AUTH=off).
  */
 function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
-  type DemoAccount = { email: string; persona: string; name: string; description: string };
+  type DemoAccount = { email: string; persona: string; name: string; description: string; group: 'platform' | 'admin' | 'verifier' };
   const accounts: DemoAccount[] = [
-    { email: 'demo@fixid.app', persona: 'Multi-workspace Organization Admin', name: 'Tobyson TE', description: 'Belongs to several sample organizations and can switch between them.' },
-    ...DEMO_PERSONAS.map((p) => ({ email: p.email, persona: p.persona, name: personaName(p), description: p.description })),
+    ...DEMO_PERSONAS.map((p) => ({ email: p.email, persona: p.persona, name: personaName(p), description: p.description, group: p.platform ? 'platform' as const : /Verifier/.test(p.persona) ? 'verifier' as const : 'admin' as const })),
+    { email: 'demo@fixid.app', persona: 'Administrator — second approver and demo operator', name: 'Tobyson TE', description: 'Organization Admin role: approves exception decisions Jordan Blake proposes, and can reset demo data.', group: 'admin' },
   ];
   // One administrator and one verifier from the same organization, for trying the verification workflow end to end.
   const featured = FEATURED_DEMO_ACCOUNTS.flatMap((f) => {
@@ -313,6 +313,9 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
     return a ? [{ ...a, role: f.role }] : [];
   });
   const others = accounts.filter((a) => !featured.some((f) => f.email === a.email));
+  const groups = [
+    { key: 'platform', title: 'Platform administration' }, { key: 'admin', title: 'Administrators' }, { key: 'verifier', title: 'Verifiers' },
+  ].map((g) => ({ ...g, items: others.filter((a) => a.group === g.key) })).filter((g) => g.items.length);
   const [open, setOpen] = useState(false);
   const row = (a: DemoAccount & { role?: string }) => (
     <li key={a.email} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
@@ -332,7 +335,7 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
         View demo accounts
       </button>
       <Modal open={open} onClose={() => setOpen(false)} size="lg" title="Demo accounts"
-        description="Fictional accounts for exploring FixID’s different roles and workspaces.">
+        description="Fictional accounts for the Platform Administrator, administrators with full or restricted privileges, and a verifier.">
         <div className="space-y-3 text-sm">
           {/* The shared password is shown only here, with a prototype-only warning. */}
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900 ring-1 ring-inset ring-amber-200">
@@ -344,11 +347,15 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
               <ul className="space-y-1.5" aria-label="Start here">{featured.map(row)}</ul>
             </section>
           )}
-          <section aria-labelledby="demo-other-accounts">
-            <h3 id="demo-other-accounts" className="mb-1.5 text-sm font-semibold text-slate-900">{featured.length > 0 ? 'Other demo accounts' : 'Demo accounts'}</h3>
-            <ul className="space-y-1.5" aria-label="Demonstration accounts">{others.map((a) => row(a))}</ul>
+          <section aria-label="Demonstration accounts" className="space-y-3">
+            {groups.map((g) => (
+              <div key={g.key}>
+                <h3 className="mb-1.5 text-sm font-semibold text-slate-900">{g.title}</h3>
+                <ul className="space-y-1.5" aria-label={g.title}>{g.items.map((a) => row(a))}</ul>
+              </div>
+            ))}
           </section>
-          <p className="text-slate-500">Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
+          <p className="text-slate-500">All accounts belong to the same sample organization except the Platform Administrator. Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
         </div>
       </Modal>
     </div>

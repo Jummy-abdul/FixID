@@ -313,7 +313,7 @@ describe('screens', () => {
   it('shows the Auditor a read-only workspace', async () => {
     const p = reducer(base(), { type: 'preview/start', roleId: 'auditor' });
     const { user, unmount } = renderApp('/users', p);
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Logs', 'Settings']);
     await screen.findByRole('heading', { level: 1, name: 'Users' });
     expect(screen.queryByRole('link', { name: 'Add user' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Import Users' })).toBeNull();

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_SESSION } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_B, ORG_C } from '@/data/demoPersonas';
+import { ALL_PERSONAS, ORG_B, ORG_C } from '@/data/demoPersonas';
 import { categoryOf, outcomesFor } from '@/domain/exceptions';
 import {
   applyApprovalDecision, applyCloseException, applyEvidenceViewed, applyExceptionWorkflow, applyReopenException, applyResolveException, exceptionFor, exceptionsVisibleTo, resolutionProblem,
@@ -16,7 +16,7 @@ const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error((r 
 const err = (r: { ok: boolean }) => (r as { error?: string }).error;
 
 function as(accountId: string, orgId: string, s = createInitialState(new Date())): AppState {
-  const p = DEMO_PERSONAS.find((x) => x.accountId === accountId);
+  const p = ALL_PERSONAS.find((x) => x.accountId === accountId);
   const admin = p ? { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner' as const, organizationIds: [orgId] } : { ...s.data.admin, id: accountId };
   return { ...s, data: { ...s.data, admin }, session: { ...s.session, currentOrganizationId: orgId } };
 }

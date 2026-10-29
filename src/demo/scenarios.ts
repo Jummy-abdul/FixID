@@ -1,14 +1,12 @@
 import { ORG_A, ORG_B, ORG_B1, ORG_B2, ORG_C } from '@/data/demoPersonas';
-import { DEMO_LOCAL_PEOPLE, DEMO_SHARED_ACTIVITY } from '@/data/seed';
+import { DEMO_LOCAL_PEOPLE } from '@/data/seed';
 import { evaluateDecision } from '@/domain/transactions';
 import type { VerificationAttempt } from '@/domain/types';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
 import { WEB_CLIENT, authorizeExecution } from '@/store/attemptOps';
 import { applyResolveException, exceptionsOf, exceptionsVisibleTo } from '@/store/exceptionOps';
 import { integrationsOf } from '@/store/integrationOps';
-import { activityPolicy, activityPolicyProblems, participation } from '@/store/sharingOps';
-import { applySaveActivity } from '@/store/activityOps';
-import { sharedActivityTransactions, sharedResults, summarize } from '@/store/reporting';
+import { summarize } from '@/store/reporting';
 import { transactionPolicy } from '@/store/transactionOps';
 import type { AppState } from '@/store/state';
 
@@ -103,15 +101,11 @@ export interface ScenarioDefinition {
 
 /* ---------------- helpers ---------------- */
 
+/** The demonstration accounts (see data/demoPersonas): all in Brightwater Collective except the Platform Administrator. */
 const ACCOUNTS = {
   platform: 'platform.admin@fixid.example',
-  aAdmin: 'esther.lawal@northbridge.example',
-  aAuditor: 'adaora.nwosu@northbridge.example',
-  owner: 'victor.hale@meridian.example',
-  reviewer: 'sam.rivera@meridian.example',
-  b1Admin: 'lina.ford@harbourside.example',
-  b1Verifier: 'tomi.okon@harbourside.example',
-  b2Admin: 'mira.santos@eastgate.example',
+  /** Tobyson TE: the second approver for exception decisions. */
+  approver: 'demo@fixid.app',
   cAdmin: 'jordan.blake@brightwater.example',
   cVerifier: 'halima.bello@brightwater.example',
   cAuditor: 'adaora.nwosu@brightwater.example',
@@ -121,7 +115,6 @@ export const SCENARIO_ACCOUNTS = ACCOUNTS;
 const VISITOR = `${ORG_C}_va_visitor_checkin`;
 const LOUNGE = `${ORG_C}_va_restricted_lounge`;
 const BADGE = `${ORG_C}_va_badge_collection`;
-const STAFF = DEMO_SHARED_ACTIVITY;
 
 const pass = (label: string, detail: string, kind: CheckResult['kind'] = 'outcome'): CheckResult => ({ label, status: 'passed', detail, kind });
 const fail = (label: string, detail: string, kind: CheckResult['kind'] = 'outcome'): CheckResult => ({ label, status: 'failed', detail, kind });
@@ -139,6 +132,8 @@ const activityExists = (state: AppState, id: string, label: string) => (state.da
 const integrationActive = (state: AppState, id: string, label: string) => ((state.data.customIntegrations ?? []).some((i) => i.id === id && i.status === 'active') ? [] : [`${label} isn’t active. Reset the demo data.`]);
 const noSecrets = (state: AppState) => !/"(secret|password|clientSecret|apiKeyValue|privateKey)"\s*:/i.test(JSON.stringify(state.data.customIntegrations ?? []));
 const noRawBiometrics = (state: AppState) => !JSON.stringify(state.data.verificationAttempts).includes('data:image') && !JSON.stringify(exceptionsOf(state)).includes('data:image');
+/** A seeded transaction of another sample organization (Meridian Harbourside), for the isolation checks. */
+const otherOrgTx = (state: AppState) => state.data.verificationAttempts.find((a) => a.organizationId === ORG_B1);
 const txLabel = (a: VerificationAttempt) => `${a.id} (${a.activityName})`;
 const seededTx = (state: AppState, key: string) => state.data.verificationAttempts.find((a) => a.id.endsWith(`-${key}`));
 
@@ -146,71 +141,33 @@ const seededTx = (state: AppState, key: string) => state.data.verificationAttemp
 
 export const SCENARIOS: ScenarioDefinition[] = [
   {
-    id: 'S01', name: 'Independent Organization Setup',
-    description: 'An organization configures and launches a verification activity on its own.',
-    purpose: 'Show that an organization operates independently without a parent organization, and its records stay in its workspace.',
-    initialData: 'Organization A (independent) with administrators, people, groups and local records.',
-    organizationStructure: 'Organization A, no parent and no sub-organizations.', users: [ACCOUNTS.aAdmin],
+    id: 'S01', name: 'Verification Activity Setup',
+    description: 'An administrator configures and launches a verification activity.',
+    purpose: 'Show an administrator setting up an activity with eligibility and an assigned verifier.',
+    initialData: 'Brightwater Collective with administrators, people, groups and local records.',
+    organizationStructure: 'Brightwater Collective.', users: [ACCOUNTS.cAdmin],
     activity: 'A new activity created during the scenario', identitySource: 'FixID Local Records (or a new private integration)', integration: 'None required',
     eligibility: 'Local eligible population (groups or users)', controls: ['Face verification with liveness (default)', 'At least one assigned verifier'],
-    expectedOutcome: 'A new active activity in Organization A with eligibility and a verifier, visible only in that workspace.',
-    expectedTransactionState: 'No transaction required.', permissionBoundaries: ['Only Organization A’s administrators can see or change the activity.'],
+    expectedOutcome: 'A new active activity with eligibility and a verifier.',
+    expectedTransactionState: 'No transaction required.', permissionBoundaries: ['Only administrators with activity privileges can change the activity.'],
     steps: [
-      { title: 'Inspect the workspace', account: ACCOUNTS.aAdmin, route: '/', instructions: 'Review the dashboard, then Settings → Organization and Administrators & Roles.' },
-      { title: 'Identity source', account: ACCOUNTS.aAdmin, route: '/settings?tab=integrations', instructions: 'Local verification is built in. Optionally add a simulated custom integration (see scenario 14).' },
-      { title: 'Create and launch an activity', account: ACCOUNTS.aAdmin, route: '/verification-activities/new', instructions: 'Name it, keep FixID Local Records, choose an eligible group on Eligibility & Verifiers, keep yourself (or a verifier) assigned, then Create & Activate.' },
+      { title: 'Inspect the setup', account: ACCOUNTS.cAdmin, route: '/', instructions: 'Review the dashboard, then Settings → Administrators & Roles.' },
+      { title: 'Identity source', account: ACCOUNTS.cAdmin, route: '/settings?tab=integrations', instructions: 'Local verification is built in. Optionally add a simulated custom integration (see scenario 14).' },
+      { title: 'Create and launch an activity', account: ACCOUNTS.cAdmin, route: '/verification-activities/new', instructions: 'Name it, keep FixID Local Records, choose an eligible group on Eligibility & Verifiers, keep yourself (or a verifier) assigned, then Create & Activate.' },
     ],
-    resetBehavior: 'Reset Demo Data removes the activity and restores Organization A’s seeded configuration.',
-    prerequisites: (s) => (s.data.organizations.some((o) => o.id === ORG_A) ? [] : ['Organization A is missing. Reset the demo data.']),
+    resetBehavior: 'Reset Demo Data removes the activity.',
+    prerequisites: (s) => (s.data.organizations.some((o) => o.id === ORG_C) ? [] : ['Brightwater Collective is missing. Reset the demo data.']),
     evaluate: (s, b) => {
       const d = sinceBaseline(s, b);
-      const act = d.activities.find((a) => a.organizationId === ORG_A);
-      const parent = (s.data.organizationRelationships ?? []).some((r) => r.childOrganizationId === ORG_A);
+      const act = d.activities.find((a) => a.organizationId === ORG_C);
       return [
-        check('No parent organization is required', !parent, 'Organization A has no parent relationship.', 'Organization A has a parent relationship.', 'data'),
-        act ? pass('A verification activity was created in Organization A', act.name) : untested('A verification activity was created in Organization A', 'No new activity in Organization A yet.'),
+        act ? pass('A verification activity was created', act.name) : untested('A verification activity was created', 'No new activity yet.'),
         ...(act ? [
           check('Identity source configured', !!act.verification, `Identity source: ${act.verification?.identitySource.kind === 'external' ? 'external integration' : 'FixID Local Records'}.`, 'The activity has no verification settings.'),
           check('Eligibility defined', act.verification?.eligibility.approach !== 'none' || !!act.participants?.groupIds.length || !!act.participants?.memberIds.length, 'Eligibility requirements are set.', 'No eligibility requirement was set.'),
           check('A verifier is assigned', s.data.verifierAssignments.some((v) => v.activityId === act.id && v.status === 'active'), 'At least one active verifier assignment.', 'No verifier is assigned.'),
           check('The activity was launched', act.status === 'active', 'Status: Active.', `Status: ${act.status}. Activate it to launch.`),
-          check('Records stay in the workspace', act.organizationId === ORG_A && !s.data.organizations.filter((o) => o.id !== ORG_A).some((o) => s.data.activityConfigs.some((x) => x.id === act.id && x.organizationId === o.id)), 'The activity belongs to Organization A only.', 'The activity is visible elsewhere.', 'permission'),
-        ] : []),
-      ];
-    },
-  },
-  {
-    id: 'S02', name: 'Shared Activity Across Organizations',
-    description: 'An organization’s shared activity is run by another organization from its own workspace.',
-    purpose: 'Show one shared activity record: the invited organization accepts, assigns its own staff and verifies; the owner sees that activity’s results only.',
-    initialData: 'Organization B’s shared activity Group Staff Entry (B1 and B2 take part; Organization C has a pending invitation).',
-    organizationStructure: 'B owns the activity; B1, B2 and C are separate workspaces.', users: [ACCOUNTS.owner, ACCOUNTS.cAdmin, ACCOUNTS.cVerifier],
-    sharedActivity: 'Group Staff Entry', activity: 'Group Staff Entry (owned by B)', identitySource: 'Group Identity Service (B’s connected source)',
-    integration: 'Group Identity Service — SIMULATED', eligibility: 'Record status in the identity source', controls: ['Face match', 'Liveness required', 'Problems reviewed by the owner'],
-    expectedOutcome: 'C takes part without registering again or recreating the activity; its verification is recorded in C’s workspace and counted in B’s results.',
-    expectedTransactionState: 'Completed (Allow) for DEMO-10001, performed by C for B’s activity.', permissionBoundaries: ['B sees this activity’s results only, not C’s other records.', 'C can’t change the activity.'],
-    steps: [
-      { title: 'See the invitation', account: ACCOUNTS.owner, route: `/verification-activities/${STAFF}?tab=organizations`, instructions: 'Organization C is listed as Invited.' },
-      { title: 'Accept and assign staff', account: ACCOUNTS.cAdmin, route: '/verification-activities', instructions: 'Under “Shared with your organization”, Accept Group Staff Entry → Manage staff → choose Halima Bello → Save staff.' },
-      { title: 'Verify', account: ACCOUNTS.cVerifier, route: `/verify/activities/${STAFF}`, instructions: 'Start Verification → DEMO-10001 → Continue Verification → Use simulated capture → Liveness Passed → Matching Match → Verify Identity.' },
-      { title: 'Owner sees the result', account: ACCOUNTS.owner, route: `/verification-activities/${STAFF}?tab=organizations`, instructions: 'Brightwater shows one verification. Open Verification History and filter Performed by.' },
-    ],
-    resetBehavior: 'Reset Demo Data restores the invitation and removes the transaction.',
-    prerequisites: (s) => [...activityExists(s, STAFF, 'Group Staff Entry'), ...integrationActive(s, 'int_b_identity', 'Group Identity Service')],
-    evaluate: (s, b) => {
-      const d = sinceBaseline(s, b);
-      const act = s.data.activityConfigs.find((a) => a.id === STAFF);
-      const tx = d.attempts.find((a) => a.activityId === STAFF && a.organizationId === ORG_C);
-      const assigned = s.data.verifierAssignments.some((v) => v.activityId === STAFF && v.organizationId === ORG_C && v.status === 'active');
-      return [
-        check('Invited organization accepted', !!act && participation(act, ORG_C) === 'active', 'Organization C takes part.', 'Organization C hasn’t accepted yet.', 'data'),
-        check('One shared activity record', s.data.activityConfigs.filter((a) => a.organizationId === ORG_C && a.name === act?.name).length === 0, 'C didn’t recreate the activity.', 'C has a duplicate of the activity.', 'data'),
-        check('Participant assigned its own staff', assigned, 'C assigned its own verifier.', 'No C staff assigned yet.', 'data'),
-        withTx('Participant verified with the shared activity', tx, (a) => [a.activityOwnerId === ORG_B, `${txLabel(a)} performed by C for B’s activity.`]),
-        withTx('Owner’s requirements applied', tx, (a) => [a.integrationId === 'int_b_identity' && !!a.liveness?.required, 'B’s identity source and mandatory liveness were used.']),
-        withTx('Owner sees it in the activity’s results', tx, (a) => [!!act && sharedActivityTransactions(s, act).some((x) => x.id === a.id), 'Counted in the shared activity’s results.']),
-        check('Owner’s results exclude unrelated activity', !!act && sharedActivityTransactions(s, act).every((x) => x.activityId === STAFF), 'Only this activity’s transactions are counted.', 'Unrelated transactions were counted.', 'permission'),
-        check('Unrelated exceptions stay private', !exceptionsVisibleTo(s, ORG_B).some((e) => e.activityId !== STAFF && e.organizationId !== ORG_B), 'The owner sees only its own and this activity’s exceptions.', 'The owner can see unrelated exceptions.', 'permission'),
+                  ] : []),
       ];
     },
   },
@@ -405,36 +362,6 @@ export const SCENARIOS: ScenarioDefinition[] = [
     },
   },
   {
-    id: 'S10', name: 'Shared Activity Requirements',
-    description: 'A participating organization tries to change a shared activity’s requirements.',
-    purpose: 'Test that only the owner sets a shared activity’s mandatory requirements.',
-    initialData: 'Group Staff Entry, owned by B, run by B1.', organizationStructure: 'B1 takes part in B’s shared activity.', users: [ACCOUNTS.b1Admin],
-    sharedActivity: 'Group Staff Entry', activity: 'Group Staff Entry', identitySource: 'Group Identity Service (owner’s)', integration: 'SIMULATED',
-    eligibility: 'Record status in the identity source', controls: ['Requirements set by the owner only', 'Shared activities need a connected identity source'],
-    expectedOutcome: 'B1 sees the requirements read-only and can only manage its own staff; any change is refused.',
-    expectedTransactionState: 'No transaction required.', permissionBoundaries: ['Participants manage their own staff, never the activity.'],
-    steps: [{ title: 'Open the shared activity', account: ACCOUNTS.b1Admin, route: `/verification-activities/${STAFF}`, instructions: 'Requirements are shown as “Set by Meridian Group”. There is no Edit button; opening …/edit shows Not found.' }],
-    resetBehavior: 'Reset Demo Data restores the activity.',
-    prerequisites: (s) => activityExists(s, STAFF, 'Group Staff Entry'),
-    evaluate: (s, b) => {
-      const act = s.data.activityConfigs.find((a) => a.id === STAFF)!;
-      const own = activityPolicy(s, act).effective;
-      const asLina: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: 'acct_demo_b1_admin' } }, session: { ...s.session, currentOrganizationId: ORG_B1 } };
-      const version = s.data.activityVersions.find((v) => v.id === act.activeVersionId)!;
-      const attempt = applySaveActivity(asLina, { organizationId: ORG_B1, activityId: STAFF, ids: { activityId: 'x', versionId: 'y' }, at: new Date().toISOString(),
-        form: { name: act.name, description: act.description, purpose: act.purpose, type: version.type, checks: version.checks, outcome: version.outcome, verifierIds: [], verification: { ...own, liveness: 'optional' } } });
-      const localShared = activityPolicyProblems(s, ORG_B, { ...own, identitySource: { kind: 'local' } }, 'shared');
-      const changed = b.activitySettings[STAFF] !== JSON.stringify(act.verification ?? null);
-      return [
-        check('A participant can’t change the shared activity', !attempt.ok, 'Refused: the activity belongs to another organization.', 'A participant changed the activity.', 'permission'),
-        check('Shared activities keep a connected identity source', localShared.length > 0, 'FixID records can’t be used for a shared activity.', 'A shared activity accepted FixID records.', 'permission'),
-        check('Requirements still in force', own.liveness === 'required' && own.identitySource.kind === 'external', 'Liveness required; owner’s identity source.', 'The requirements were weakened.'),
-        changed ? pass('Owner changes are audited', `${sinceBaseline(s, b).audit.filter((x) => x.resourceId === STAFF).length} audit events for the activity.`, 'data') : untested('Owner changes are audited', 'The owner didn’t change the activity during the scenario.', 'data'),
-        untested('Read-only view shown to the participant', 'Screens aren’t stored as records, so this can’t be checked here. Observe it on screen.'),
-      ];
-    },
-  },
-  {
     id: 'S11', name: 'Repeat Verification',
     description: 'A successful result is reused within the activity’s validity period.',
     purpose: 'Test permitted reuse, clearly distinguished from a fresh match.',
@@ -461,56 +388,57 @@ export const SCENARIOS: ScenarioDefinition[] = [
   },
   {
     id: 'S12', name: 'Role and Organization Isolation',
-    description: 'Unauthorized access attempts across roles and organizations.',
-    purpose: 'Test permissions and tenant boundaries.',
-    initialData: 'Seeded organizations, transactions and exceptions.', organizationStructure: 'A, B (with B1 and B2) and C.',
-    users: [ACCOUNTS.b1Verifier, ACCOUNTS.cAuditor, ACCOUNTS.owner], activity: 'Various', identitySource: '—', integration: '—', eligibility: '—', controls: [],
+    description: 'Unauthorized access attempts by a verifier and a restricted administrator.',
+    purpose: 'Test privileges and organizational boundaries.',
+    initialData: 'Seeded activities, transactions and exceptions.', organizationStructure: 'Brightwater Collective, and another sample organization’s records.',
+    users: [ACCOUNTS.cVerifier, ACCOUNTS.cAuditor], activity: 'Various', identitySource: '—', integration: '—', eligibility: '—', controls: [],
     expectedOutcome: 'Every unauthorized attempt is refused; refusals of other organizations’ records are audited.', expectedTransactionState: 'No change.',
-    permissionBoundaries: ['Verifier: assigned activities only', 'Auditor: read-only', 'Shared activity owner: that activity’s results only', 'No credentials or biometric data exposed'],
+    permissionBoundaries: ['Verifier: assigned activities only', 'Restricted administrator (Auditor): read-only', 'No credentials or biometric data exposed'],
     steps: [
-      { title: 'Verifier: unassigned activity', account: ACCOUNTS.b1Verifier, route: `/verify/activities/${ORG_B1}_va_membership`, instructions: 'The page refuses: not assigned.' },
-      { title: 'Verifier: another organization’s transaction', account: ACCOUNTS.b1Verifier, route: (s) => `/verify/attempts/${seededTx(s, 'D06')?.id ?? 'unknown'}`, instructions: 'The page shows “Verification not available” and the refusal is audited.' },
-      { title: 'Auditor: try to change an exception', account: ACCOUNTS.cAuditor, route: '/exceptions', instructions: 'Open any exception: it’s read-only, with no review actions.' },
-      { title: 'Activity owner: unrelated records', account: ACCOUNTS.owner, route: (s) => `/verification-history/${seededTx(s, 'D06')?.id ?? 'unknown'}`, instructions: 'Organization C’s own transaction isn’t shown, even though C has been invited to B’s shared activity.' },
+      { title: 'Verifier: unassigned activity', account: ACCOUNTS.cVerifier, route: `/verify/activities/${ORG_C}_va_membership`, instructions: 'The page refuses: not assigned.' },
+      { title: 'Verifier: another organization’s transaction', account: ACCOUNTS.cVerifier, route: (s) => `/verify/attempts/${otherOrgTx(s)?.id ?? 'unknown'}`, instructions: 'The page shows “Verification not available” and the refusal is audited.' },
+      { title: 'Restricted administrator: try to change an exception', account: ACCOUNTS.cAuditor, route: '/exceptions', instructions: 'Open any exception: it’s read-only, with no review actions.' },
+      { title: 'Restricted administrator: another organization’s record', account: ACCOUNTS.cAuditor, route: (s) => `/verification-history/${otherOrgTx(s)?.id ?? 'unknown'}`, instructions: 'It isn’t shown, and the refusal is audited.' },
     ],
     resetBehavior: 'No data changes besides audit events.',
-    prerequisites: (s) => (seededTx(s, 'D06') ? [] : ['Seeded transactions are missing. Reset the demo data.']),
+    prerequisites: (s) => (otherOrgTx(s) && seededTx(s, 'D06') ? [] : ['Seeded transactions are missing. Reset the demo data.']),
     evaluate: (s, b) => {
       const d = sinceBaseline(s, b);
       const denied = d.audit.filter((x) => x.action === 'access.denied');
-      const tomiRec = s.data.administrators.find((a) => a.userId === 'acct_demo_b1_verifier');
-      const asTomi: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: 'acct_demo_b1_verifier' } } };
+      const halimaRec = s.data.administrators.find((a) => a.userId === `${ORG_C}_usr_4`);
+      const asHalima: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: `${ORG_C}_usr_4` } } };
       const asAuditor: AppState = { ...s, data: { ...s.data, admin: { ...s.data.admin, id: `${ORG_C}_usr_2` } } };
       const anyExc = exceptionsOf(s).find((e) => e.reviewOrganizationId === ORG_C);
       return [
         denied.length ? pass('Cross-organization access refused and audited', `${denied.length} access.denied events.`, 'permission') : untested('Cross-organization access refused and audited', 'No refused access recorded since loading. Follow the steps.', 'permission'),
-        check('Verifier can’t run another organization’s activity', !!tomiRec && !authorizeExecution(asTomi, ORG_C, VISITOR, WEB_CLIENT).ok, 'Execution refused.', 'Execution allowed.', 'permission'),
-        check('Verifier can’t run an unassigned activity', !authorizeExecution(asTomi, ORG_B1, `${ORG_B1}_va_membership`, WEB_CLIENT).ok, 'Execution refused: not assigned.', 'Execution allowed.', 'permission'),
-        anyExc ? check('Auditor can’t resolve an exception', !applyResolveException(asAuditor, { organizationId: ORG_C, exceptionId: anyExc.id, outcome: 'unable-to-resolve', reason: 'test', at: new Date().toISOString() }).ok, 'Refused: no review permission.', 'The auditor could resolve.', 'permission') : untested('Auditor can’t resolve an exception', 'No exception to test with.', 'permission'),
-        check('Activity owner can’t see unrelated organizations’ exceptions', !exceptionsVisibleTo(s, ORG_B).some((e) => e.activityId !== STAFF && (e.organizationId === ORG_C || e.organizationId === ORG_A)), 'Only its own and its shared activity’s exceptions are visible.', 'Unrelated exceptions are visible.', 'permission'),
-        check('Other organizations can’t list a private integration', !integrationsOf(s, ORG_B1).some((i) => i.organizationId !== ORG_B1) && !integrationsOf(s, ORG_A).length, 'Integrations are listed only to their owner.', 'An integration is visible elsewhere.', 'permission'),
+        check('Verifier can’t run another organization’s activity', !!halimaRec && !authorizeExecution(asHalima, ORG_B, `${ORG_B}_va_membership`, WEB_CLIENT).ok, 'Execution refused.', 'Execution allowed.', 'permission'),
+        check('Verifier can’t run an unassigned activity', !authorizeExecution(asHalima, ORG_C, `${ORG_C}_va_membership`, WEB_CLIENT).ok, 'Execution refused: not assigned.', 'Execution allowed.', 'permission'),
+        anyExc ? check('Restricted administrator can’t resolve an exception', !applyResolveException(asAuditor, { organizationId: ORG_C, exceptionId: anyExc.id, outcome: 'unable-to-resolve', reason: 'test', at: new Date().toISOString() }).ok, 'Refused: no review permission.', 'The auditor could resolve it.', 'permission') : untested('Restricted administrator can’t resolve an exception', 'No exception to test with.', 'permission'),
+        check('Exceptions stay within their organization', !exceptionsVisibleTo(s, ORG_C).some((e) => e.organizationId !== ORG_C && e.reviewOrganizationId !== ORG_C), 'Only Brightwater’s exceptions are listed to it.', 'Another organization’s exception is visible.', 'permission'),
+        check('Other organizations can’t list a private integration', !integrationsOf(s, ORG_C).some((i) => i.organizationId !== ORG_C) && !integrationsOf(s, ORG_A).some((i) => i.organizationId === ORG_C), 'Integrations are listed only to their owner.', 'An integration is visible elsewhere.', 'permission'),
         check('No integration credentials stored', noSecrets(s), 'No secret fields exist in integration records.', 'Secret-like fields found.', 'permission'),
         check('No raw biometric material stored', noRawBiometrics(s), 'Transactions and exceptions contain no images.', 'Image data found.', 'permission'),
       ];
     },
   },
   {
-    id: 'S13', name: 'Exception and Status API Lifecycle',
-    description: 'A transaction moves from Pending Review to a reviewed disposition, read through the status API.',
-    purpose: 'Test status consistency between review and the (simulated) Verification Status API.',
-    initialData: 'Group Staff Entry (problems reviewed by the owner); the status API demo page.', organizationStructure: 'B1 (participant) and B (activity owner and reviewer).',
-    users: [ACCOUNTS.b1Verifier, ACCOUNTS.b1Admin, ACCOUNTS.reviewer], sharedActivity: 'Group Staff Entry', activity: 'Group Staff Entry', identitySource: 'Group Identity Service',
-    integration: 'SIMULATED; status API SIMULATED', eligibility: 'External source', controls: ['Exceptions reviewed by the activity owner’s reviewers'],
-    expectedOutcome: 'Status API: PENDING_REVIEW before review; after resolution COMPLETED with the reviewed decision, original NO_MATCH preserved.',
-    expectedTransactionState: 'Pending Review → reviewed disposition.', expectedExceptionState: 'Open → Resolved.', permissionBoundaries: ['Unrelated clients get 404.'],
+    id: 'S13', name: 'Exception Approval and Status API Lifecycle',
+    description: 'A transaction moves from Pending Review to an approved, reviewed disposition, read through the status API.',
+    purpose: 'Test the approval-required exception workflow and status consistency with the (simulated) Verification Status API.',
+    initialData: 'Restricted Lounge Access; Brightwater requires a second person’s approval for exception decisions.', organizationStructure: 'Brightwater Collective.',
+    users: [ACCOUNTS.cVerifier, ACCOUNTS.cAdmin, ACCOUNTS.approver], activity: 'Restricted Lounge Access', identitySource: 'Brightwater Identity Service',
+    integration: 'SIMULATED; status API SIMULATED', eligibility: 'External source', controls: ['Exception decisions need approval by a different administrator'],
+    expectedOutcome: 'Status API: PENDING_REVIEW before approval; after approval COMPLETED with the reviewed decision, original NO_MATCH preserved.',
+    expectedTransactionState: 'Pending Review → reviewed disposition.', expectedExceptionState: 'Open → Pending Approval → Resolved.', permissionBoundaries: ['The proposer can’t approve their own decision.', 'Unrelated clients get 404.'],
     steps: [
-      { title: 'Create a review case', account: ACCOUNTS.b1Verifier, route: `/verify/activities/${STAFF}`, instructions: 'DEMO-10001 → Passed + No match → Verify Identity.' },
-      { title: 'Status before review', account: ACCOUNTS.b1Admin, route: '/developer/status-api', instructions: 'Choose the new transaction and Request status: PENDING_REVIEW.' },
-      { title: 'Review as the owner’s exception reviewer', account: ACCOUNTS.reviewer, route: '/exceptions?status=unresolved', instructions: 'Open the exception → Assign to me → Record decision: Reject.' },
-      { title: 'Status after review', account: ACCOUNTS.b1Admin, route: '/developer/status-api', instructions: 'Request status again; also try “No client” and another organization’s client.' },
+      { title: 'Create a review case', account: ACCOUNTS.cVerifier, route: `/verify/activities/${LOUNGE}`, instructions: 'DEMO-10001 → Passed + No match → Verify Identity.' },
+      { title: 'Status before review', account: ACCOUNTS.cAdmin, route: '/developer/status-api', instructions: 'Choose the new transaction and Request status: PENDING_REVIEW.' },
+      { title: 'Propose a decision', account: ACCOUNTS.cAdmin, route: '/exceptions?status=unresolved', instructions: 'Open the exception → Identity could not be established → reason → Submit for approval.' },
+      { title: 'Approve as a different administrator', account: ACCOUNTS.approver, route: '/exceptions?view=approvals', instructions: 'Open it → Approve.' },
+      { title: 'Status after approval', account: ACCOUNTS.cAdmin, route: '/developer/status-api', instructions: 'Request status again; also try “No client” and another organization’s client.' },
     ],
     resetBehavior: 'Reset Demo Data removes the transaction and exception.',
-    prerequisites: (s) => activityExists(s, STAFF, 'Group Staff Entry'),
+    prerequisites: (s) => activityExists(s, LOUNGE, 'Restricted Lounge Access'),
     evaluate: (s, b) => {
       const d = sinceBaseline(s, b);
       const tx = d.attempts.find((a) => a.exceptionId && a.reviewDisposition) ?? d.attempts.find((a) => a.exceptionId);
@@ -527,7 +455,7 @@ export const SCENARIOS: ScenarioDefinition[] = [
         withTx('Original match preserved', tx, (a) => [!!res && res.httpStatus === 200 && res.body.identityMatch === a.match!.status.toUpperCase().replace(/-/g, '_') && a.match?.status === 'no-match', `identityMatch ${res && res.httpStatus === 200 ? res.body.identityMatch : '—'}.`]),
         withTx('Review decision recorded separately', tx, (a) => [!!a.reviewDisposition && a.decision === 'pending-review', a.reviewDisposition ? `Original decision ${a.decision}; reviewed ${a.reviewDisposition.decision}.` : 'Not reviewed yet.']),
         withTx('Unauthorized callers can’t read it', tx, (a) => {
-          const anon = getVerificationStatus(s, { transactionId: a.id }); const other = getVerificationStatus(s, { clientId: `client_${ORG_C}`, transactionId: a.id });
+          const anon = getVerificationStatus(s, { transactionId: a.id }); const other = getVerificationStatus(s, { clientId: `client_${ORG_B}`, transactionId: a.id });
           return [anon.httpStatus === 401 && other.httpStatus === 404, `No client: ${anon.httpStatus}; unrelated client: ${other.httpStatus}.`];
         }),
       ];
@@ -537,18 +465,18 @@ export const SCENARIOS: ScenarioDefinition[] = [
     id: 'S14', name: 'Custom Integration Configuration',
     description: 'An organization adds, tests and uses a private identity service.',
     purpose: 'Demonstrate reusable, private external identity services.',
-    initialData: 'Organization A has no custom integration.', organizationStructure: 'Organization A.', users: [ACCOUNTS.aAdmin],
+    initialData: 'Brightwater has a Draft and an active simulated service.', organizationStructure: 'Brightwater Collective.', users: [ACCOUNTS.cAdmin],
     activity: 'A new activity using the integration', identitySource: 'The new integration', integration: 'Simulated Identity Service (SIMULATED) — real external services are disabled in this prototype',
     eligibility: 'External source or reference list', controls: ['Activation needs a successful test', 'No secrets in the browser'],
-    expectedOutcome: 'A tested, active, simulated integration owned by A, used by an activity and a test verification.',
+    expectedOutcome: 'A tested, active, simulated integration, used by an activity and a test verification.',
     expectedTransactionState: 'A completed external transaction through it.', permissionBoundaries: ['Other organizations can’t view it or its credentials.'],
     steps: [
-      { title: 'Create the integration', account: ACCOUNTS.aAdmin, route: '/settings?tab=integrations', instructions: 'Add Custom Integration → name, lookup + matching → Simulated Identity Service → finish → Test Connection → Activate.' },
-      { title: 'Use it in an activity', account: ACCOUNTS.aAdmin, route: '/verification-activities/new', instructions: 'Choose External Identity Service with the new integration, eligibility External source, keep yourself as verifier, Create & Activate.' },
-      { title: 'Test verification', account: ACCOUNTS.aAdmin, route: '/verify', instructions: 'Start it → DEMO-10001 → simulated capture → Passed + Match.' },
+      { title: 'Create the integration', account: ACCOUNTS.cAdmin, route: '/settings?tab=integrations', instructions: 'Add Custom Integration → name, lookup + matching → Simulated Identity Service → finish → Test Connection → Activate.' },
+      { title: 'Use it in an activity', account: ACCOUNTS.cAdmin, route: '/verification-activities/new', instructions: 'Choose External Identity Service with the new integration, eligibility External source, keep yourself as verifier, Create & Activate.' },
+      { title: 'Test verification', account: ACCOUNTS.cAdmin, route: '/verify', instructions: 'Assign yourself as a verifier if needed, start it → DEMO-10001 → simulated capture → Passed + Match.' },
     ],
     resetBehavior: 'Reset Demo Data removes the integration, activity and transaction.',
-    prerequisites: (s) => (s.data.organizations.some((o) => o.id === ORG_A) ? [] : ['Organization A is missing. Reset the demo data.']),
+    prerequisites: (s) => (s.data.organizations.some((o) => o.id === ORG_C) ? [] : ['Brightwater Collective is missing. Reset the demo data.']),
     evaluate: (s, b) => {
       const d = sinceBaseline(s, b);
       const i = d.integrations[0];
@@ -569,14 +497,13 @@ export const SCENARIOS: ScenarioDefinition[] = [
     id: 'S15', name: 'Audit and Reporting',
     description: 'Several verifications, then history, audit trail and reports are compared.',
     purpose: 'Validate operational oversight: reports reflect stored records; history and audit are distinct.',
-    initialData: 'Seeded transactions plus those created in the scenario.', organizationStructure: 'Organization C; activity owner B.',
-    users: [ACCOUNTS.cVerifier, ACCOUNTS.cAuditor, ACCOUNTS.owner], activity: 'Visitor Check-in', identitySource: 'External (SIMULATED)', integration: 'SIMULATED', eligibility: 'External source',
-    controls: [], expectedOutcome: 'Report figures equal a recount of stored transactions; audit events exist for each completed verification.',
-    expectedTransactionState: 'At least three new transactions including a mismatch and an unavailable result.', permissionBoundaries: ['Auditor read-only; shared activity reports only for the owner.'],
+    initialData: 'Seeded transactions plus those created in the scenario.', organizationStructure: 'Brightwater Collective.',
+    users: [ACCOUNTS.cVerifier, ACCOUNTS.cAuditor], activity: 'Visitor Check-in', identitySource: 'External (SIMULATED)', integration: 'SIMULATED', eligibility: 'External source',
+    controls: [], expectedOutcome: 'Report figures equal a recount of stored transactions; attempts appear in Verification History, not as audit events.',
+    expectedTransactionState: 'At least three new transactions including a mismatch and an unavailable result.', permissionBoundaries: ['Restricted administrator (Auditor) read-only.'],
     steps: [
       { title: 'Complete several verifications', account: ACCOUNTS.cVerifier, route: `/verify/activities/${VISITOR}`, instructions: 'Run three: DEMO-10001 Match; DEMO-10001 No match; DEMO-10001 Service unavailable.' },
-      { title: 'History, audit and reports', account: ACCOUNTS.cAuditor, route: '/verification-history', instructions: 'Filter by Decision and Activity, open the Audit Log (filter Verification transactions), then Reports.' },
-      { title: 'Shared activity report', account: ACCOUNTS.owner, route: '/reports', instructions: 'Open the Shared activity report tab.' },
+      { title: 'History, audit and reports', account: ACCOUNTS.cAuditor, route: '/verification-history', instructions: 'Filter by Original result and Activity, open Audit Logs (attempts aren’t listed there), then Reports.' },
     ],
     resetBehavior: 'Reset Demo Data removes the new transactions.',
     prerequisites: (s) => activityExists(s, VISITOR, 'Visitor Check-in'),
@@ -585,15 +512,13 @@ export const SCENARIOS: ScenarioDefinition[] = [
       const mine = d.attempts.filter((a) => a.organizationId === ORG_C);
       const sum = summarize(s, mine);
       const recount = { allow: mine.filter((a) => (a.reviewDisposition?.decision ?? a.decision) === 'allow').length, deny: mine.filter((a) => (a.reviewDisposition?.decision ?? a.decision) === 'deny').length };
-      const completedEvents = d.audit.filter((x) => x.action === 'verification.completed' && x.organizationId === ORG_C).length;
-      const shared = s.data.activityConfigs.find((x) => x.id === STAFF);
+      const attemptEvents = d.audit.filter((x) => x.action === 'verification.completed' || x.action === 'verification.started').length;
       return [
         mine.length >= 3 ? pass('Several verifications completed', `${mine.length} new transactions.`, 'data') : untested('Several verifications completed', `${mine.length} of 3 new transactions so far.`, 'data'),
         mine.some((a) => a.match?.status === 'no-match') ? pass('Includes a mismatch', 'Recorded.', 'data') : untested('Includes a mismatch', 'Not yet.', 'data'),
         mine.some((a) => a.match?.status === 'unavailable' || a.lookup?.status === 'UNAVAILABLE') ? pass('Includes a service-unavailable result', 'Recorded.', 'data') : untested('Includes a service-unavailable result', 'Not yet.', 'data'),
         mine.length ? check('Report metrics equal the stored records', sum.allowed === recount.allow && sum.denied === recount.deny && sum.attempts === mine.length, `Allow ${sum.allowed}, Deny ${sum.denied}, attempts ${sum.attempts}.`, 'Report figures differ from a recount.') : untested('Report metrics equal the stored records', 'No new transactions.'),
-        mine.length ? check('History and audit trail are distinct and consistent', completedEvents === mine.filter((a) => a.status === 'completed').length, `${completedEvents} verification.completed audit events for ${mine.filter((a) => a.status === 'completed').length} completed transactions.`, 'Audit events don’t match transactions.', 'data') : untested('History and audit trail are distinct and consistent', 'No new transactions.', 'data'),
-        check('Shared activity report limited to its organizations', !!shared && sharedResults(s, shared).rows.every((r) => r.organizationId === ORG_B || shared.sharing!.participants.some((p) => p.organizationId === r.organizationId)), 'Only the owner and invited organizations appear.', 'Unrelated organizations appear.', 'permission'),
+        mine.length ? check('Attempts are in history, not duplicated in the audit log', attemptEvents === 0, 'Each attempt is one Verification History record; the audit log holds administrative actions.', `${attemptEvents} per-attempt audit events found.`, 'data') : untested('Attempts are in history, not duplicated in the audit log', 'No new transactions yet.', 'data'),
       ];
     },
   },

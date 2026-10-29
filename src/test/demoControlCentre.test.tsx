@@ -4,26 +4,24 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, DEMO_ACCOUNT, DEMO_PERSONA_ACCOUNTS, DEMO_SESSION, builtInAccounts, demoOperatorProblem } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_B, ORG_B1, ORG_C } from '@/data/demoPersonas';
-import { DEMO_SHARED_ACTIVITY } from '@/data/seed';
+import { ALL_PERSONAS, ORG_B1, ORG_C } from '@/data/demoPersonas';
 import { readinessChecklist } from '@/demo/readiness';
 import { RUNS_KEY } from '@/demo/runs';
 import { SCENARIOS, overallStatus, takeBaseline, type ScenarioDefinition } from '@/demo/scenarios';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
-import { applyAssignException, applyExceptionNote, applyResolveException, applyStartReview } from '@/store/exceptionOps';
+import { applyApprovalDecision, applyAssignException, applyExceptionNote, applyResolveException, applyStartReview } from '@/store/exceptionOps';
 import { createInitialState, reducer, type Action, type AppState } from '@/store/state';
 import { createVerificationService } from '@/verification/engine';
 
 const VISITOR = `${ORG_C}_va_visitor_checkin`;
 const LOUNGE = `${ORG_C}_va_restricted_lounge`;
-const STAFF = DEMO_SHARED_ACTIVITY;
 const AT = new Date().toISOString();
 const HALIMA = `${ORG_C}_usr_4`;
 const byId = (id: string) => SCENARIOS.find((s) => s.id === id)!;
 const ok = <T extends { ok: boolean }>(r: T) => { if (!r.ok) throw new Error((r as unknown as { error: string }).error); return r as Extract<T, { ok: true }>; };
 
 function as(accountId: string, orgId: string, s: AppState): AppState {
-  const p = DEMO_PERSONAS.find((x) => x.accountId === accountId);
+  const p = ALL_PERSONAS.find((x) => x.accountId === accountId);
   const admin = p ? { id: accountId, name: `${p.firstName} ${p.lastName}`, email: p.email, role: 'Owner' as const, organizationIds: [orgId] } : { ...s.data.admin, id: accountId };
   return { ...s, data: { ...s.data, admin }, session: { ...s.session, currentOrganizationId: orgId } };
 }
@@ -57,9 +55,10 @@ const statusOf = (s: ScenarioDefinition, state: AppState, b: ReturnType<typeof t
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 describe('scenario definition model', () => {
-  it('defines the 15 scenarios with every required field and real demonstration accounts', () => {
-    expect(SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 15 }, (_, i) => `S${String(i + 1).padStart(2, '0')}`));
-    const emails = new Set(builtInAccounts().map((a) => a.email));
+  it('defines the 13 scenarios with every required field, using only the offered demonstration accounts', () => {
+    // S02 and S10 (cross-organization shared activities) were retired with the obsolete workspace accounts.
+    expect(SCENARIOS.map((s) => s.id)).toEqual(['S01', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S11', 'S12', 'S13', 'S14', 'S15']);
+    const emails = new Set([DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS].map((a) => a.email));
     for (const s of SCENARIOS) {
       for (const k of ['name', 'description', 'purpose', 'initialData', 'organizationStructure', 'activity', 'identitySource', 'integration', 'eligibility', 'expectedOutcome', 'expectedTransactionState', 'resetBehavior'] as const) {
         expect(s[k], `${s.id}.${k}`).toBeTruthy();
@@ -154,48 +153,32 @@ describe('scenarios executed through the real verification steps', () => {
     expect(results.filter((r) => r.status !== 'passed')).toEqual([]);
   });
 
-  it('S13 status API reflects the review lifecycle and refuses unrelated clients', async () => {
-    const { h, baseline } = load(byId('S13'), 'acct_demo_b1_verifier', ORG_B1);
-    const tx = await external(h, ORG_B1, STAFF, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' });
-    h.dispatch({ type: 'api/statusRequest', clientId: `client_${ORG_B1}`, transactionId: tx.id, at: AT });
+  it('S13 status API reflects the approval lifecycle and refuses unrelated clients', async () => {
+    const { h, baseline } = load(byId('S13'), HALIMA, ORG_C);
+    const tx = await external(h, ORG_C, LOUNGE, 'DEMO-10001', { liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' });
+    h.dispatch({ type: 'api/statusRequest', clientId: `client_${ORG_C}`, transactionId: tx.id, at: AT });
     let results = byId('S13').evaluate(h.state, baseline);
     expect(results.find((r) => r.label === 'Status reflects the current disposition')?.status).toBe('passed');
     expect(results.find((r) => r.label === 'Review decision recorded separately')?.status).toBe('failed');
 
-    h.actAs('acct_demo_b_reviewer', ORG_B);
-    const reviewer = h.state.data.administrators.find((a) => a.userId === 'acct_demo_b_reviewer' && a.organizationId === ORG_B)!.id;
-    let s = ok(applyAssignException(h.state, { organizationId: ORG_B, exceptionId: tx.exceptionId!, reviewerId: reviewer, at: AT })).state;
-    s = ok(applyResolveException(s, { organizationId: ORG_B, exceptionId: tx.exceptionId!, outcome: 'verification-not-confirmed', reason: 'Not confirmed.', at: AT })).state;
+    h.actAs('acct_demo_c_admin', ORG_C);
+    let s = ok(applyResolveException(h.state, { organizationId: ORG_C, exceptionId: tx.exceptionId!, outcome: 'verification-not-confirmed', reason: 'Not confirmed.', at: AT })).state;
+    // Pending approval: still pending review.
+    expect(byId('S13').evaluate(s, baseline).find((r) => r.label === 'Review decision recorded separately')?.status).toBe('failed');
+    s = ok(applyApprovalDecision(as('usr_tobyson', ORG_C, s), { organizationId: ORG_C, exceptionId: tx.exceptionId!, decision: 'approve', reason: '', at: AT })).state;
     results = byId('S13').evaluate(s, baseline);
     expect(results.filter((r) => r.status !== 'passed')).toEqual([]);
   });
 
   it('S12 isolation: programmatic permission checks pass and refused access is audited', () => {
-    const { h, baseline } = load(byId('S12'), 'acct_demo_b1_verifier', ORG_B1);
+    const { h, baseline } = load(byId('S12'), HALIMA, ORG_C);
     let results = byId('S12').evaluate(h.state, baseline);
     expect(results.filter((r) => r.status === 'failed')).toEqual([]);
     expect(results.find((r) => r.label.startsWith('Cross-organization access'))?.status).toBe('not-tested');
-    const other = h.state.data.verificationAttempts.find((a) => a.organizationId === ORG_C)!;
-    h.dispatch({ type: 'audit/accessDenied', organizationId: ORG_B1, resourceType: 'verification-transaction', resourceId: other.id, at: AT });
+    const other = h.state.data.verificationAttempts.find((a) => a.organizationId === ORG_B1)!;
+    h.dispatch({ type: 'audit/accessDenied', organizationId: ORG_C, resourceType: 'verification-transaction', resourceId: other.id, at: AT });
     results = byId('S12').evaluate(h.state, baseline);
     expect(overallStatus(results)).toBe('passed');
-  });
-
-  it('S10 keeps shared requirements with the owner; S02 runs the shared activity from the invited organization', async () => {
-    const base = createInitialState(new Date());
-    const s10 = byId('S10').evaluate(base, takeBaseline(base));
-    expect(s10.find((r) => r.label === 'A participant can’t change the shared activity')?.status).toBe('passed');
-    expect(s10.find((r) => r.label === 'Shared activities keep a connected identity source')?.status).toBe('passed');
-    expect(s10.find((r) => r.label === 'Read-only view shown to the participant')?.status).toBe('not-tested');
-
-    const { h, baseline } = load(byId('S02'), 'acct_demo_c_admin', ORG_C);
-    expect(statusOf(byId('S02'), h.state, baseline)).not.toBe('passed');
-    h.dispatch({ type: 'sharing/respond', organizationId: ORG_C, activityId: STAFF, accept: true, at: AT });
-    const halima = h.state.data.administrators.find((a) => a.organizationId === ORG_C && a.userId === HALIMA)!.id;
-    h.dispatch({ type: 'sharing/assignVerifiers', organizationId: ORG_C, activityId: STAFF, verifierIds: [halima], at: AT });
-    h.actAs(HALIMA, ORG_C);
-    await external(h, ORG_C, STAFF, 'DEMO-10001', PASS);
-    expect(byId('S02').evaluate(h.state, baseline).filter((r) => r.status !== 'passed')).toEqual([]);
   });
 
   it('evaluators detect a wrong outcome instead of passing it', async () => {

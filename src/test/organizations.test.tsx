@@ -3,8 +3,8 @@ import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/App';
 import { AppProviders } from '@/AppProviders';
-import { AUTH_STORAGE_KEY, DEMO_SESSION, loadAuth } from '@/auth/authCore';
-import { DEMO_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_B2 } from '@/data/demoPersonas';
+import { AUTH_STORAGE_KEY, DEMO_PASSWORD, DEMO_SESSION, loadAuth } from '@/auth/authCore';
+import { ALL_PERSONAS, ORG_A, ORG_B, ORG_B1, ORG_B2 } from '@/data/demoPersonas';
 import { permissionsFor } from '@/domain/roles';
 import { actorPermissions, adminsOf, applyAcceptInvite, invitationByToken } from '@/store/adminOps';
 import {
@@ -15,7 +15,7 @@ import { loadState } from '@/store/persistence';
 import { createInitialState, reducer, type AppState } from '@/store/state';
 
 const AT = new Date().toISOString();
-const persona = (accountId: string) => DEMO_PERSONAS.find((p) => p.accountId === accountId)!;
+const persona = (accountId: string) => ALL_PERSONAS.find((p) => p.accountId === accountId)!;
 
 /** State as a persona sees it in the store: signed in to their home organization. */
 function as(accountId: string, s = createInitialState(new Date())): AppState {
@@ -38,11 +38,24 @@ function renderApp(path: string, state: AppState = createInitialState(new Date()
   return { ...utils, user: userEvent.setup() };
 }
 
-/** Signs in through the normal sign-in page using a demonstration account. */
+/**
+ * Signs in through the normal sign-in page. Demonstration accounts are chosen from the demo dialog; the sample
+ * workspaces' administrators (no longer offered there) type their email and the shared password.
+ */
+const SAMPLE_EMAIL: Record<string, string> = {
+  'Organization Admin — owns a shared activity': 'victor.hale@meridian.example', 'Organization Admin — independent organization': 'esther.lawal@northbridge.example',
+  'Sub-organization Admin (B2)': 'mira.santos@eastgate.example', Verifier: 'tomi.okon@harbourside.example', Auditor: 'adaora.nwosu@northbridge.example',
+  'Custom role (Records Officer)': 'joel.park@eastgate.example',
+};
 async function signInAs(user: UserEvent, personaLabel: string) {
   await screen.findByRole('heading', { level: 1, name: 'Welcome back' });
-  await user.click(screen.getByRole('button', { name: 'View demo accounts' }));
-  await user.click(screen.getByRole('button', { name: `Use ${personaLabel} account` }));
+  if (SAMPLE_EMAIL[personaLabel]) {
+    await user.type(screen.getByLabelText('Email address'), SAMPLE_EMAIL[personaLabel]);
+    await user.type(screen.getByLabelText('Password'), DEMO_PASSWORD);
+  } else {
+    await user.click(screen.getByRole('button', { name: 'View demo accounts' }));
+    await user.click(screen.getByRole('button', { name: `Use ${personaLabel} account` }));
+  }
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
 }
 const workspace = () => screen.findByRole('region', { name: 'Workspace' }, { timeout: 4000 });
@@ -215,7 +228,7 @@ describe('demonstration accounts and role-specific experiences', () => {
     const { user } = renderApp('/signin');
     await signInAs(user, 'Auditor');
     expect(await workspace()).toHaveTextContent('Northbridge Group');
-    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Log', 'Settings']);
+    expect(navLinks()).toEqual(['Dashboard', 'Users', 'Groups', 'Credentials', 'Verification Activities', 'Verification History', 'Exceptions', 'Reports', 'Organizations', 'Audit Logs', 'Settings']);
     await user.click(within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', { name: 'Organizations' }));
     await user.click(await screen.findByRole('tab', { name: /^(Sub-organizations|Parent organization)$/ }));
     expect(await screen.findByText('No sub-organizations yet')).toBeInTheDocument();

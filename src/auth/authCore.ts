@@ -5,7 +5,7 @@
  * hashed with PBKDF2 before being kept in local storage.
  */
 
-import { DEMO_PERSONAS } from '@/data/demoPersonas';
+import { DEMO_PERSONAS, SAMPLE_WORKSPACE_PERSONAS, type DemoPersona } from '@/data/demoPersonas';
 
 /** Demo mode is on unless explicitly disabled at build time (VITE_DEMO_AUTH=off). */
 export const DEMO_AUTH_ENABLED = import.meta.env.VITE_DEMO_AUTH !== 'off';
@@ -110,17 +110,23 @@ export const DEMO_SESSION: AuthSession = { accountId: DEMO_ACCOUNT.id };
  * Demonstration accounts for each kind of user (demo builds only). They use the demo account's password and
  * sign in through the normal password check; they don't exist when demo mode is off.
  */
-export const DEMO_PERSONA_ACCOUNTS: Account[] = DEMO_PERSONAS.map((p) => ({
+const personaAccount = (p: DemoPersona): Account => ({
   id: p.accountId, email: p.email, password: DEMO_ACCOUNT.password, emailVerified: true, firstName: p.firstName, lastName: p.lastName,
   onboarding: 'complete', createdAt: DEMO_ACCOUNT.createdAt,
   ...(p.organizationId ? { organizationId: p.organizationId } : {}), ...(p.platform ? { platformRole: 'platform-admin' as const } : {}),
-}));
+});
+export const DEMO_PERSONA_ACCOUNTS: Account[] = DEMO_PERSONAS.map(personaAccount);
+/**
+ * Sample workspace administrators can sign in only in the automated test run (to cover sub-organization and
+ * shared-activity behaviour); never in a demo or production build.
+ */
+const TEST_ONLY_ACCOUNTS: Account[] = import.meta.env.MODE === 'test' ? SAMPLE_WORKSPACE_PERSONAS.map(personaAccount) : [];
 
 /** The shared password of the demonstration accounts. Empty outside demo builds, where the accounts don't exist. */
 export const DEMO_PASSWORD = DEMO_AUTH_ENABLED ? 'FixIDDemo2026!' : '';
 
 /**
- * Demo operators may reset demonstration data: the multi-workspace demo account and the Platform
+ * Demo operators may reset demonstration data: the demo account (Tobyson TE) and the Platform
  * Administrator persona, in demo builds only. A prototype convenience, not a production access control.
  */
 export function demoOperatorProblem(account: Pick<Account, 'id' | 'platformRole'> | null | undefined, enabled = DEMO_AUTH_ENABLED): string | null {
@@ -131,7 +137,7 @@ export function demoOperatorProblem(account: Pick<Account, 'id' | 'platformRole'
 }
 
 /** Built-in demonstration accounts (none outside demo builds). */
-export const builtInAccounts = (): Account[] => (DEMO_AUTH_ENABLED ? [DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS] : []);
+export const builtInAccounts = (): Account[] => (DEMO_AUTH_ENABLED ? [DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS, ...TEST_ONLY_ACCOUNTS] : []);
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const normalizeEmail = (e: string) => e.trim().toLowerCase();

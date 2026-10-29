@@ -409,7 +409,7 @@ describe('invitations, permissions and revoked access', () => {
     expect(state.data.audit[0]).toMatchObject({ action: 'admin.joined', actor: 'Chidi Obi' });
 
     const nav = screen.getByRole('navigation', { name: 'Primary' });
-    expect(within(nav).queryByRole('link', { name: 'Audit Log' })).toBeNull();
+    expect(within(nav).queryByRole('link', { name: 'Audit Logs' })).toBeNull();
     expect(within(nav).queryByRole('link', { name: 'Verification Events' })).toBeNull();
     await user.click(within(nav).getByRole('link', { name: 'Users' }));
     await screen.findByRole('heading', { level: 1, name: 'Users' });

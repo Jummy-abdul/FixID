@@ -427,24 +427,6 @@ export function currentDecision(a: Pick<VerificationAttempt, 'decision' | 'revie
 
 const DECISION_WORDS = { allow: 'Verified', deny: 'Not verified', 'pending-review': 'Pending review', 'unable-to-decide': 'Unable to verify' } as const;
 
-/** Audit events for a transaction's lifecycle: started, completed (with its decision) and cancelled. No personal data. */
-export function auditTransactionChange(prev: AppState, next: AppState, attemptId: string, at: string): AppState {
-  const before = prev.data.verificationAttempts.find((a) => a.id === attemptId);
-  const after = next.data.verificationAttempts.find((a) => a.id === attemptId);
-  if (!after || before?.status === after.status) return next;
-  const kind = !before && after.status === 'in-progress' ? 'started' : after.status === 'completed' ? 'completed' : after.status === 'cancelled' ? 'cancelled' : null;
-  if (!kind) return next;
-  const decision = after.decision ? DECISION_WORDS[after.decision] : after.outcome ?? '';
-  return appendAudit(next, [{
-    organizationId: after.organizationId, action: `verification.${kind}` as AuditEvent['action'], actor: after.verifierName, actorType: 'admin', actorId: after.verifierId,
-    actorOrganizationId: after.organizationId, resourceType: 'verification-transaction', resourceId: after.id, subject: { id: after.id, name: `${after.id} · ${after.activityName}` },
-    result: 'success', occurredAt: at, correlationId: after.id, href: `/verification-history/${after.id}`,
-    summary: kind === 'started' ? `${after.verifierName} started verification ${after.id} for ${after.activityName}${after.retryOf ? ` (retry of ${after.retryOf})` : ''}${after.reverificationOf ? ` (reverification for ${after.reverificationOf})` : ''}.`
-      : kind === 'completed' ? `Verification ${after.id} for ${after.activityName} completed: ${decision}.`
-        : `${after.verifierName} cancelled verification ${after.id} for ${after.activityName}.`,
-    ...(kind === 'completed' && after.decision ? { changes: [{ field: 'Activity decision', from: '—', to: decision }] } : {}),
-  }]);
-}
 
 /**
  * Records a refused attempt to open a resource. Filed in the actor's organization, and in the owning
