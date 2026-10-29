@@ -10,7 +10,7 @@ import { permissionsFor } from '@/domain/roles';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import {
-  applyAssignException, applyCloseException, applyExceptionNote, applyResolveException, applyStartReview, exceptionFor, exceptionsVisibleTo,
+  applyApprovalDecision, applyAssignException, applyCloseException, applyExceptionNote, applyResolveException, applyStartReview, exceptionFor, exceptionsVisibleTo,
 } from '@/store/exceptionOps';
 import { loadState } from '@/store/persistence';
 import { sharedActivityTransactions, sharedResults, toCsv } from '@/store/reporting';
@@ -153,15 +153,22 @@ describe('review workflow', () => {
     expect(updated).toMatchObject({ status: 'in-review', reverificationTransactionIds: [again.id] });
     expect(updated.history.slice(-2).map((x) => x.action)).toEqual(['reverification-started', 'reverification-completed']);
     expect(h.state.data.verificationAttempts.find((a) => a.id === original.id)).toEqual(original);
+    // Brightwater requires approval: the confirmation is a proposal until a different approver approves it.
     h.state = ok(applyResolveException(h.state, { organizationId: ORG_C, exceptionId: e.id, outcome: 'verification-confirmed', reason: 'Reverification matched.', at: AT })).state;
+    expect(exceptionFor(h.state, e.id)).toMatchObject({ status: 'pending-approval', proposal: { outcome: 'verification-confirmed', by: 'Tobyson TE' } });
+    expect(h.state.data.verificationAttempts.find((a) => a.id === original.id)!.reviewDisposition).toBeUndefined();
+    expect(applyApprovalDecision(h.state, { organizationId: ORG_C, exceptionId: e.id, decision: 'approve', reason: '', at: AT })).toMatchObject({ ok: false, error: expect.stringMatching(/different approver/) });
+    h.state = ok(applyApprovalDecision(as('acct_demo_c_admin', ORG_C, h.state), { organizationId: ORG_C, exceptionId: e.id, decision: 'approve', reason: '', at: AT })).state;
     expect(h.state.data.verificationAttempts.find((a) => a.id === original.id)!).toMatchObject({ match: { status: 'no-match' }, decision: 'pending-review', reviewDisposition: { decision: 'allow' } });
   });
 
-  it('an eligibility question can be confirmed by the reviewer, because identity evidence supports it', () => {
+  it('confirming identity on an eligibility case doesn’t make the person eligible', () => {
     let s = victor();
     const e = exc(s, 'eligibility-not-met', ORG_B1);
-    s = ok(applyResolveException(s, { organizationId: ORG_B, exceptionId: e.id, outcome: 'verification-confirmed', reason: 'Suspension was lifted; confirmed with the record owner.', at: AT })).state;
-    expect(exceptionFor(s, e.id)!.resolution).toMatchObject({ disposition: 'allow' });
+    // Meridian doesn't require approval, so the reviewer's decision is final.
+    s = ok(applyResolveException(s, { organizationId: ORG_B, exceptionId: e.id, outcome: 'verification-confirmed', reason: 'Identity confirmed with the record owner.', at: AT })).state;
+    expect(exceptionFor(s, e.id)).toMatchObject({ status: 'resolved', resolution: { outcome: 'verification-confirmed', disposition: 'deny' } });
+    expect(s.data.verificationAttempts.find((a) => a.id === e.transactionId)!.eligibilityStatus).toBe('ineligible');
   });
 });
 
@@ -226,25 +233,33 @@ describe('shared activity results and reporting', () => {
 });
 
 describe('screens', () => {
-  it('lists exceptions for the programme owner with the required columns and filters, and resolves one', async () => {
+  it('lists exceptions for the activity owner with the required columns and filters, and resolves one without approval', async () => {
     const user = renderApp('/exceptions', victor(), 'acct_demo_b_admin');
+    expect(await screen.findByText(/final when an authorised reviewer records them/)).toBeInTheDocument();
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Exception', 'Transaction', 'Activity', 'Organization', 'Reviewed by', 'Reason', 'Status', 'Assigned Reviewer', 'Created', 'Last Updated', 'Actions']);
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Reference', 'Participant', 'Activity', 'Reason', 'Raised', 'Status', 'Reviewer', 'Approver']);
     expect(within(table).getAllByRole('row')).toHaveLength(3);
+    // Identifiers are masked; no images in the queue.
+    expect(table).not.toHaveTextContent('DEMO-10001');
+    expect(table.querySelector('img, svg[role="img"]')).toBeNull();
     await user.selectOptions(screen.getByLabelText('Reason'), 'identity-mismatch');
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2);
     await user.click(within(screen.getByRole('table')).getByRole('link', { name: /^EXC-/ }));
-    expect(await screen.findByLabelText('Verification information')).toHaveTextContent('Identity match resultNo match');
+    expect(await screen.findByLabelText('Verification evidence')).toHaveTextContent('Portrait matchNo match');
+    expect(screen.getByLabelText('Exception summary')).toHaveTextContent('Meridian Harbourside');
     await user.click(screen.getByRole('button', { name: 'Assign to me' }));
     await user.click(screen.getByRole('button', { name: 'Start Review' }));
-    expect(screen.getByLabelText('Exception overview')).toHaveTextContent('In Review');
-    await user.selectOptions(screen.getByLabelText('Decision'), 'verification-confirmed');
+    expect(screen.getByLabelText('Exception summary')).toHaveTextContent('Under Review');
+    await user.click(screen.getByRole('radio', { name: /Confirm identity/ }));
     expect(screen.getByText(/can’t be overridden/)).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Decision'), 'verification-not-confirmed');
+    await user.click(screen.getByRole('radio', { name: /Identity could not be established/ }));
+    await user.click(screen.getByRole('button', { name: 'Resolve exception' }));
+    expect(screen.getByText('Enter a reason.')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Reason'), 'Identity could not be confirmed.');
-    await user.click(screen.getByRole('button', { name: 'Record decision' }));
-    await waitFor(() => expect(screen.getByLabelText('Resolution')).toHaveTextContent('Reject'));
-    expect(screen.getByLabelText('Verification information')).toHaveTextContent('Identity match resultNo match');
+    await user.click(screen.getByRole('button', { name: 'Resolve exception' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Resolve exception' }));
+    await waitFor(() => expect(screen.getByLabelText('Resolution')).toHaveTextContent('Identity could not be established'));
+    expect(screen.getByLabelText('Verification evidence')).toHaveTextContent('Portrait matchNo match');
     expect(loadState()!.data.audit.some((a) => a.action === 'exception.resolved')).toBe(true);
   });
 
@@ -291,8 +306,8 @@ describe('screens', () => {
   it('the dashboard shows verification operations from stored records', async () => {
     renderApp('/', tobyson(), 'usr_tobyson');
     const ops = await screen.findByRole('region', { name: 'Verification operations' });
-    // Brightwater's nine recorded transactions in the last 30 days (four, plus the completed open day's five).
-    expect(ops).toHaveTextContent('Total attempts9');
+    // Brightwater's fourteen recorded transactions in the last 30 days (four, the completed open day's five, and five Restricted Lounge reviews).
+    expect(ops).toHaveTextContent('Total attempts14');
     expect(within(ops).getByLabelText('Recent exceptions')).toHaveTextContent('Identity mismatch');
   });
 

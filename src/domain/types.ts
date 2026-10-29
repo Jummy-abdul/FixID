@@ -28,6 +28,11 @@ export interface Organization {
   memberLabel: string;
   defaultCardDesignId: string;
   integrations: OrganizationIntegrations;
+  /**
+   * How exception decisions are made. With `approvalRequired`, a reviewer's final decision is a proposal until
+   * a different authorized approver approves it. Missing means approval isn't required.
+   */
+  exceptionWorkflow?: { approvalRequired: boolean; updatedAt?: ISODate; updatedBy?: string };
   createdAt: ISODate;
   /** State or region, when given during onboarding. */
   region?: string;
@@ -478,6 +483,14 @@ export type AuditAction =
   | 'exception.closed'
   | 'exception.reverification-started'
   | 'exception.reverification-completed'
+  | 'exception.proposal-submitted'
+  | 'exception.proposal-approved'
+  | 'exception.proposal-rejected'
+  | 'exception.proposal-returned'
+  | 'exception.escalated'
+  | 'exception.reopened'
+  | 'exception.evidence-viewed'
+  | 'exception.workflow-changed'
   | 'verification.started'
   | 'verification.completed'
   | 'verification.cancelled'

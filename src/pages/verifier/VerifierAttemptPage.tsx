@@ -21,7 +21,7 @@ import { OutcomeHeadline, useSubjectOf } from './verifierParts';
 import { SIMULATED_FACE_OUTCOMES, SIMULATED_LIVENESS_OUTCOMES } from '@/services/simulatedFaceVerification';
 import { useAuthorization } from '@/auth/authorization';
 import { RunExternal } from './ExternalAttempt';
-import { EXCEPTION_STATUS_LABEL, RESOLUTION_LABEL } from '@/domain/exceptions';
+import { EXCEPTION_STATUS_LABEL, RESOLUTION_LABEL, isUnresolved } from '@/domain/exceptions';
 import { DECISION_LABEL } from '@/domain/transactions';
 import { exceptionFor } from '@/store/exceptionOps';
 import { AccessAndEntry, AttemptBadge, EligibilityBadge, IdentityResultBadge, LocationBadge } from '@/components/verification/attemptParts';
@@ -512,7 +512,8 @@ function AttemptResult({ attempt }: { attempt: VerificationAttempt }) {
       {attempt.decision && <div className="mb-4"><TransactionOutcome attempt={attempt} sharedBy={owner?.name} hideDecision person={`${who.name} ${who.identifier}`} /></div>}
       {exception && (
         <div className="mb-4 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">
-          <p>Exception <span className="font-mono font-semibold">{exception.id}</span> · {EXCEPTION_STATUS_LABEL[exception.status]}{exception.resolution && exception.resolution.outcome !== 'reverification-required' ? ` · ${RESOLUTION_LABEL[exception.resolution.outcome]}` : ''}</p>
+          <p><span className="font-semibold">Submitted for review.</span> Exception <span className="font-mono font-semibold">{exception.id}</span> · {EXCEPTION_STATUS_LABEL[exception.status]}{exception.resolution && exception.resolution.outcome !== 'reverification-required' ? ` · ${RESOLUTION_LABEL[exception.resolution.outcome]}` : ''}</p>
+          {isUnresolved(exception) && <p className="mt-1">This case needs further assessment by an authorised reviewer. Your result is recorded as it was; you don’t need to do anything else.</p>}
           {attempt.reviewDisposition && <p className="mt-1">Current disposition after review: <span className="font-semibold">{DECISION_LABEL[attempt.reviewDisposition.decision]}</span> ({attempt.reviewDisposition.by}, {formatDateTime(attempt.reviewDisposition.at)}). The results above are the original verification evidence.</p>}
           {exception.reverificationRequested && <p className="mt-1">A reviewer requires reverification.</p>}
           {canReverify && <Button className="mt-2" size="sm" icon={<RotateCcw className="h-4 w-4" />} onClick={startReverification}>Start Reverification</Button>}

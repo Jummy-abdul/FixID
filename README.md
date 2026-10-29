@@ -151,10 +151,10 @@ Saving creates a **Draft** and never activates.
 - **Not every failure:** definitive failures (Deny) and outages that end as Unable to Decide (when the policy doesn't send them to review) stay completed transactions with no exception.
 - **Reasons:** identity mismatch, inconclusive, failed mandatory liveness, record ambiguity, disputed, eligibility uncertainty, eligibility not met, missing evidence, service failure.
 - **Routing:** when the programme escalates exceptions, they go to the programme owner's reviewers. Otherwise they stay with the transaction's own organization. The participant can view a programme-routed exception read-only.
-- **Statuses:** Open, Assigned, In Review, Awaiting Information, Resolved, Closed. These are separate from the transaction's match result and decision.
+- **Statuses:** Open, Assigned, Under Review, Awaiting Information, Pending Approval, Returned for Review, Resolved, Closed, Reopened. These are separate from the transaction's match result and decision. See *Exception management workflow* below for approval, reopening and the review workspace.
 - **Actions** (`exceptions.review`, only in the reviewing organization): Assign Reviewer or Assign to me, Start Review, Add Review Note (with evidence references), Request Information, Record Resolution, Close Exception.
   - Each action is recorded in the exception's history (actor, organization, previous and new status, comment) and in the Audit Log.
-- **Resolutions:** Verification Confirmed, Verification Not Confirmed, Reverification Required, Unable to Resolve.
+- **Outcomes:** Confirm identity, Identity could not be established, Request another verification attempt, Escalate for further assessment; technical issues offer another attempt, escalation or Unable to resolve.
   - **Original evidence is never changed:** the result is stored as the transaction's `reviewDisposition`, beside the original identity match, liveness, eligibility and decision.
   - **Confirming a failed identity check:** *Verification Confirmed* is refused while the identity result isn't a match, or mandatory liveness didn't pass, unless a linked reverification succeeded. An eligibility question with a matched identity can be confirmed.
 - **Reverification:**
@@ -165,7 +165,8 @@ Saving creates a **Draft** and never activates.
 
 **Permissions** (added to the matrix):
 - `exceptions.view`: read-only; Auditor.
-- `exceptions.review`: assign, review, resolve; Organization Admin.
+- `exceptions.review`: assign, inspect evidence, add notes, request another attempt, escalate and propose decisions; Organization Admin.
+- `exceptions.resolve`, `exceptions.approve`, `exceptions.reopen`, `exceptions.configure`: see *Exception management workflow*.
 - `reports.view`: Organization Admin and Auditor.
 
 Verifiers can submit for review but can't resolve. Custom roles honour whichever of these they're given.
@@ -239,6 +240,70 @@ Also seeded: an eligibility exception already In Review by Victor Hale, with a n
 - **Programme oversight:** limited to aggregates and programme exceptions. There's no cross-organization reviewer delegation beyond the programme owner.
 - **Organization filter:** Verification History has none, because it always shows the active workspace; switch workspace to see another.
 - **Saved browser data:** use Settings → Demo data → Reset to load Phase 5 data.
+
+## Exception management workflow
+
+Builds on the Exceptions module above (same pages, same records). Nothing here is a new role: the Organization Admin gets every new permission automatically, and custom roles can be given any of them.
+
+**Privileges** (Administration → Roles; all sensitive):
+
+| Permission | Allows |
+|---|---|
+| `exceptions.view` (existing) | See the queue and cases, read-only |
+| `exceptions.review` (existing, narrowed) | Assign, start review, view the portrait comparison, notes, request information, request another attempt, escalate, propose a final decision |
+| `exceptions.resolve` (new) | Record a final decision directly when approval isn't required; close resolved cases |
+| `exceptions.approve` (new) | Approve, reject or return another person's proposed decision |
+| `exceptions.reopen` (new) | Reopen a resolved or closed case, with a reason |
+| `exceptions.configure` (new) | Change *Require approval before resolving exceptions* |
+
+Every check runs in the store (`authorizeAction` and the reducer, plus the `apply*` functions), not only in the UI, and only within the organization that reviews the case (the activity owner for shared activities).
+
+**Configuration** (*Exceptions → Workflow settings*): *Require approval before resolving exceptions*, Yes or No, per organization.
+- **No:** a reviewer with `exceptions.resolve` records the final decision; it's final immediately. A reviewer without it can only take non-final steps.
+- **Yes:** a final decision becomes a proposal (*Pending Approval*). A different person with `exceptions.approve` approves it (it becomes final), rejects it or returns it (both need a reason and send the case back as *Returned for Review*). Nobody can approve their own proposal.
+- **Changing the setting:** asks for confirmation and is audited (`exception.workflow-changed`, with before and after). Turning approval off never resolves proposals already waiting: they still need a different approver.
+- Requesting another attempt and escalating are never final and never need approval.
+
+**Queue** (`/exceptions`): tabs *All exceptions*, *Needs my action*, *Approvals*, *Workflow settings*.
+- **Columns:** reference, participant (name and masked identifier only), activity, reason with category, raised, status, reviewer, approver.
+- **Filters:** search, status, reason, activity, assigned reviewer, approval state, raised date range.
+- **Empty states:** no exceptions yet, nothing matching the filters, nothing awaiting my action or approval.
+- No portraits or biometric information appear in the queue.
+
+**Review workspace** (`/exceptions/:id`):
+- **Summary:** participant, reason, originating verifier, identity source, original automated outcome, organization, status, reviewer, approval.
+- **Evidence:** lookup, liveness, portrait match and eligibility results. For face-match cases, an authorised reviewer can choose *Show portrait comparison*: two **simulated illustrations** (reference and live capture). Viewing is recorded (`exception.evidence-viewed`, at most once a minute per person). Nothing can be downloaded; no real images exist.
+- **Decision:** outcome, required reason, confirmation for final outcomes. Confirming identity is refused while the identity match or mandatory liveness failed, unless a linked reverification succeeded, so liveness can't be bypassed.
+- **Approval card** for approvers; a returned or rejected case shows the approver's note.
+- **Reopen** with a reason: the earlier resolution is kept in `previousResolutions`, and the transaction returns to pending review.
+
+**Outcomes and their effect:**
+- **Original outcome kept:** the transaction keeps its original decision and evidence; the review result is stored separately as `reviewDisposition`.
+- **Identity, not eligibility:** confirming identity never makes anyone eligible. An ineligible person stays *Deny*; unknown eligibility becomes *Unable to decide*.
+- **Technical failures:** an unavailable source or service is categorised as a *Technical issue*. It can be retried, escalated or recorded as *Unable to resolve*, never confirmed or rejected as an identity decision.
+
+**Integrations:**
+- **Verifier:** after *Submit for Review* or a review-required result, the verifier's result screen shows *Submitted for review*, the exception reference and status. The verifier doesn't adjudicate.
+- **Activity details:** shows *N open exceptions of M raised*, linking to the queue filtered by that activity.
+- **Audit Log:** proposal submitted, approved, rejected, returned, escalated, reopened, evidence viewed and workflow changed, plus the existing exception events.
+
+**Demo** (Brightwater Collective, approval **on**; Meridian Group, approval **off**):
+
+| Case | Status | Try |
+|---|---|---|
+| EXC-00003 | Open (mismatch) | Jordan Blake proposes *Identity could not be established*; sign in as `demo@fixid.app` (Tobyson, switch to Brightwater) and approve |
+| EXC-00006 | Pending Approval (proposed by Jordan) | Jordan sees *a different approver must decide*; Tobyson approves, rejects or returns |
+| EXC-00007 | Returned for Review | Jordan reviews again and resubmits |
+| EXC-00004 | Awaiting Information | Another attempt requested |
+| EXC-00005 | Resolved, approved | Identity confirmed but not eligible → disposition Deny; Tobyson can reopen |
+| EXC-00008 | Resolved, approved | Identity could not be established |
+| EXC-00001 | Open (Meridian, shared activity) | Victor Hale or Sam Rivera (Exception Reviewer role) resolves directly |
+
+**Limitations:**
+- **Browser only:** state and audit live in browser storage; no backend persistence, notifications or production-grade access enforcement.
+- **Simulated portraits:** illustrations, not real biometric data or processing.
+- **Any approver:** approvals aren't assigned to a named approver; any eligible approver other than the proposer can decide.
+- **Saved data:** stored custom roles created before this change keep only the permissions they had; use Settings → Demo data → Reset to load the new demo cases.
 
 ## Verification journeys and transactions (Phase 4)
 

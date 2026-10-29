@@ -325,7 +325,9 @@ export const SCENARIOS: ScenarioDefinition[] = [
         withTx('Mismatch transaction is Pending Review', tx, (a) => [a.decision === 'pending-review', `Decision: ${a.decision}.`]),
         withTx('Exception created by policy', tx, () => [!!e, e ? `${e.id} (${e.route} review queue).` : 'No exception.']),
         e ? check('Review note added', e.history.some((h) => h.action === 'note-added'), 'A note is in the review history.', 'No review note yet.') : untested('Review note added', 'No exception yet.'),
-        e ? (e.resolution ? pass('Resolution or reverification recorded', `${e.resolution.outcome} by ${e.resolution.by}.`) : untested('Resolution or reverification recorded', 'No resolution yet.')) : untested('Resolution or reverification recorded', 'No exception yet.'),
+        e ? (e.resolution ? pass('Resolution or reverification recorded', `${e.resolution.outcome} by ${e.resolution.by}.`)
+          : e.history.some((h) => h.action === 'resolution-recorded' || h.action === 'proposal-submitted') ? pass('Resolution or reverification recorded', 'A review decision is recorded in the history.')
+            : untested('Resolution or reverification recorded', 'No resolution yet.')) : untested('Resolution or reverification recorded', 'No exception yet.'),
         withTx('Original match result unchanged', tx, (a) => [a.match?.status === 'no-match', `Original identity match: ${a.match?.status}.`]),
         e ? (re.length ? pass('Reverification created a new linked transaction', re.map((r) => `${r.id}: ${r.decision ?? r.status}`).join(', ')) : untested('Reverification created a new linked transaction', 'No reverification was started.')) : untested('Reverification created a new linked transaction', 'No exception yet.'),
         check('Review actions audited', d.audit.some((x) => x.action.startsWith('exception.')), `${d.audit.filter((x) => x.action.startsWith('exception.')).length} exception audit events.`, 'No exception audit events yet.', 'data'),

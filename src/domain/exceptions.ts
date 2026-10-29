@@ -8,17 +8,22 @@ import type { VerificationAttempt } from './types';
  * separate determination, and the transaction's current disposition is derived from it.
  */
 
-export type ExceptionStatus = 'open' | 'assigned' | 'in-review' | 'awaiting-information' | 'resolved' | 'closed';
+export type ExceptionStatus = 'open' | 'assigned' | 'in-review' | 'awaiting-information' | 'pending-approval' | 'returned' | 'resolved' | 'closed' | 'reopened';
 export type ExceptionReason =
   | 'identity-mismatch' | 'inconclusive' | 'liveness-failed' | 'record-ambiguity' | 'disputed'
   | 'eligibility-uncertain' | 'eligibility-not-met' | 'missing-evidence' | 'service-failure' | 'other';
-export type ResolutionOutcome = 'verification-confirmed' | 'verification-not-confirmed' | 'reverification-required' | 'unable-to-resolve';
+/**
+ * Review outcomes. Final: identity confirmed, identity could not be established, or (technical cases) unable to
+ * resolve. Not final: another verification attempt, or escalation for further assessment.
+ */
+export type ResolutionOutcome = 'verification-confirmed' | 'verification-not-confirmed' | 'reverification-required' | 'escalated' | 'unable-to-resolve';
 /** Where the exception is reviewed: the transaction's own organization, or (shared activities) the activity owner's reviewers. */
 export type ExceptionRoute = 'local' | 'owner';
 
 export type ExceptionAction =
   | 'created' | 'assigned' | 'review-started' | 'note-added' | 'information-requested'
-  | 'resolution-recorded' | 'closed' | 'reverification-started' | 'reverification-completed';
+  | 'resolution-recorded' | 'closed' | 'reverification-started' | 'reverification-completed'
+  | 'proposal-submitted' | 'proposal-approved' | 'proposal-rejected' | 'proposal-returned' | 'escalated' | 'reopened' | 'evidence-viewed';
 
 export interface ExceptionEvent {
   id: string;
@@ -57,13 +62,22 @@ export interface VerificationException {
   updatedAt: string;
   history: ExceptionEvent[];
   resolution?: { outcome: ResolutionOutcome; reason: string; disposition: ActivityDecision | 'pending-review'; at: string; by: string };
+  /** A final decision submitted for approval (when the reviewing organization requires approval). */
+  proposal?: { outcome: ResolutionOutcome; reason: string; at: string; byId: string; by: string };
+  /** Who approved the resolution, when approval was required. */
+  approval?: { at: string; byId: string; by: string; reason?: string };
+  /** Set while the case is escalated for further assessment. */
+  escalation?: { at: string; by: string; reason: string };
+  /** Earlier resolutions, kept when a case is reopened. */
+  previousResolutions?: NonNullable<VerificationException['resolution']>[];
   /** Set when a reviewer required another attempt; cleared when it completes. */
   reverificationRequested?: { at: string; by: string };
   reverificationTransactionIds: string[];
 }
 
 export const EXCEPTION_STATUS_LABEL: Record<ExceptionStatus, string> = {
-  open: 'Open', assigned: 'Assigned', 'in-review': 'In Review', 'awaiting-information': 'Awaiting Information', resolved: 'Resolved', closed: 'Closed',
+  open: 'Open', assigned: 'Assigned', 'in-review': 'Under Review', 'awaiting-information': 'Awaiting Information', 'pending-approval': 'Pending Approval',
+  returned: 'Returned for Review', resolved: 'Resolved', closed: 'Closed', reopened: 'Reopened',
 };
 export const EXCEPTION_REASON_LABEL: Record<ExceptionReason, string> = {
   'identity-mismatch': 'Identity mismatch', inconclusive: 'Inconclusive verification', 'liveness-failed': 'Failed mandatory liveness',
@@ -71,17 +85,22 @@ export const EXCEPTION_REASON_LABEL: Record<ExceptionReason, string> = {
   'eligibility-not-met': 'Eligibility not met', 'missing-evidence': 'Missing required evidence', 'service-failure': 'Verification service failure', other: 'Other review condition',
 };
 export const RESOLUTION_LABEL: Record<ResolutionOutcome, string> = {
-  'verification-confirmed': 'Approve', 'verification-not-confirmed': 'Reject',
-  'reverification-required': 'Return for a new check', 'unable-to-resolve': 'Unable to resolve',
+  'verification-confirmed': 'Confirm identity', 'verification-not-confirmed': 'Identity could not be established',
+  'reverification-required': 'Request another verification attempt', escalated: 'Escalate for further assessment', 'unable-to-resolve': 'Unable to resolve',
 };
+/** Outcomes that end the review (and need approval when the organization requires it). */
+export const FINAL_OUTCOMES: ResolutionOutcome[] = ['verification-confirmed', 'verification-not-confirmed', 'unable-to-resolve'];
+export const isFinalOutcome = (o: ResolutionOutcome) => FINAL_OUTCOMES.includes(o);
 export const EXCEPTION_ACTION_LABEL: Record<ExceptionAction, string> = {
   created: 'Exception created', assigned: 'Reviewer assigned', 'review-started': 'Review started', 'note-added': 'Review note added',
   'information-requested': 'Information requested', 'resolution-recorded': 'Resolution recorded', closed: 'Exception closed',
   'reverification-started': 'Reverification started', 'reverification-completed': 'Reverification completed',
+  'proposal-submitted': 'Submitted for approval', 'proposal-approved': 'Proposal approved', 'proposal-rejected': 'Proposal rejected',
+  'proposal-returned': 'Returned for further review', escalated: 'Escalated for further assessment', reopened: 'Exception reopened', 'evidence-viewed': 'Evidence viewed',
 };
 
 /** Statuses in which the exception is still being worked on. */
-export const OPEN_STATUSES: ExceptionStatus[] = ['open', 'assigned', 'in-review', 'awaiting-information'];
+export const OPEN_STATUSES: ExceptionStatus[] = ['open', 'assigned', 'in-review', 'awaiting-information', 'pending-approval', 'returned', 'reopened'];
 export const isUnresolved = (e: Pick<VerificationException, 'status'>) => OPEN_STATUSES.includes(e.status);
 
 /** Why a transaction needs review, from its recorded results. */
@@ -120,7 +139,33 @@ export function confirmationProblem(original: VerificationAttempt, reverificatio
   return null;
 }
 
-/** The final disposition a resolution gives the transaction (kept separately from its original decision). */
-export function dispositionFor(outcome: ResolutionOutcome): ActivityDecision | 'pending-review' {
-  return { 'verification-confirmed': 'allow', 'verification-not-confirmed': 'deny', 'unable-to-resolve': 'unable-to-decide', 'reverification-required': 'pending-review' }[outcome] as ActivityDecision | 'pending-review';
+/**
+ * The final disposition a resolution gives the transaction (kept separately from its original decision).
+ * Confirming identity never makes anyone eligible: the activity's eligibility result still applies.
+ */
+export function dispositionFor(outcome: ResolutionOutcome, attempt?: Pick<VerificationAttempt, 'eligibilityStatus' | 'eligibilityResult'>): ActivityDecision | 'pending-review' {
+  if (outcome === 'verification-confirmed') {
+    const e = attempt?.eligibilityStatus;
+    if (e === 'ineligible' || attempt?.eligibilityResult === 'not-eligible') return 'deny';
+    if (e === 'unknown' || e === 'not-evaluated') return 'unable-to-decide';
+    return 'allow';
+  }
+  return ({ 'verification-not-confirmed': 'deny', 'unable-to-resolve': 'unable-to-decide', 'reverification-required': 'pending-review', escalated: 'pending-review' } as const)[outcome];
+}
+
+/**
+ * What kind of case it is. Technical failures (an unavailable source or service) are recorded as technical
+ * issues: they can be retried or escalated, but they're never an identity adjudication.
+ */
+export type ExceptionCategory = 'identity' | 'eligibility' | 'technical';
+export function categoryOf(reason: ExceptionReason): ExceptionCategory {
+  if (reason === 'service-failure') return 'technical';
+  if (reason === 'eligibility-uncertain' || reason === 'eligibility-not-met') return 'eligibility';
+  return 'identity';
+}
+export const CATEGORY_LABEL: Record<ExceptionCategory, string> = { identity: 'Identity review', eligibility: 'Eligibility review', technical: 'Technical issue' };
+/** Outcomes a reviewer can choose for a category. */
+export function outcomesFor(category: ExceptionCategory): ResolutionOutcome[] {
+  return category === 'technical' ? ['reverification-required', 'escalated', 'unable-to-resolve']
+    : ['verification-confirmed', 'verification-not-confirmed', 'reverification-required', 'escalated'];
 }

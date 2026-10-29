@@ -27,6 +27,7 @@ interface Step {
 }
 
 const OPEN_DAY = `${ORG_C}_va_open_day`;
+const LOUNGE = `${ORG_C}_va_restricted_lounge`;
 
 const STEPS: Step[] = [
   // Meridian's shared activity, run by Harbourside (Tomi Okon): a success, a mismatch for the owner's review, an eligibility question.
@@ -47,6 +48,12 @@ const STEPS: Step[] = [
   { key: 'D12', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 5, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
   { key: 'D13', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 3, reference: 'DEMO-20001', end: true },
   { key: 'D14', org: ORG_C, userId: 'usr_tobyson', activityId: OPEN_DAY, daysAgo: 4, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-INCONCLUSIVE' },
+  // Brightwater's Restricted Lounge sends problems for review: exceptions in each workflow state (see below).
+  { key: 'D15', org: ORG_C, userId: 'usr_tobyson', activityId: LOUNGE, daysAgo: 3, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-INCONCLUSIVE' },
+  { key: 'D16', org: ORG_C, userId: 'usr_tobyson', activityId: LOUNGE, daysAgo: 3, reference: 'DEMO-10002', liveness: 'passed', match: 'SIM-CAPTURE-MATCH' },
+  { key: 'D17', org: ORG_C, userId: 'usr_tobyson', activityId: LOUNGE, daysAgo: 2, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
+  { key: 'D18', org: ORG_C, userId: 'usr_tobyson', activityId: LOUNGE, daysAgo: 2, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
+  { key: 'D19', org: ORG_C, userId: 'usr_tobyson', activityId: LOUNGE, daysAgo: 1, reference: 'DEMO-10001', liveness: 'passed', match: 'SIM-CAPTURE-NO-MATCH' },
 ];
 
 export function seedDemoTransactions(initial: AppState, now: Date): AppState {
@@ -94,6 +101,34 @@ export function seedDemoTransactions(initial: AppState, now: Date): AppState {
       run({ type: 'exceptions/startReview', organizationId: ORG_B, exceptionId: eligibility.id, at: minutes(at, 5) });
       run({ type: 'exceptions/note', organizationId: ORG_B, exceptionId: eligibility.id, comment: 'The identity service reports the record as suspended. Checking whether the suspension is still current.', evidenceRefs: ['CASE-NOTE-001'], at: minutes(at, 10) });
     }
+  }
+  // Exception review in Brightwater, which requires approval: Jordan Blake reviews and proposes, Tobyson TE approves.
+  const exc = (key: string) => s.data.verificationAttempts.find((a) => a.id.endsWith(`-${key}`))?.exceptionId;
+  const at = (daysAgo: number, minute: number) => { const d = new Date(now.getTime() - daysAgo * 86_400_000); d.setHours(15, minute, 0, 0); return d.toISOString(); };
+  const review = (key: string, daysAgo: number, outcome: Extract<Action, { type: 'exceptions/resolve' }>['outcome'], reason: string) => {
+    const id = exc(key);
+    if (!id) return undefined;
+    as('acct_demo_c_admin', ORG_C);
+    run({ type: 'exceptions/startReview', organizationId: ORG_C, exceptionId: id, at: at(daysAgo, 0) });
+    run({ type: 'exceptions/resolve', organizationId: ORG_C, exceptionId: id, outcome, reason, at: at(daysAgo, 10) });
+    return id;
+  };
+  const approve = (id: string | undefined, daysAgo: number, decision: 'approve' | 'reject' | 'return', reason: string) => {
+    if (!id) return;
+    as('usr_tobyson', ORG_C);
+    run({ type: 'exceptions/approval', organizationId: ORG_C, exceptionId: id, decision, reason, at: at(daysAgo, 40) });
+  };
+  if (s.data.organizations.some((o) => o.id === ORG_C)) {
+    // Another attempt requested: the capture was too dark to compare.
+    review('D15', 3, 'reverification-required', 'The live capture was too dark to compare. Verify again in better light.');
+    // Identity confirmed and approved; the guest still isn't on the lounge list, so the final state stays Not verified.
+    approve(review('D16', 3, 'verification-confirmed', 'Portrait match and record agree; identity confirmed. Eligibility is decided by the guest list.'), 3, 'approve', 'Agreed.');
+    // Awaiting approval.
+    review('D17', 2, 'verification-not-confirmed', 'The live capture doesn’t resemble the reference portrait, and the person had no other evidence.');
+    // Returned by the approver for more work.
+    approve(review('D18', 2, 'verification-not-confirmed', 'Mismatch between the capture and the reference portrait.'), 2, 'return', 'Check the reference with the guest first: it may have been mistyped.');
+    // Identity could not be established, approved.
+    approve(review('D19', 1, 'verification-not-confirmed', 'Capture and reference portrait clearly differ; the guest left without further evidence.'), 1, 'approve', '');
   }
   // The open day has ended: Tobyson marks it completed, so no new verifications can start. Its records stay.
   if (s.data.activityConfigs.some((a) => a.id === OPEN_DAY)) {

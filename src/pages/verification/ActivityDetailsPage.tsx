@@ -22,6 +22,8 @@ import { formatDate, formatDateTime } from '@/lib/dates';
 import { useServices } from '@/services/ServicesProvider';
 import { NO_VERIFIER_WARNING, activationProblems } from '@/store/activityOps';
 import { activityFor, activityPolicy, audienceOf, settingsEditable } from '@/store/sharingOps';
+import { exceptionsVisibleTo } from '@/store/exceptionOps';
+import { isUnresolved } from '@/domain/exceptions';
 import { sharedActivityTransactions } from '@/store/reporting';
 import { useActions, useOrgData, useSession, useStore } from '@/store/AppStore';
 import { ParticipatingOrganizationsTab, SharedActivityParticipantView } from './SharedActivityPanels';
@@ -161,6 +163,10 @@ function Overview({ activity, records, onTab }: { activity: ActivityConfig; reco
   const [loading, setLoading] = useState(true);
   useEffect(() => { const t = setTimeout(() => setLoading(false), 200); return () => clearTimeout(t); }, []);
   const noVerifier = !verifiers.length && !delegated.length && displayStatus(activity) !== 'completed';
+  const { can } = useAuthorization();
+  const canSeeExceptions = can('exceptions.view') || can('exceptions.review') || can('exceptions.approve');
+  const exceptions = exceptionsVisibleTo(state, organization.id).filter((x) => x.activityId === activity.id);
+  const openExceptions = exceptions.filter(isUnresolved).length;
 
   return (
     <div className="space-y-6">
@@ -176,6 +182,12 @@ function Overview({ activity, records, onTab }: { activity: ActivityConfig; reco
         )}
       </section>
       {noVerifier && <IssuesList blockers={[]} warnings={[NO_VERIFIER_WARNING]} warningsTitle="No verifier assigned" />}
+      {canSeeExceptions && exceptions.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-900 ring-1 ring-inset ring-violet-200">
+          <span><span className="font-semibold">{openExceptions} open {openExceptions === 1 ? 'exception' : 'exceptions'}</span> of {exceptions.length} raised for this activity.</span>
+          <Link to={`/exceptions?activity=${encodeURIComponent(activity.id)}`} className="font-semibold underline">View exceptions</Link>
+        </p>
+      )}
       {delegated.length > 0 && <ResultsByOrganization activity={activity} records={records} />}
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">

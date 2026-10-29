@@ -1,6 +1,6 @@
 import { DEMO_AUTH_ENABLED } from '@/auth/authCore';
 import type { ResolutionOutcome } from '@/domain/exceptions';
-import { applyAssignException, applyCloseException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview } from './exceptionOps';
+import { applyApprovalDecision, applyAssignException, applyCloseException, applyEvidenceViewed, applyExceptionNote, applyExceptionWorkflow, applyReopenException, applyRequestInformation, applyResolveException, applyStartReview } from './exceptionOps';
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import type {
   AuditEvent, CardDesign, Credential, CredentialType, Group, GroupMembership, IdentifierConfig, IssuanceBatch, ActivityConfig, ActivityVersion, VerifierAssignment, Member, Organization, Transaction, VerificationActivity, LogoAsset,
@@ -329,6 +329,22 @@ export function useActions() {
       closeException: (organizationId: string, exceptionId: string, comment?: string) => {
         const at = new Date().toISOString();
         return run(() => applyCloseException(getState(), { organizationId, exceptionId, comment, at }), { type: 'exceptions/close', organizationId, exceptionId, comment, at });
+      },
+      decideExceptionProposal: (organizationId: string, exceptionId: string, decision: 'approve' | 'reject' | 'return', reason: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyApprovalDecision(getState(), { organizationId, exceptionId, decision, reason, at }), { type: 'exceptions/approval', organizationId, exceptionId, decision, reason, at });
+      },
+      reopenException: (organizationId: string, exceptionId: string, reason: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyReopenException(getState(), { organizationId, exceptionId, reason, at }), { type: 'exceptions/reopen', organizationId, exceptionId, reason, at });
+      },
+      recordEvidenceViewed: (organizationId: string, exceptionId: string) => {
+        const at = new Date().toISOString();
+        return run(() => applyEvidenceViewed(getState(), { organizationId, exceptionId, at }), { type: 'exceptions/evidenceViewed', organizationId, exceptionId, at });
+      },
+      setExceptionWorkflow: (organizationId: string, approvalRequired: boolean) => {
+        const at = new Date().toISOString();
+        return run(() => applyExceptionWorkflow(getState(), { organizationId, approvalRequired, at }), { type: 'exceptions/workflow', organizationId, approvalRequired, at });
       },
       /** Records a refused attempt to open another organization's transaction or exception. */
       recordAccessDenied: (organizationId: string, resourceType: 'verification-transaction' | 'exception', resourceId: string) =>

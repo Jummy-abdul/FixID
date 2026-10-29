@@ -901,6 +901,8 @@ export function buildSeed(now: Date = new Date()): SeedData {
   // Brightwater demonstrates local face verification with the labelled simulated provider (no real provider is configured).
   const demoOrg = organizations.find((o) => o.id === ORG_C);
   if (demoOrg) demoOrg.integrations = { ...demoOrg.integrations, simulatedBiometrics: { enabled: true } };
+  // Brightwater demonstrates exception decisions that need a second person's approval; other organizations don't require it.
+  if (demoOrg) demoOrg.exceptionWorkflow = { approvalRequired: true, updatedAt: iso(addDays(today, -20)), updatedBy: 'Jordan Blake' };
   const scenarios = seedActivityScenarios(organizations, today);
   activitiesSeed.activityConfigs.push(...scenarios.activityConfigs);
   activitiesSeed.activityVersions.push(...scenarios.activityVersions);
@@ -931,7 +933,7 @@ export function buildSeed(now: Date = new Date()): SeedData {
     }, {
       // Demonstration only: a restricted exception reviewer in Organization B (no configuration access).
       id: B_REVIEWER_ROLE, organizationId: ORG_B, name: 'Exception Reviewer', description: 'Reviews exceptions (including those from organizations taking part in shared activities) and views reports. Can’t configure anything.',
-      permissions: ['verification.activities.view', 'exceptions.view', 'exceptions.review', 'reports.view'], system: false,
+      permissions: ['verification.activities.view', 'exceptions.view', 'exceptions.review', 'exceptions.resolve', 'reports.view'], system: false,
       createdAt: iso(addDays(today, -95)), createdBy: 'Victor Hale', updatedAt: iso(addDays(today, -95)), updatedBy: 'Victor Hale',
     }],
     logoAssets: [],

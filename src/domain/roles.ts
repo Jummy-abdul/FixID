@@ -15,7 +15,7 @@ export type Permission =
   | 'administrators.view' | 'administrators.invite' | 'administrators.manage'
   | 'roles.assign' | 'roles.manage' | 'organization.view' | 'settings.manage' | 'sso.manage' | 'audit.view'
   | 'organizations.view' | 'organizations.manage' | 'integrations.view' | 'integrations.manage'
-  | 'exceptions.view' | 'exceptions.review' | 'reports.view';
+  | 'exceptions.view' | 'exceptions.review' | 'exceptions.resolve' | 'exceptions.approve' | 'exceptions.reopen' | 'exceptions.configure' | 'reports.view';
 
 export interface PermissionInfo {
   id: Permission;
@@ -52,7 +52,11 @@ export const PERMISSIONS: PermissionInfo[] = [
   { id: 'verification.execute', label: 'Perform verifications (assigned activities only)', area: 'Verification Activities' },
   { id: 'verification.results.view', label: 'View the organization’s verification history', area: 'Verification History' },
   { id: 'exceptions.view', label: 'View verification exceptions (read-only)', area: 'Exceptions' },
-  { id: 'exceptions.review', label: 'Assign, review and resolve verification exceptions', area: 'Exceptions', sensitive: true },
+  { id: 'exceptions.review', label: 'Review exceptions: assign, inspect evidence, add notes, request another attempt and propose decisions', area: 'Exceptions', sensitive: true },
+  { id: 'exceptions.resolve', label: 'Resolve exceptions when approval isn’t required, and close resolved exceptions', area: 'Exceptions', sensitive: true },
+  { id: 'exceptions.approve', label: 'Approve, reject or return proposed exception decisions (never one’s own)', area: 'Exceptions', sensitive: true },
+  { id: 'exceptions.reopen', label: 'Reopen resolved or closed exceptions', area: 'Exceptions', sensitive: true },
+  { id: 'exceptions.configure', label: 'Configure whether exception decisions require approval', area: 'Exceptions', sensitive: true },
   { id: 'reports.view', label: 'View verification and exception reports, and export aggregates', area: 'Reports' },
   { id: 'administrators.view', label: 'View administrators and roles', area: 'Administration' },
   { id: 'administrators.invite', label: 'Invite administrators', area: 'Administration', sensitive: true },

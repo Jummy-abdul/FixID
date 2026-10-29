@@ -1,7 +1,8 @@
 import {
-  EXCEPTION_STATUS_LABEL, RESOLUTION_LABEL, confirmationProblem, dispositionFor, isUnresolved, reasonFor,
+  EXCEPTION_STATUS_LABEL, RESOLUTION_LABEL, categoryOf, confirmationProblem, dispositionFor, isUnresolved, outcomesFor, reasonFor,
   type ExceptionAction, type ExceptionEvent, type ExceptionStatus, type ResolutionOutcome, type VerificationException,
 } from '@/domain/exceptions';
+import type { Permission } from '@/domain/roles';
 import type { AuditEvent, VerificationAttempt } from '@/domain/types';
 import { actorPermissions, actorRecord, adminPermissions } from './adminOps';
 import type { AppState } from './state';
@@ -21,17 +22,17 @@ export const exceptionFor = (state: AppState, id: string) => exceptionsOf(state)
 /** Exceptions an organization's users may see: its own transactions', and those of its shared activities routed to it for review. */
 export function exceptionsVisibleTo(state: AppState, organizationId: string): VerificationException[] {
   const perms = actorPermissions(state, organizationId);
-  if (!perms.has('exceptions.view') && !perms.has('exceptions.review')) return [];
+  if (!(['exceptions.view', 'exceptions.review', 'exceptions.approve'] as Permission[]).some((p) => perms.has(p))) return [];
   return exceptionsOf(state).filter((e) => e.organizationId === organizationId || e.reviewOrganizationId === organizationId);
 }
 
 /** Why the signed-in administrator can't act on an exception from this organization, or null. */
-export function reviewProblem(state: AppState, organizationId: string, e: VerificationException | undefined): string | null {
+export function reviewProblem(state: AppState, organizationId: string, e: VerificationException | undefined, instead?: Permission): string | null {
   if (!e) return 'This exception wasn’t found.';
   const rec = actorRecord(state, organizationId);
   if (!rec || rec.status !== 'active') return 'You aren’t an administrator of this organization.';
   if (e.reviewOrganizationId !== organizationId) return e.route === 'owner' ? 'This exception is reviewed by the organization that owns the shared activity.' : 'This exception is reviewed by its own organization.';
-  if (!actorPermissions(state, organizationId).has('exceptions.review')) return 'Your role can’t review exceptions.';
+  if (!actorPermissions(state, organizationId).has(instead ?? 'exceptions.review')) return instead ? null : 'Your role can’t review exceptions.';
   return null;
 }
 
@@ -69,7 +70,20 @@ const ACTION_AUDIT: Record<ExceptionAction, AuditEvent['action']> = {
   created: 'exception.created', assigned: 'exception.assigned', 'review-started': 'exception.review-started', 'note-added': 'exception.note-added',
   'information-requested': 'exception.information-requested', 'resolution-recorded': 'exception.resolved', closed: 'exception.closed',
   'reverification-started': 'exception.reverification-started', 'reverification-completed': 'exception.reverification-completed',
+  'proposal-submitted': 'exception.proposal-submitted', 'proposal-approved': 'exception.proposal-approved', 'proposal-rejected': 'exception.proposal-rejected',
+  'proposal-returned': 'exception.proposal-returned', escalated: 'exception.escalated', reopened: 'exception.reopened', 'evidence-viewed': 'exception.evidence-viewed',
 };
+
+/** Whether the organization that reviews an exception requires a second person's approval for final decisions. */
+export const approvalRequired = (state: AppState, organizationId: string) =>
+  !!state.data.organizations.find((o) => o.id === organizationId)?.exceptionWorkflow?.approvalRequired;
+
+/** Why the signed-in administrator lacks a permission in the reviewing organization, or null. */
+function permissionProblem(state: AppState, organizationId: string, e: VerificationException | undefined, permission: Permission, words: string): string | null {
+  const base = reviewProblem(state, organizationId, e, permission === 'exceptions.review' ? undefined : permission);
+  if (base) return base;
+  return actorPermissions(state, organizationId).has(permission) ? null : `Your role can’t ${words}.`;
+}
 
 function write(state: AppState, e: VerificationException, ev: ExceptionEvent, summary: string, audit: { organizationIds: string[]; changes?: AuditEvent['changes'] }): AppState {
   const next: VerificationException = { ...e, history: [...e.history, ev], updatedAt: ev.at };
@@ -157,6 +171,7 @@ export function applyAssignException(state: AppState, input: { organizationId: s
   const problem = reviewProblem(state, input.organizationId, e);
   if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
   if (!isUnresolved(e)) return { ok: false, error: 'A resolved or closed exception can’t be reassigned.' };
+  if (e.status === 'pending-approval') return { ok: false, error: 'A decision is awaiting approval. Reassign it after the approver responds.' };
   const reviewer = reviewersFor(state, e).find((r) => r.id === input.reviewerId);
   if (!reviewer) return { ok: false, error: 'Only an active reviewer in the reviewing organization can be assigned.' };
   const to: ExceptionStatus = e.status === 'open' ? 'assigned' : e.status;
@@ -175,7 +190,7 @@ export function applyStartReview(state: AppState, input: { organizationId: strin
   const e = exceptionFor(state, input.exceptionId);
   const problem = reviewProblem(state, input.organizationId, e);
   if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
-  if (e.status !== 'open' && e.status !== 'assigned' && e.status !== 'awaiting-information') return { ok: false, error: 'This exception can’t start review from its current status.' };
+  if (!['open', 'assigned', 'awaiting-information', 'returned', 'reopened'].includes(e.status)) return { ok: false, error: 'This exception can’t start review from its current status.' };
   const who = actor(state, input.organizationId);
   if (e.assignedReviewerId && e.assignedReviewerId !== who.actorId) return { ok: false, error: `It’s assigned to ${e.assignedReviewerName}.` };
   const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'review-started', ...who, fromStatus: e.status, toStatus: 'in-review' };
@@ -217,6 +232,8 @@ export function applyRequestInformation(state: AppState, input: { organizationId
 /** Why a resolution can't be recorded, or null. Confirmation needs identity evidence that supports it. */
 export function resolutionProblem(state: AppState, e: VerificationException, outcome: ResolutionOutcome): string | null {
   if (!isUnresolved(e)) return 'This exception is already resolved.';
+  if (e.status === 'pending-approval') return 'A proposed decision is awaiting approval.';
+  if (!outcomesFor(categoryOf(e.reason)).includes(outcome)) return 'This is a technical issue, not an identity question: request another attempt, escalate it, or record that it can’t be resolved.';
   if (e.status === 'awaiting-information' && e.reverificationRequested) return 'A reverification is outstanding. Wait for it to finish first.';
   if (outcome !== 'verification-confirmed') return null;
   const original = state.data.verificationAttempts.find((a) => a.id === e.transactionId);
@@ -226,53 +243,163 @@ export function resolutionProblem(state: AppState, e: VerificationException, out
 }
 
 /**
- * Records the reviewer's determination. The transaction's original decision and evidence are kept; its
- * current disposition is recorded separately. "Reverification Required" keeps the exception open.
+ * Records the reviewer's decision. Final decisions resolve the exception, or, when the reviewing organization
+ * requires approval, become a proposal awaiting a different approver. "Request another attempt" and "Escalate"
+ * keep the case open. The transaction's original decision and evidence are always kept.
  */
 export function applyResolveException(state: AppState, input: { organizationId: string; exceptionId: string; outcome: ResolutionOutcome; reason: string; at: string }): Result {
   const e = exceptionFor(state, input.exceptionId);
   const problem = reviewProblem(state, input.organizationId, e);
   if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
   const reason = input.reason.trim();
-  if (!reason) return { ok: false, error: 'Give a reason for the resolution.' };
+  if (!reason) return { ok: false, error: input.outcome === 'reverification-required' || input.outcome === 'escalated' ? 'Explain what’s needed next.' : 'Give a reason for the decision.' };
   const rp = resolutionProblem(state, e, input.outcome);
   if (rp) return { ok: false, error: rp };
   const who = actor(state, input.organizationId);
-  const disposition = dispositionFor(input.outcome);
-  const reverify = input.outcome === 'reverification-required';
-  const to: ExceptionStatus = reverify ? 'awaiting-information' : 'resolved';
-  const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'resolution-recorded', ...who, fromStatus: e.status, toStatus: to, comment: `${RESOLUTION_LABEL[input.outcome]}: ${reason}` };
+  const assigned = { assignedReviewerId: e.assignedReviewerId ?? who.actorId, assignedReviewerName: e.assignedReviewerName ?? who.actorName };
+
+  if (input.outcome === 'escalated') {
+    const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'escalated', ...who, fromStatus: e.status, toStatus: 'in-review', comment: reason };
+    const s = write(state, { ...e, ...assigned, status: 'in-review', escalation: { at: input.at, by: who.actorName, reason } }, ev, `${who.actorName} escalated exception ${e.id} for further assessment.`, { organizationIds: [e.reviewOrganizationId] });
+    return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+  }
+  if (input.outcome === 'reverification-required') {
+    const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'resolution-recorded', ...who, fromStatus: e.status, toStatus: 'awaiting-information', comment: `${RESOLUTION_LABEL[input.outcome]}: ${reason}` };
+    const s = write(state, { ...e, ...assigned, status: 'awaiting-information', reverificationRequested: { at: input.at, by: who.actorName }, escalation: undefined }, ev,
+      `${who.actorName} requested another verification attempt for exception ${e.id}.`, { organizationIds: [e.reviewOrganizationId, e.organizationId] });
+    return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+  }
+  // A final decision.
+  if (approvalRequired(state, e.reviewOrganizationId)) {
+    const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'proposal-submitted', ...who, fromStatus: e.status, toStatus: 'pending-approval', comment: `${RESOLUTION_LABEL[input.outcome]}: ${reason}` };
+    const s = write(state, { ...e, ...assigned, status: 'pending-approval', proposal: { outcome: input.outcome, reason, at: input.at, byId: who.actorId, by: who.actorName } }, ev,
+      `${who.actorName} submitted “${RESOLUTION_LABEL[input.outcome]}” for exception ${e.id} for approval.`, { organizationIds: [e.reviewOrganizationId] });
+    return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+  }
+  if (!actorPermissions(state, input.organizationId).has('exceptions.resolve')) return { ok: false, error: 'Your role can’t resolve exceptions.' };
+  const s = finalize(state, { ...e, ...assigned }, input.outcome, reason, input.at, who, 'resolution-recorded', `${who.actorName} recorded “${RESOLUTION_LABEL[input.outcome]}” for exception ${e.id} (transaction ${e.transactionId}).`);
+  return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+}
+
+/** Records a final decision: the exception is resolved and the transaction gains a review disposition beside its original results. */
+function finalize(state: AppState, e: VerificationException, outcome: ResolutionOutcome, reason: string, at: string, who: ReturnType<typeof actor>,
+  action: 'resolution-recorded' | 'proposal-approved', summary: string, approval?: VerificationException['approval']): AppState {
+  const tx = state.data.verificationAttempts.find((a) => a.id === e.transactionId);
+  const disposition = dispositionFor(outcome, tx);
+  const ev: ExceptionEvent = { id: eventId(e), at, action, ...who, fromStatus: e.status, toStatus: 'resolved', comment: action === 'proposal-approved' ? `${RESOLUTION_LABEL[outcome]} approved${approval?.reason ? `: ${approval.reason}` : '.'}` : `${RESOLUTION_LABEL[outcome]}: ${reason}` };
+  const by = e.proposal?.by ?? who.actorName;
   const next: VerificationException = {
-    ...e, status: to, resolution: { outcome: input.outcome, reason, disposition, at: input.at, by: who.actorName },
-    ...(reverify ? { reverificationRequested: { at: input.at, by: who.actorName } } : { reverificationRequested: undefined }),
-    assignedReviewerId: e.assignedReviewerId ?? who.actorId, assignedReviewerName: e.assignedReviewerName ?? who.actorName,
+    ...e, status: 'resolved', resolution: { outcome, reason, disposition, at, by }, proposal: undefined, reverificationRequested: undefined, escalation: undefined,
+    ...(approval ? { approval } : {}),
   };
-  let s = write(state, next, ev, `${who.actorName} recorded “${RESOLUTION_LABEL[input.outcome]}” for exception ${e.id} (transaction ${e.transactionId}).`, {
+  const s = write(state, next, ev, summary, {
     organizationIds: [e.reviewOrganizationId, e.organizationId],
     changes: [
-      { field: 'Exception status', from: EXCEPTION_STATUS_LABEL[e.status], to: EXCEPTION_STATUS_LABEL[to] },
-      ...(!reverify ? [{ field: 'Transaction disposition', from: 'Pending review', to: DECISION_WORDS[disposition] }] : []),
+      { field: 'Exception status', from: EXCEPTION_STATUS_LABEL[e.status], to: EXCEPTION_STATUS_LABEL.resolved },
+      { field: 'Transaction disposition', from: 'Pending review', to: DECISION_WORDS[disposition] },
     ],
   });
-  if (!reverify) {
-    // The current disposition is recorded beside the original results, never in place of them.
-    s = {
-      ...s, data: {
-        ...s.data, verificationAttempts: s.data.verificationAttempts.map((a) => (a.id === e.transactionId ? {
-          ...a, stage: disposition === 'unable-to-decide' ? 'unable-to-complete' as const : 'completed' as const,
-          review: undefined,
-          reviewDisposition: { decision: disposition as Exclude<typeof disposition, 'pending-review'>, outcome: input.outcome, exceptionId: e.id, at: input.at, by: who.actorName },
-        } : a)),
-      },
-    };
+  // The current disposition is recorded beside the original results, never in place of them.
+  return {
+    ...s, data: {
+      ...s.data, verificationAttempts: s.data.verificationAttempts.map((a) => (a.id === e.transactionId ? {
+        ...a, stage: disposition === 'unable-to-decide' ? 'unable-to-complete' as const : 'completed' as const,
+        review: undefined,
+        reviewDisposition: { decision: disposition as Exclude<typeof disposition, 'pending-review'>, outcome, exceptionId: e.id, at, by },
+      } : a)),
+    },
+  };
+}
+
+/**
+ * An approver's response to a proposed decision. Approving makes it final. Rejecting or returning keeps the case
+ * open, back with the reviewer: a rejected proposal isn't a failed identity decision. Nobody approves their own proposal.
+ */
+export function applyApprovalDecision(state: AppState, input: { organizationId: string; exceptionId: string; decision: 'approve' | 'reject' | 'return'; reason: string; at: string }): Result {
+  const e = exceptionFor(state, input.exceptionId);
+  const problem = permissionProblem(state, input.organizationId, e, 'exceptions.approve', 'approve exception decisions');
+  if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
+  if (e.status !== 'pending-approval' || !e.proposal) return { ok: false, error: 'There’s no proposed decision awaiting approval.' };
+  const who = actor(state, input.organizationId);
+  if (e.proposal.byId === who.actorId) return { ok: false, error: 'You submitted this proposal, so a different approver must decide it.' };
+  const reason = input.reason.trim();
+  if (input.decision !== 'approve' && !reason) return { ok: false, error: input.decision === 'reject' ? 'Give a reason for rejecting the proposal.' : 'Say what the reviewer should do next.' };
+  if (input.decision === 'approve') {
+    // The evidence must still support the decision when it's approved.
+    const rp = resolutionProblem(state, { ...e, status: 'in-review' }, e.proposal.outcome);
+    if (rp) return { ok: false, error: rp };
+    const s = finalize(state, e, e.proposal.outcome, e.proposal.reason, input.at, who, 'proposal-approved',
+      `${who.actorName} approved “${RESOLUTION_LABEL[e.proposal.outcome]}” for exception ${e.id}, proposed by ${e.proposal.by}.`,
+      { at: input.at, byId: who.actorId, by: who.actorName, ...(reason ? { reason } : {}) });
+    return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
   }
+  const action = input.decision === 'reject' ? 'proposal-rejected' as const : 'proposal-returned' as const;
+  const ev: ExceptionEvent = { id: eventId(e), at: input.at, action, ...who, fromStatus: 'pending-approval', toStatus: 'returned', comment: `${RESOLUTION_LABEL[e.proposal.outcome]} ${input.decision === 'reject' ? 'rejected' : 'returned'}: ${reason}` };
+  const s = write(state, { ...e, status: 'returned', proposal: undefined }, ev,
+    `${who.actorName} ${input.decision === 'reject' ? 'rejected' : 'returned'} the proposed decision for exception ${e.id} (proposed by ${e.proposal.by}).`, { organizationIds: [e.reviewOrganizationId] });
   return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+}
+
+/** Reopens a resolved or closed case for further investigation. The earlier resolution is kept in its history. */
+export function applyReopenException(state: AppState, input: { organizationId: string; exceptionId: string; reason: string; at: string }): Result {
+  const e = exceptionFor(state, input.exceptionId);
+  const problem = permissionProblem(state, input.organizationId, e, 'exceptions.reopen', 'reopen exceptions');
+  if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
+  if (e.status !== 'resolved' && e.status !== 'closed') return { ok: false, error: 'Only a resolved or closed exception can be reopened.' };
+  const reason = input.reason.trim();
+  if (!reason) return { ok: false, error: 'Give a reason for reopening.' };
+  const who = actor(state, input.organizationId);
+  const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'reopened', ...who, fromStatus: e.status, toStatus: 'reopened', comment: reason };
+  const next: VerificationException = { ...e, status: 'reopened', previousResolutions: [...(e.previousResolutions ?? []), ...(e.resolution ? [e.resolution] : [])], resolution: undefined, approval: undefined };
+  let s = write(state, next, ev, `${who.actorName} reopened exception ${e.id}.`, { organizationIds: [e.reviewOrganizationId, e.organizationId] });
+  // The transaction is pending review again; its original results never changed.
+  s = { ...s, data: { ...s.data, verificationAttempts: s.data.verificationAttempts.map((a) => (a.id === e.transactionId ? { ...a, reviewDisposition: undefined, stage: 'pending-review' as const } : a)) } };
+  return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+}
+
+/** Records that a reviewer opened the protected evidence (once a minute at most). */
+export function applyEvidenceViewed(state: AppState, input: { organizationId: string; exceptionId: string; at: string }): Result {
+  const e = exceptionFor(state, input.exceptionId);
+  const problem = reviewProblem(state, input.organizationId, e);
+  if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
+  const who = actor(state, input.organizationId);
+  const recent = e.history.some((h) => h.action === 'evidence-viewed' && h.actorId === who.actorId && Math.abs(new Date(h.at).getTime() - new Date(input.at).getTime()) < 60_000);
+  if (recent) return { ok: true, state, exception: e };
+  const ev: ExceptionEvent = { id: eventId(e), at: input.at, action: 'evidence-viewed', ...who, comment: 'Viewed the portrait comparison (simulated illustrations).' };
+  const s = write(state, e, ev, `${who.actorName} viewed the evidence for exception ${e.id}.`, { organizationIds: [e.reviewOrganizationId] });
+  return { ok: true, state: s, exception: exceptionFor(s, e.id)! };
+}
+
+/**
+ * Turns the approval requirement on or off. Turning it off never resolves a decision already awaiting approval:
+ * those still need an approver. New final decisions follow the new setting.
+ */
+export function applyExceptionWorkflow(state: AppState, input: { organizationId: string; approvalRequired: boolean; at: string }): { ok: true; state: AppState } | { ok: false; error: string } {
+  if (!actorPermissions(state, input.organizationId).has('exceptions.configure')) return { ok: false, error: 'Your role can’t configure the exception workflow.' };
+  const org = state.data.organizations.find((o) => o.id === input.organizationId);
+  if (!org) return { ok: false, error: 'Organization not found.' };
+  const before = !!org.exceptionWorkflow?.approvalRequired;
+  if (before === input.approvalRequired) return { ok: true, state };
+  const rec = actorRecord(state, input.organizationId);
+  const by = rec?.name ?? state.data.admin.name;
+  const waiting = exceptionsOf(state).filter((e) => e.reviewOrganizationId === org.id && e.status === 'pending-approval').length;
+  const s: AppState = { ...state, data: { ...state.data, organizations: state.data.organizations.map((o) => (o.id === org.id ? { ...o, exceptionWorkflow: { approvalRequired: input.approvalRequired, updatedAt: input.at, updatedBy: by } } : o)) } };
+  const word = (v: boolean) => (v ? 'Approval required' : 'Approval not required');
+  return {
+    ok: true,
+    state: appendAudit(s, [{
+      organizationId: org.id, action: 'exception.workflow-changed', actor: by, actorType: 'admin', actorId: rec?.id, actorOrganizationId: org.id,
+      resourceType: 'organization', resourceId: org.id, subject: { id: org.id, name: org.name }, result: 'success', occurredAt: input.at, href: '/exceptions?view=settings',
+      summary: `${by} changed exception decisions to “${word(input.approvalRequired).toLowerCase()}”.${!input.approvalRequired && waiting ? ` ${waiting} decision${waiting === 1 ? '' : 's'} already awaiting approval still need${waiting === 1 ? 's' : ''} an approver.` : ''}`,
+      changes: [{ field: 'Exception decisions', from: word(before), to: word(input.approvalRequired) }],
+    }]),
+  };
 }
 
 /** Closes a resolved exception. */
 export function applyCloseException(state: AppState, input: { organizationId: string; exceptionId: string; comment?: string; at: string }): Result {
   const e = exceptionFor(state, input.exceptionId);
-  const problem = reviewProblem(state, input.organizationId, e);
+  const problem = permissionProblem(state, input.organizationId, e, 'exceptions.resolve', 'close exceptions');
   if (problem || !e) return { ok: false, error: problem ?? 'Not found.' };
   if (e.status !== 'resolved') return { ok: false, error: 'Record a resolution before closing the exception.' };
   const who = actor(state, input.organizationId);
@@ -355,4 +482,14 @@ export function applyStatusRequestAudit(state: AppState, input: { clientId?: str
     resourceType: 'status-api', resourceId: input.transactionId.trim().slice(0, 60), result: ok ? 'success' : 'denied', occurredAt: input.at, correlationId: input.transactionId.trim().slice(0, 60),
     summary: ok ? `Simulated status request for ${input.transactionId.trim()} was answered.` : `Simulated status request for ${input.transactionId.trim().slice(0, 60)} was refused (not available to this client).`,
   }]);
+}
+
+/** The person an exception concerns: their name and a masked identifier. Never the full identifier or any biometric data. */
+export function exceptionSubject(state: AppState, e: Pick<VerificationException, 'transactionId'>): { name: string; identifier: string } {
+  const a = state.data.verificationAttempts.find((x) => x.id === e.transactionId);
+  const mask = (v?: string) => (!v ? '—' : v.trim().length <= 4 ? '••••' : `••••${v.trim().slice(-4)}`);
+  const m = a?.subject?.memberId ? state.data.members.find((x) => x.id === a.subject!.memberId) : undefined;
+  if (m) return { name: m.displayName, identifier: mask(m.identifier?.value) };
+  if (a?.lookup) return { name: a.lookup.displayName ?? (a.lookup.status === 'FOUND' ? 'Unnamed record' : 'No record found'), identifier: mask(a.lookup.reference) };
+  return { name: a?.subject?.label ?? 'Not identified', identifier: '—' };
 }

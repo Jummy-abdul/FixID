@@ -12,7 +12,7 @@ import { defaultSettings, type VerificationSettings } from '@/domain/activitySet
 import { createMockIdSwitch } from '@/services/mockIdSwitch';
 import { getVerificationStatus } from '@/services/statusApi/statusApi';
 import { applyActivate, applySaveActivity, type ActivityForm } from '@/store/activityOps';
-import { applyAssignException, applyExceptionNote, applyRequestInformation, applyResolveException, exceptionsVisibleTo } from '@/store/exceptionOps';
+import { applyApprovalDecision, exceptionFor, applyAssignException, applyExceptionNote, applyRequestInformation, applyResolveException, exceptionsVisibleTo } from '@/store/exceptionOps';
 import { stageOf } from '@/domain/transactions';
 import { ATTEMPT_TTL_MS } from '@/store/attemptOps';
 import { sharedActivityTransactions, sharedResults, summarize } from '@/store/reporting';
@@ -161,6 +161,9 @@ describe('end-to-end: own and shared activities', () => {
     let reviewed = ok(applyAssignException(owner, { organizationId: ORG_C, exceptionId: exc.id, reviewerId: reviewer, at: AT })).state;
     expect(applyResolveException(reviewed, { organizationId: ORG_C, exceptionId: exc.id, outcome: 'verification-confirmed', reason: 'Looks fine', at: AT })).toMatchObject({ ok: false });
     reviewed = ok(applyResolveException(reviewed, { organizationId: ORG_C, exceptionId: exc.id, outcome: 'verification-not-confirmed', reason: 'Face did not match.', at: AT })).state;
+    // Brightwater requires approval: a second administrator approves the decision.
+    expect(exceptionFor(reviewed, exc.id)).toMatchObject({ status: 'pending-approval' });
+    reviewed = ok(applyApprovalDecision(as('usr_tobyson', ORG_C, reviewed), { organizationId: ORG_C, exceptionId: exc.id, decision: 'approve', reason: '', at: AT })).state;
     const after = sharedResults(reviewed, act).rows.find((r) => r.organizationId === ORG_A)!.summary;
     expect([after.pendingReview, after.denied]).toEqual([before.pendingReview - 1, before.denied + 1]);
     const tx = reviewed.data.verificationAttempts.find((x) => x.id === mismatch.id)!;
@@ -244,6 +247,7 @@ describe('final shared-activity rules', () => {
     expect(answered.history.at(-1)).toMatchObject({ action: 'note-added', comment: 'Yes, a staff card.' });
     expect(applyResolveException(as(ESTHER, ORG_A, s), { organizationId: ORG_A, exceptionId: exc.id, outcome: 'verification-confirmed', reason: 'x', at: AT })).toMatchObject({ ok: false });
     s = ok(applyResolveException(as(JORDAN, ORG_C, s), { organizationId: ORG_C, exceptionId: exc.id, outcome: 'verification-not-confirmed', reason: 'Face did not match.', at: AT })).state;
+    s = ok(applyApprovalDecision(as('usr_tobyson', ORG_C, s), { organizationId: ORG_C, exceptionId: exc.id, decision: 'approve', reason: '', at: AT })).state;
     expect(exceptionsVisibleTo(as(ESTHER, ORG_A, s), ORG_A).find((e) => e.id === exc.id)!.resolution).toMatchObject({ outcome: 'verification-not-confirmed' });
   });
 

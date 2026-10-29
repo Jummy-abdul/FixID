@@ -1,7 +1,7 @@
 import { seedDemoTransactions } from './demoTransactions';
 import type { ResolutionOutcome } from '@/domain/exceptions';
 import {
-  applyAccessDenied, applyStatusRequestAudit, applyAssignException, applyCloseException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview,
+  applyAccessDenied, applyStatusRequestAudit, applyApprovalDecision, applyAssignException, applyCloseException, applyEvidenceViewed, applyExceptionWorkflow, applyReopenException, applyExceptionNote, applyRequestInformation, applyResolveException, applyStartReview,
   auditTransactionChange, raiseException, syncExceptions,
 } from './exceptionOps';
 import type { IdentityLookupResult } from '@/services/integrations/contract';
@@ -127,6 +127,10 @@ export type Action =
   | { type: 'exceptions/requestInfo'; organizationId: string; exceptionId: string; comment: string; at: string }
   | { type: 'exceptions/resolve'; organizationId: string; exceptionId: string; outcome: ResolutionOutcome; reason: string; at: string }
   | { type: 'exceptions/close'; organizationId: string; exceptionId: string; comment?: string; at: string }
+  | { type: 'exceptions/approval'; organizationId: string; exceptionId: string; decision: 'approve' | 'reject' | 'return'; reason: string; at: string }
+  | { type: 'exceptions/reopen'; organizationId: string; exceptionId: string; reason: string; at: string }
+  | { type: 'exceptions/evidenceViewed'; organizationId: string; exceptionId: string; at: string }
+  | { type: 'exceptions/workflow'; organizationId: string; approvalRequired: boolean; at: string }
   | { type: 'audit/accessDenied'; organizationId: string; resourceType: 'verification-transaction' | 'exception'; resourceId: string; at: string }
   | { type: 'api/statusRequest'; clientId?: string; transactionId: string; at: string }
   | { type: 'verify/lookup'; attemptId: string; at: string; reference: string; requestId: string; result: IdentityLookupResult }
@@ -204,7 +208,11 @@ const ACTION_PERMISSIONS: Partial<Record<Action['type'], Permission[]>> = {
   'exceptions/note': ['exceptions.review'],
   'exceptions/requestInfo': ['exceptions.review'],
   'exceptions/resolve': ['exceptions.review'],
-  'exceptions/close': ['exceptions.review'],
+  'exceptions/close': ['exceptions.resolve'],
+  'exceptions/approval': ['exceptions.approve'],
+  'exceptions/reopen': ['exceptions.reopen'],
+  'exceptions/evidenceViewed': ['exceptions.review'],
+  'exceptions/workflow': ['exceptions.configure'],
   'verify/lookup': ['verification.execute'],
   'verify/externalComplete': ['verification.execute'],
   'verify/end': ['verification.execute'],
@@ -532,6 +540,10 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'exceptions/requestInfo': return orKeep(state, applyRequestInformation(state, action));
     case 'exceptions/resolve': return orKeep(state, applyResolveException(state, action));
     case 'exceptions/close': return orKeep(state, applyCloseException(state, action));
+    case 'exceptions/approval': return orKeep(state, applyApprovalDecision(state, action));
+    case 'exceptions/reopen': return orKeep(state, applyReopenException(state, action));
+    case 'exceptions/evidenceViewed': return orKeep(state, applyEvidenceViewed(state, action));
+    case 'exceptions/workflow': return orKeep(state, applyExceptionWorkflow(state, action));
     case 'audit/accessDenied': return applyAccessDenied(state, action);
     case 'api/statusRequest': return applyStatusRequestAudit(state, action);
     case 'verify/fail': return orKeep(state, applyFailAttempt(state, action));
