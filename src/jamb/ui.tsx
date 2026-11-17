@@ -5,6 +5,7 @@ import { Badge, Button } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
 import { cn } from '@/lib/cn';
 import type { StudentRecord } from './data';
+import jambLogo from './assets/jamb-logo.png';
 import { JAMB_PERSONAS, type ConsoleRole } from './personas';
 import type { Officer } from './store';
 
@@ -70,11 +71,11 @@ export function ConsoleShell({ brand, tone, nav, roleLabel, children }: { brand:
   );
 }
 
-/** Space for the official JAMB logo: deliberately empty until JAMB supplies it. */
-export function JambLogoPlaceholder() {
+/** The JAMB logo (supplied by the user), on a white disc so it reads on the dark header. */
+export function JambLogo() {
   return (
-    <span role="img" aria-label="Placeholder for the official JAMB logo" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-dashed border-white/50 text-[9px] font-semibold uppercase leading-tight tracking-wide text-white/80">
-      JAMB<br />logo
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white p-0.5 shadow-sm">
+      <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-full w-full object-contain" />
     </span>
   );
 }

@@ -10,7 +10,7 @@ import { StudentJourney } from './journey';
 import { OUTCOME_LABEL, countsOf, institutionCounts, nationalCounts, outcomeKind, recordOf, recordsOf, sessionTotals, useJambState, type Counts } from './store';
 import { StudentTable } from './students';
 import {
-  ConsoleShell, DemoNote, Distribution, FixIdMark, GroupedColumns, JambLogoPlaceholder, Legend, ProgressMeter, SERIES, STATUS, StackedBars, fmt, pct,
+  ConsoleShell, DemoNote, Distribution, FixIdMark, GroupedColumns, JambLogo, Legend, ProgressMeter, SERIES, STATUS, StackedBars, fmt, pct,
 } from './ui';
 
 const NAV = [
@@ -22,7 +22,7 @@ const NAV = [
 export function JambConsole() {
   const brand = (
     <div className="flex min-w-0 items-center gap-3">
-      <JambLogoPlaceholder />
+      <JambLogo />
       <div className="min-w-0 leading-tight">
         <p className="truncate font-semibold">Joint Admissions and Matriculation Board</p>
         <p className="truncate text-xs text-emerald-100">Identity Assurance &amp; Matriculation Monitoring</p>

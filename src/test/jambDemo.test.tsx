@@ -111,7 +111,7 @@ describe('JAMB demo accounts and screens', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(await screen.findByRole('heading', { name: 'National identity assurance overview' }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Key statistics' })).toHaveTextContent('50,000');
-    expect(screen.getByRole('img', { name: 'Placeholder for the official JAMB logo' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Joint Admissions and Matriculation Board logo' })).toBeInTheDocument();
   });
 
   it('the clearance flow verifies with a simulated capture, clears, and shows the certificate', async () => {

@@ -373,7 +373,7 @@ Two extra demo accounts show how JAMB and tertiary institutions could use FixID 
 - **Certificate:** FixID and university branding, a *demonstration record* watermark, and a scannable QR code (`qrcode-generator`) opening `/verify-clearance/:ref`, which works without sign-in because the code carries the details. Print, and Download PDF via the existing jsPDF and html-to-image libraries.
 - **Matriculation** is confirmed by the institution on a cleared student's profile. Clearance never matriculates anyone, and reconciliation checks that no one is matriculated without clearance.
 - **Identity journey:** a summary and four stages. Only checkpoints the record holds evidence for are counted; some records have no examination evidence.
-- **Simulated:** all figures and students are illustrative; face matching and JAMB's service are simulated; portraits are drawings. A camera capture stays in the page's memory for that visit and is never stored or sent. The official JAMB logo isn't included: a placeholder marks where it goes.
+- **Simulated:** all figures and students are illustrative; face matching and JAMB's service are simulated; portraits are drawings. A camera capture stays in the page's memory for that visit and is never stored or sent. The JAMB console header shows the JAMB logo supplied for this demo (`src/jamb/assets/jamb-logo.png`).
 
 ## Verification journeys and transactions (Phase 4)
 
