@@ -6,6 +6,7 @@
  */
 
 import { DEMO_PERSONAS, SAMPLE_WORKSPACE_PERSONAS, type DemoPersona } from '@/data/demoPersonas';
+import { JAMB_PERSONAS } from '@/jamb/personas';
 
 /** Demo mode is on unless explicitly disabled at build time (VITE_DEMO_AUTH=off). */
 export const DEMO_AUTH_ENABLED = import.meta.env.VITE_DEMO_AUTH !== 'off';
@@ -40,6 +41,11 @@ export interface Account {
    * overview instead of an organization workspace. Not an organization role and never assignable.
    */
   platformRole?: 'platform-admin';
+  /**
+   * Demo consoles for the proposed JAMB identity assurance use case (JAMB officer, university clearance
+   * officer). Like the platform role, these open their own console, never an organization workspace.
+   */
+  consoleRole?: import('@/jamb/personas').ConsoleRole;
 }
 
 /**
@@ -120,6 +126,11 @@ export const DEMO_PERSONA_ACCOUNTS: Account[] = DEMO_PERSONAS.map(personaAccount
  * Sample workspace administrators can sign in only in the automated test run (to cover sub-organization and
  * shared-activity behaviour); never in a demo or production build.
  */
+/** The JAMB demo console accounts (demo builds only). */
+export const JAMB_DEMO_ACCOUNTS: Account[] = JAMB_PERSONAS.map((p) => ({
+  id: p.accountId, email: p.email, password: DEMO_ACCOUNT.password, emailVerified: true, firstName: p.firstName, lastName: p.lastName,
+  onboarding: 'complete', createdAt: DEMO_ACCOUNT.createdAt, consoleRole: p.consoleRole,
+}));
 const TEST_ONLY_ACCOUNTS: Account[] = import.meta.env.MODE === 'test' ? SAMPLE_WORKSPACE_PERSONAS.map(personaAccount) : [];
 
 /** The shared password of the demonstration accounts. Empty outside demo builds, where the accounts don't exist. */
@@ -137,7 +148,7 @@ export function demoOperatorProblem(account: Pick<Account, 'id' | 'platformRole'
 }
 
 /** Built-in demonstration accounts (none outside demo builds). */
-export const builtInAccounts = (): Account[] => (DEMO_AUTH_ENABLED ? [DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS, ...TEST_ONLY_ACCOUNTS] : []);
+export const builtInAccounts = (): Account[] => (DEMO_AUTH_ENABLED ? [DEMO_ACCOUNT, ...DEMO_PERSONA_ACCOUNTS, ...JAMB_DEMO_ACCOUNTS, ...TEST_ONLY_ACCOUNTS] : []);
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const normalizeEmail = (e: string) => e.trim().toLowerCase();

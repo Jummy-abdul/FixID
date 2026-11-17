@@ -9,6 +9,7 @@ import { DEMO_ADMIN } from '@/data/seed';
 import { useStore } from '@/store/AppStore';
 import { loadMailbox } from '@/auth/demoMailbox';
 import { DEMO_PERSONAS, FEATURED_DEMO_ACCOUNTS, personaById, personaName } from '@/data/demoPersonas';
+import { JAMB_PERSONAS } from '@/jamb/personas';
 import { AuthHeading, AuthLayout, FormError } from './AuthLayout';
 import { OtpInput, PasswordField, PasswordRules } from './fields';
 
@@ -41,7 +42,7 @@ export function RequireApp() {
   const { state } = useStore();
   const location = useLocation();
   if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
-  if (account.onboarding !== 'complete' || account.platformRole) return <Navigate to={homeFor(account)} replace />;
+  if (account.onboarding !== 'complete' || account.platformRole || account.consoleRole) return <Navigate to={homeFor(account)} replace />;
   // Never render another organization's data while the workspace is being switched.
   if (state.data.admin.id !== (isDemo ? DEMO_ADMIN.id : account.id)) return null;
   // Access follows the administrator record: deactivated administrators, or roles without any permission, can't enter.
@@ -355,7 +356,26 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
               </div>
             ))}
           </section>
-          <p className="text-slate-500">All accounts belong to the same sample organization except the Platform Administrator. Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
+          {/* Proposed use case: separate consoles, independent of the sample organization above. */}
+          <section aria-labelledby="demo-jamb-accounts">
+            <h3 id="demo-jamb-accounts" className="text-sm font-semibold text-slate-900">JAMB identity assurance (proposed)</h3>
+            <p className="mb-1.5 text-xs text-slate-500">Student identity verification from JAMB registration to university clearance and matriculation. Illustrative demo data.</p>
+            <ul className="space-y-1.5" aria-label="JAMB identity assurance (proposed)">
+              {JAMB_PERSONAS.map((p) => (
+                <li key={p.email} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
+                  <span className="min-w-0">
+                    <span className="block font-medium text-slate-900">{p.persona}</span>
+                    <span className="block text-xs font-medium text-slate-700">{p.organization} · {p.role}</span>
+                    <span className="block text-xs text-slate-500 [overflow-wrap:anywhere]">{p.firstName} {p.lastName} · {p.email}</span>
+                    <span className="block text-xs text-slate-500">{p.description}</span>
+                  </span>
+                  <button type="button" onClick={() => { onUse(p.email); setOpen(false); }} aria-label={`Use ${p.persona} account`}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 hover:text-brand-700">Use</button>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <p className="text-slate-500">All accounts above belong to the same sample organization except the Platform Administrator; the JAMB accounts open their own consoles. Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
         </div>
       </Modal>
     </div>

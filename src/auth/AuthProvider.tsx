@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { countryByCode } from '@/data/countries';
 import { DEMO_ADMIN, NEW_ORGANIZATION_ID } from '@/data/seed';
 import { ORG_C } from '@/data/demoPersonas';
+import { consoleHome } from '@/jamb/personas';
 import type { AdminUser, CardDesign, Organization } from '@/domain/types';
 import { useStore } from '@/store/AppStore';
 import { acceptProblem, invitationByToken } from '@/store/adminOps';
@@ -56,6 +57,7 @@ const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 
 /** Where an account belongs next: an onboarding step or the app. */
 export function homeFor(account: Account): string {
   if (account.platformRole) return '/platform';
+  if (account.consoleRole) return consoleHome(account.consoleRole);
   if (account.onboarding === 'personal') return '/onboarding/personal';
   if (account.onboarding === 'organization') return '/onboarding/organization';
   return '/';
@@ -89,7 +91,7 @@ export function AuthProvider({ children, initialSession }: { children: ReactNode
   const records = state.data.administrators;
   useEffect(() => {
     // Platform Administrators have no organization workspace.
-    if (!account || account.onboarding !== 'complete' || account.platformRole) return;
+    if (!account || account.onboarding !== 'complete' || account.platformRole || account.consoleRole) return;
     let admin: AdminUser;
     let organizationId: string;
     // Workspaces come only from explicit memberships (administrator records), never from organization

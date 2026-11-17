@@ -1,3 +1,4 @@
+import { JAMB_PERSONAS } from '@/jamb/personas';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -38,8 +39,9 @@ describe('sign-in demo accounts dialog', () => {
     expect(within(dialog).getByText(/Prototype only/)).toBeInTheDocument();
     expect(within(dialog).getByText(DEMO_PASSWORD)).toBeInTheDocument();
     const rows = within(dialog).getAllByRole('listitem');
-    expect(rows).toHaveLength(DEMO_PERSONAS.length + 1);
-    for (const p of DEMO_PERSONAS) expect(within(dialog).getByRole('button', { name: `Use ${p.persona} account` })).toBeInTheDocument();
+    // The existing accounts and the demo account, plus the two proposed JAMB console accounts.
+    expect(rows).toHaveLength(DEMO_PERSONAS.length + 1 + JAMB_PERSONAS.length);
+    for (const p of [...DEMO_PERSONAS, ...JAMB_PERSONAS]) expect(within(dialog).getByRole('button', { name: `Use ${p.persona} account` })).toBeInTheDocument();
     // Focus starts inside the dialog and stays there when tabbing past the end.
     expect(dialog.contains(document.activeElement)).toBe(true);
     for (let i = 0; i < rows.length + 4; i++) await user.tab();

@@ -45,6 +45,13 @@ import { SettingsPage } from './pages/SettingsPage';
 import { VerificationHistoryPage, VerificationRecordPage } from './pages/verification/VerificationHistoryPage';
 import { DEMO_AUTH_ENABLED } from './auth/authCore';
 import { DemoControlCentrePage } from './pages/demo/DemoControlCentrePage';
+import { lazy, Suspense } from 'react';
+import { RequireConsole } from './jamb/ui';
+
+// Proposed JAMB identity assurance use case: separate consoles, loaded only when opened.
+const JambConsole = lazy(() => import('./jamb/JambConsole').then((m) => ({ default: m.JambConsole })));
+const ClearanceConsole = lazy(() => import('./jamb/ClearanceConsole').then((m) => ({ default: m.ClearanceConsole })));
+const PublicVerificationPage = lazy(() => import('./jamb/certificate').then((m) => ({ default: m.PublicVerificationPage })));
 
 /** Redirect a renamed route, keeping the `:id` param and query string (e.g. dashboard filters). */
 /** Issuing from a user's page continues in Credential Management with that user preselected. */
@@ -100,6 +107,10 @@ export function AppRoutes() {
       {DEMO_AUTH_ENABLED && <Route path="demo" element={<DemoControlCentrePage />} />}
       {/* The Platform Administrator's separate experience: no organization workspace. */}
       <Route path="platform" element={<PlatformPage />} />
+      {/* JAMB identity assurance demo consoles (their own accounts only) and the certificate QR code's page. */}
+      <Route path="jamb/*" element={<RequireConsole role="jamb-officer"><Suspense fallback={null}><JambConsole /></Suspense></RequireConsole>} />
+      <Route path="clearance/*" element={<RequireConsole role="clearance-officer"><Suspense fallback={null}><ClearanceConsole /></Suspense></RequireConsole>} />
+      <Route path="verify-clearance/:ref" element={<Suspense fallback={null}><PublicVerificationPage /></Suspense>} />
       <Route element={<RequireOnboarding />}>
         <Route path="onboarding/personal" element={<OnboardingPersonalPage />} />
         <Route path="onboarding/organization" element={<OnboardingOrganizationPage />} />

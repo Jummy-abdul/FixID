@@ -352,6 +352,29 @@ Every check runs in the store (`authorizeAction` and the reducer, plus the `appl
 - **Access:** `audit.view` (Organization Admin and Auditor). Only the current organization's events are shown. Verifiers have no access.
 - **Limitations:** the log lives in browser storage. It is illustrative, not tamper-resistant production audit evidence.
 
+## JAMB identity assurance demo (proposed use case)
+
+Two extra demo accounts show how JAMB and tertiary institutions could use FixID to keep one identity chain from **JAMB registration → examination verification → university clearance → matriculation**. They are additions only: no existing account, journey or data changes. Sign in → *View demo accounts* → **JAMB identity assurance (proposed)** → Use → Sign in (password `FixIDDemo2026!`, demo builds only).
+
+| Account | Console |
+| --- | --- |
+| jamb.officer@jamb-demo.example (Aisha Danjuma), JAMB Officer | `/jamb`: national overview with charts, Institutions (25), institution → admission session → student records, Matriculation reconciliation, Find a student |
+| clearance.officer@unilag-demo.example (Tolulope Adebayo), University Clearance Officer, UNILAG | `/clearance`: dashboard, Clearance (admission sessions), Verify Student, Cleared students, certificates |
+
+- **Separate consoles.** Like the Platform Administrator, each account has a `consoleRole` and opens its own console, never an organization workspace. Each console refuses the other account; the clearance officer sees only UNILAG records, and a registration number from another institution or session is simply "not found".
+- **Data** (`src/jamb/data.ts`): 25 real Nigerian institution names with **illustrative** figures: 50,000 admitted, 35,000 cleared, 30,000 matriculated, 15,000 pending, 200 failed verifications, 150 exceptions; UNILAG 1,000 / 700 / 650 across 2024/2025, 2025/2026 and 2026/2027. Every student record is generated from a fixed seed (the same on every load), and the counts are exactly the counts of those records, so everything reconciles.
+- **Shared state** (`src/jamb/store.ts`, browser storage key `fixid.jamb.v1`, separate from the rest of the prototype): only officers' actions are saved. A clearance updates the student, the session and university dashboards, JAMB's totals, reconciliation and the identity timeline, in other open tabs too.
+- **Verify Student:**
+  1. JAMB Registration Number, validated against the chosen admission session.
+  2. Student information with the registration portrait.
+  3. Live capture: the browser camera with a permission prompt, capture and retake; if the camera is unavailable or denied, a clearly labelled simulated capture.
+  4. Simulated verification by JAMB's identity service. The demo record decides the outcome, or a demo control forces match, no match, missing record or service unavailable.
+  5. Clearance confirmation, a separate decision recording officer, time and reference.
+- **Certificate:** FixID and university branding, a *demonstration record* watermark, and a scannable QR code (`qrcode-generator`) opening `/verify-clearance/:ref`, which works without sign-in because the code carries the details. Print, and Download PDF via the existing jsPDF and html-to-image libraries.
+- **Matriculation** is confirmed by the institution on a cleared student's profile. Clearance never matriculates anyone, and reconciliation checks that no one is matriculated without clearance.
+- **Identity journey:** a summary and four stages. Only checkpoints the record holds evidence for are counted; some records have no examination evidence.
+- **Simulated:** all figures and students are illustrative; face matching and JAMB's service are simulated; portraits are drawings. A camera capture stays in the page's memory for that visit and is never stored or sent. The official JAMB logo isn't included: a placeholder marks where it goes.
+
 ## Verification journeys and transactions (Phase 4)
 
 Both identity models run through the same Verification Activity framework. The activity's configuration (and, for a programme-linked activity, the programme's authoritative requirements) decides the journey; the verifier never chooses the identity source, the matching service or whether liveness applies.
