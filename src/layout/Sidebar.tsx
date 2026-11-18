@@ -1,27 +1,39 @@
+import type { ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Fingerprint } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useAuthorization } from '@/auth/authorization';
-import { NAVIGATION } from './navigation';
+import { NAVIGATION, type NavGroup } from './navigation';
 import type { Permission } from '@/domain/roles';
 
+/** The organization workspace's sidebar: navigation follows the current role view's permissions. */
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { pathname } = useLocation();
   const { can } = useAuthorization();
   const allowed = (p?: Permission | Permission[]) => !p || (Array.isArray(p) ? p.some(can) : can(p));
   // Driven by the effective permissions of the current role view, so custom roles get the items they can use.
   const groups = NAVIGATION.map((g) => ({ ...g, items: g.items.filter((i) => allowed(i.permission) && !(i.hiddenWith && can(i.hiddenWith))) })).filter((g) => g.items.length > 0);
+  return <SidebarNav groups={groups} onNavigate={onNavigate} />;
+}
+
+/**
+ * The sidebar itself: branding, grouped navigation and an optional footer. Other workspaces (e.g. the JAMB
+ * Identity Verification Platform) pass their own navigation and branding; the defaults are FixID's.
+ */
+export function SidebarNav({ groups, onNavigate, brand, footer }: { groups: NavGroup[]; onNavigate?: () => void; brand?: ReactNode; footer?: ReactNode }) {
+  const { pathname } = useLocation();
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-300">
-      <div className="flex h-16 items-center gap-2.5 px-5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
-          <Fingerprint className="h-5 w-5" />
-        </span>
-        <div className="leading-tight">
-          <p className="text-[15px] font-semibold text-white">FixID</p>
-          <p className="text-[11px] text-slate-400">by Seamfix</p>
+      {brand ?? (
+        <div className="flex h-16 items-center gap-2.5 px-5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
+            <Fingerprint className="h-5 w-5" />
+          </span>
+          <div className="leading-tight">
+            <p className="text-[15px] font-semibold text-white">FixID</p>
+            <p className="text-[11px] text-slate-400">by Seamfix</p>
+          </div>
         </div>
-      </div>
+      )}
       <nav aria-label="Primary" className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {groups.map((group) => (
           <div key={group.label ?? 'top'}>
@@ -31,7 +43,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
-                    end={item.to === '/' || item.to === '/verify'}
+                    end={item.end ?? (item.to === '/' || item.to === '/verify')}
                     onClick={onNavigate}
                     className={({ isActive: exact }) => {
                       const isActive = exact || !!item.alsoActiveOn?.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -48,6 +60,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ))}
       </nav>
+      {footer}
     </div>
   );
 }

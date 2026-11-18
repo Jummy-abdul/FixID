@@ -1,43 +1,54 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Camera, CheckCircle2, ChevronRight, Loader2, Printer, RefreshCcw, ScanFace, Search, ShieldCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarCheck, CheckCircle2, ClipboardList, Home, Loader2, Printer, ScanFace, Search, ShieldAlert, ShieldCheck, XCircle } from 'lucide-react';
 import {
-  Badge, Button, ButtonLink, Card, CardHeader, DataTable, EmptyState, Field, FilterSelect, Input, Modal, PageHeader, Pagination, SearchInput, StatCard, usePageSlice, useToast,
+  Badge, Button, ButtonLink, Card, DataTable, EmptyState, Field, FilterSelect, Input, Modal, PageHeader, Pagination, SearchInput, StatCard, Tabs, usePageSlice, useToast,
 } from '@/components/ui';
+import { dateTime } from './format';
+import { CameraCapture } from '@/components/verification/CameraCapture';
+import type { NavGroup } from '@/layout/navigation';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
-import { formatDate, formatDateTime } from '@/lib/dates';
+import { formatDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
-import { SESSIONS, UNILAG, institutionByCode, sessionFromSlug, sessionSlug, type Session, type StudentRecord } from './data';
+import { ACTIVE_ADMISSION_EVENT, ACTIVE_SESSION, EVENTS, SESSIONS, UNILAG, eventById, institutionByCode, sessionSlug, type StudentRecord } from './data';
 import { CertificatePage } from './certificate';
-import { NotFound, SessionStats } from './JambConsole';
 import { StudentJourney } from './journey';
+import { demoFace } from './portraits';
 import {
-  OUTCOME_LABEL, clearanceReference, confirmClearance, confirmMatriculation, countsOf, expectedOutcome, institutionCounts, lookupForClearance, outcomeKind, recordOf,
-  recordVerification, recordsOf, useJambState, type VerificationEvent, type VerificationOutcome,
+  confirmClearance, confirmMatriculation, countsOf, exceptionsOf, institutionActivities, lookupForClearance, priorClearanceOf, recordOf, recordUniversityVerification,
+  recordsOf, useJambState, type Activity,
 } from './store';
+import { ActivityList, EventStatusBadge, NotFound, Section, SessionStats, eventPeriod } from './shared';
 import { StudentTable } from './students';
-import { ConsoleShell, Portrait, ProgressMeter, SERIES, VerificationBadge, fmt, simulatedCaptureDataUrl, useOfficer } from './ui';
+import { ConsoleLayout, OrgMark, Portrait, ProgressMeter, fmt, placeholderFaceUrl, useOfficer } from './ui';
 
-const NAV = [
-  { label: 'Dashboard', to: '/clearance', end: true }, { label: 'Clearance', to: '/clearance/sessions' },
-  { label: 'Verify student', to: '/clearance/verify' }, { label: 'Cleared students', to: '/clearance/cleared' },
+const NAV: NavGroup[] = [
+  { label: null, items: [{ label: 'Home', to: '/clearance', end: true, icon: Home, description: 'Your clearance overview' }] },
+  {
+    label: 'Clearance',
+    items: [
+      { label: 'Clearance Events', to: '/clearance/events', icon: CalendarCheck, description: 'Events published by JAMB' },
+      { label: 'Verify Student', to: '/clearance/verify', icon: ScanFace, description: 'Verify and clear a student' },
+      { label: 'My Clearance Records', to: '/clearance/records', icon: ClipboardList, description: 'Your clearance history', alsoActiveOn: ['/clearance/students'] },
+    ],
+  },
 ];
 
-/** The University Clearance Officer's console: verify and clear the students JAMB assigned to the institution. */
+/** The University Clearance Officer's workspace: verify and clear the students JAMB assigned to the institution. */
 export function ClearanceConsole() {
   return (
-    <ConsoleShell context={{ title: UNILAG.name, subtitle: 'University Clearance Officer' }} nav={NAV} roleLabel="University Clearance Officer">
+    <ConsoleLayout nav={NAV} organisation={{ name: UNILAG.name, role: 'Institutional Clearance Officer' }} mark={<OrgMark letters="UNILAG" />}>
       <Routes>
-        <Route index element={<ClearanceDashboard />} />
-        <Route path="sessions" element={<SessionsPage />} />
-        <Route path="sessions/:session" element={<SessionWorkspace />} />
+        <Route index element={<ClearanceHome />} />
+        <Route path="events" element={<EventsPage />} />
+        <Route path="events/:eventId" element={<EventWorkspace />} />
         <Route path="verify" element={<VerifyStudentPage />} />
-        <Route path="cleared" element={<ClearedStudentsPage />} />
+        <Route path="records" element={<RecordsPage />} />
         <Route path="students/:reg" element={<ClearanceStudentPage />} />
         <Route path="certificate/:reg" element={<CertificateGuard />} />
         <Route path="*" element={<Navigate to="/clearance" replace />} />
       </Routes>
-    </ConsoleShell>
+    </ConsoleLayout>
   );
 }
 
@@ -45,107 +56,89 @@ const ownRecord = (reg: string, state: ReturnType<typeof useJambState>) => {
   const r = recordOf(reg, state);
   return r && r.institution === UNILAG.code ? r : undefined;
 };
-const share = (v: number, t: number) => `${t ? Math.round((v / t) * 100) : 0}% of admitted`;
 
-function ClearanceDashboard() {
+/** The officer's own clearance records: students they verified or cleared. */
+function useMyRecords() {
   const state = useJambState();
-  const c = institutionCounts(UNILAG.code, state);
-  const recent = state.events.filter((e) => e.institution === UNILAG.code).slice(0, 6);
+  const officer = useOfficer();
+  return useMemo(() => SESSIONS.flatMap((s) => recordsOf(UNILAG, s, state)).filter((r) => r.verifiedBy === officer.name || r.clearedBy === officer.name), [state, officer.name]);
+}
+const recordStatus = (r: StudentRecord): { key: 'cleared' | 'failed' | 'blocked' | 'exception' | 'verified'; label: string; tone: 'success' | 'danger' | 'warning' | 'info' } =>
+  r.clearance === 'cleared' ? { key: 'cleared', label: 'Cleared', tone: 'success' }
+    : r.verification === 'failed' ? { key: 'failed', label: 'Failed verification', tone: 'danger' }
+      : r.blocked === 'duplicate-clearance' ? { key: 'blocked', label: 'Duplicate blocked', tone: 'warning' }
+        : r.verification === 'exception' ? { key: 'exception', label: 'Referred to JAMB', tone: 'warning' }
+          : { key: 'verified', label: 'Verified, awaiting clearance', tone: 'info' };
+
+/* ---------------- Home ---------------- */
+
+function ClearanceHome() {
+  const state = useJambState();
+  const officer = useOfficer();
+  const mine = useMyRecords().filter((r) => r.session === ACTIVE_SESSION);
+  const c = countsOf(UNILAG.code, ACTIVE_SESSION, state);
+  const raised = exceptionsOf(state).filter((e) => e.raisedBy === officer.name && e.institution === UNILAG.code && e.session === ACTIVE_SESSION);
+  const recent = institutionActivities(UNILAG.code, state).filter((a) => a.officer === officer.name).slice(0, 8);
   return (
     <>
-      <PageHeader title="Clearance dashboard" description={`Students admitted to ${UNILAG.name} by JAMB.`} />
-      <section aria-label="Start a verification" className="flex flex-col gap-4 rounded-2xl bg-emerald-900 px-6 py-5 text-white sm:flex-row sm:items-center">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/10"><ScanFace className="h-6 w-6" aria-hidden="true" /></span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold">Verify and clear a student</h2>
-          <p className="text-sm text-emerald-100">Enter the JAMB Registration Number, capture the student’s face, and complete clearance.</p>
-        </div>
-        <ButtonLink to="/clearance/verify" variant="secondary" size="lg" icon={<ScanFace className="h-5 w-5" />}>Verify Student</ButtonLink>
-      </section>
+      <PageHeader title={`Welcome, ${officer.name.split(' ')[0]}`} description={`${UNILAG.name} · ${ACTIVE_ADMISSION_EVENT.name}`}
+        actions={<ButtonLink to="/clearance/verify" variant="primary" size="lg" icon={<ScanFace className="h-5 w-5" />}>Verify Student</ButtonLink>} />
       <section aria-label="Clearance summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Admitted" value={fmt(c.admitted)} hint="Assigned by JAMB" />
-        <StatCard label="Cleared" value={fmt(c.cleared)} tone="emerald" to="/clearance/cleared" hint={share(c.cleared, c.admitted)} />
-        <StatCard label="Awaiting clearance" value={fmt(c.pending)} tone="amber" hint={share(c.pending, c.admitted)} />
-        <StatCard label="Failed verification" value={fmt(c.failed)} hint="Face match unsuccessful" />
-        <StatCard label="Exceptions" value={fmt(c.exceptions)} hint="Identity record issues" />
-        <StatCard label="Matriculated" value={fmt(c.matriculated)} tone="violet" hint={share(c.matriculated, c.admitted)} />
+        <StatCard label="Students assigned" value={fmt(c.admitted)} hint={ACTIVE_SESSION} to={`/clearance/events/${ACTIVE_ADMISSION_EVENT.id}`} />
+        <StatCard label="Cleared by you" value={fmt(mine.filter((r) => r.clearedBy === officer.name).length)} tone="emerald" hint={ACTIVE_SESSION} to="/clearance/records?view=cleared" />
+        <StatCard label="Pending verification" value={fmt(c.notStarted + c.awaitingClearance)} tone="amber" hint={ACTIVE_SESSION} />
+        <StatCard label="Failed verification" value={fmt(mine.filter((r) => r.verification === 'failed' && r.clearance !== 'cleared').length)} hint="By you" to="/clearance/records?view=failed" />
+        <StatCard label="Exceptions raised" value={fmt(raised.length)} hint="By you" to="/clearance/records?view=exception" />
+        <StatCard label="Institution cleared" value={`${Math.round((c.cleared / c.admitted) * 100)}%`} hint={`${fmt(c.cleared)} of ${fmt(c.admitted)}`} />
       </section>
       <Card className="px-5 py-5">
-        <div className="grid gap-6 md:grid-cols-2">
-          <ProgressMeter label="Clearance progress" value={c.cleared} total={c.admitted} hint={`${fmt(c.pending)} students still to clear`} />
-          <ProgressMeter label="Matriculation confirmed" value={c.matriculated} total={c.admitted} color={SERIES.s2} hint={`${fmt(c.clearedNotMatriculated)} cleared, awaiting matriculation`} />
-        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold text-slate-900">{ACTIVE_ADMISSION_EVENT.name}</h2><EventStatusBadge status="active" /></div>
+        <p className="text-xs text-slate-500">{eventPeriod(ACTIVE_ADMISSION_EVENT)}</p>
+        <div className="mt-4"><ProgressMeter label="Students cleared" value={c.cleared} total={c.admitted} /></div>
       </Card>
-      <SessionsTable />
+      <Section title="Your recent clearance activities" action={<Link to="/clearance/records" className="text-sm font-medium text-brand-600 hover:text-brand-700">All records</Link>}>
+        {recent.length ? <ActivityList activities={recent} studentPath={(reg) => `/clearance/students/${reg}`} showOrganisation={false} showOfficer={false} /> : <EmptyState icon={<ScanFace className="h-5 w-5" />} title="No clearance activity yet" />}
+      </Section>
+    </>
+  );
+}
+
+/* ---------------- Clearance events ---------------- */
+
+function EventsPage() {
+  const state = useJambState();
+  const events = EVENTS.filter((e) => e.audience === 'institutions');
+  return (
+    <>
+      <PageHeader title="Clearance Events" description="Admission clearance events published to your institution by JAMB." />
       <Card>
-        <CardHeader title="Recent verifications" />
-        {recent.length === 0 ? <EmptyState icon={<ScanFace className="h-5 w-5" />} title="No recent verifications" description="Verified students appear here." /> : <EventList events={recent} />}
+        <DataTable rows={events} rowKey={(e) => e.id} rowHref={(e) => `/clearance/events/${e.id}`}
+          columns={[
+            { key: 'n', header: 'Event', className: '!whitespace-normal min-w-[12rem]', cell: (e) => <Link to={`/clearance/events/${e.id}`} className="font-medium text-slate-900 hover:text-brand-700">{e.name}</Link> },
+            { key: 's', header: 'Status', cell: (e) => <EventStatusBadge status={e.status} /> },
+            { key: 'p', header: 'Validity', cell: (e) => <span className="text-slate-600">{eventPeriod(e)}</span> },
+            { key: 'a', header: 'Assigned', cell: (e) => <span className="tabular-nums">{fmt(countsOf(UNILAG.code, e.session!, state).admitted)}</span> },
+            { key: 'c', header: 'Cleared', cell: (e) => <span className="tabular-nums">{fmt(countsOf(UNILAG.code, e.session!, state).cleared)}</span> },
+            { key: 'pe', header: 'Pending', cell: (e) => <span className="tabular-nums">{fmt(countsOf(UNILAG.code, e.session!, state).pending)}</span> },
+          ]} />
       </Card>
     </>
   );
 }
 
-function EventList({ events }: { events: VerificationEvent[] }) {
+function EventWorkspace() {
+  const { eventId = '' } = useParams();
+  const e = eventById(eventId);
   const state = useJambState();
-  return (
-    <ul className="divide-y divide-slate-100" aria-label="Recent verifications">
-      {events.map((e) => {
-        const r = e.reg ? recordOf(e.reg, state) : undefined;
-        const kind = outcomeKind(e.outcome);
-        return (
-          <li key={e.ref} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
-            <span>{r ? <Link to={`/clearance/students/${r.reg}`} className="font-medium text-slate-900 hover:text-brand-700">{r.firstName} {r.lastName}</Link> : <span className="font-mono text-slate-700">{e.input || '—'}</span>} <span className="text-slate-500">· {e.session}</span></span>
-            <span className="flex items-center gap-2"><Badge tone={kind === 'success' ? 'success' : kind === 'failed' ? 'danger' : 'warning'}>{OUTCOME_LABEL[e.outcome]}</Badge><span className="text-slate-500">{formatDateTime(e.at)}</span></span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function SessionsTable() {
-  const state = useJambState();
-  const rows = SESSIONS.map((s) => ({ s, c: countsOf(UNILAG.code, s, state) }));
-  return (
-    <Card>
-      <CardHeader title="Admission sessions" />
-      <DataTable rows={rows} rowKey={(r) => r.s} rowHref={(r) => `/clearance/sessions/${sessionSlug(r.s)}`}
-        columns={[
-          { key: 's', header: 'Admission session', cell: ({ s }) => <Link to={`/clearance/sessions/${sessionSlug(s)}`} className="font-semibold text-slate-900 hover:text-brand-700">{s}</Link> },
-          { key: 'a', header: 'Assigned', cell: ({ c }) => <span className="tabular-nums">{fmt(c.admitted)}</span> },
-          { key: 'c', header: 'Cleared', cell: ({ c }) => <span className="tabular-nums">{fmt(c.cleared)}</span> },
-          { key: 'p', header: 'Pending', cell: ({ c }) => <span className="tabular-nums">{fmt(c.pending)}</span> },
-          { key: 'f', header: 'Failed', cell: ({ c }) => <span className="tabular-nums">{fmt(c.failed)}</span> },
-          { key: 'g', header: 'Clearance progress', className: 'min-w-[11rem]', cell: ({ c }) => (
-            <span className="flex items-center gap-2"><span className="h-2 w-28 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full" style={{ width: `${(c.cleared / c.admitted) * 100}%`, background: SERIES.s1 }} /></span><span className="tabular-nums text-slate-600">{Math.round((c.cleared / c.admitted) * 100)}%</span></span>
-          ) },
-          { key: 'open', header: <span className="sr-only">Open</span>, cell: ({ s }) => <span className="inline-flex items-center gap-0.5 text-sm font-medium text-brand-600">Open<span className="sr-only"> {s}</span><ChevronRight className="h-4 w-4" aria-hidden="true" /></span> },
-        ]} />
-    </Card>
-  );
-}
-
-function SessionsPage() {
+  if (!e?.session || e.audience !== 'institutions') return <NotFound what="Event" back="/clearance/events" />;
+  const c = countsOf(UNILAG.code, e.session, state);
   return (
     <>
-      <PageHeader title="Clearance" description="Students by the admission session JAMB assigned them to." actions={<ButtonLink to="/clearance/verify" variant="primary" icon={<ScanFace className="h-4 w-4" />}>Verify Student</ButtonLink>} />
-      <SessionsTable />
-    </>
-  );
-}
-
-function SessionWorkspace() {
-  const { session: slug = '' } = useParams();
-  const session = sessionFromSlug(slug);
-  const state = useJambState();
-  if (!session) return <NotFound what="Admission session" back="/clearance/sessions" />;
-  const c = countsOf(UNILAG.code, session, state);
-  return (
-    <>
-      <PageHeader title={`${session} Admission Session`} description={UNILAG.name} breadcrumbs={[{ label: 'Clearance', to: '/clearance/sessions' }, { label: session }]}
-        actions={<ButtonLink to={`/clearance/verify?session=${slug}`} variant="primary" icon={<ScanFace className="h-4 w-4" />}>Verify Student</ButtonLink>} />
-      <SessionStats c={c} compact />
-      <StudentTable inst={UNILAG} session={session} studentPath={(reg) => `/clearance/students/${reg}`} showFaculty={false} showMatriculation={false} />
+      <PageHeader title={e.name} description={`${UNILAG.name} · ${e.session} admission session · ${eventPeriod(e)}`} breadcrumbs={[{ label: 'Clearance Events', to: '/clearance/events' }, { label: e.name }]}
+        meta={<EventStatusBadge status={e.status} />}
+        actions={e.status === 'active' ? <ButtonLink to="/clearance/verify" variant="primary" icon={<ScanFace className="h-4 w-4" />}>Verify Student</ButtonLink> : undefined} />
+      <SessionStats c={c} />
+      <StudentTable inst={UNILAG} session={e.session} studentPath={(reg) => `/clearance/students/${reg}`} showFaculty={false} />
     </>
   );
 }
@@ -153,20 +146,16 @@ function SessionWorkspace() {
 /* ---------------- Verify Student: two steps ---------------- */
 
 const STEPS = ['Identify student', 'Capture face and verify'];
-type Capture = { url: string; mode: 'camera' | 'simulated' };
-type DemoResponse = 'record' | Exclude<VerificationOutcome, 'not-found' | 'invalid'>;
-
 function Steps({ current }: { current: 1 | 2 }) {
   return (
     <ol className="flex flex-wrap items-center gap-3 text-sm" aria-label="Verification steps">
       {STEPS.map((s, i) => {
         const n = i + 1;
-        const done = n < current;
         return (
           <li key={s} aria-current={n === current ? 'step' : undefined} className="flex items-center gap-2">
             {i > 0 && <span className="h-px w-8 bg-slate-300" aria-hidden="true" />}
-            <span className={cn('flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold', n === current ? 'bg-emerald-700 text-white' : done ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-500')}>
-              {done ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : n}
+            <span className={cn('flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold', n === current ? 'bg-emerald-700 text-white' : n < current ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-500')}>
+              {n < current ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : n}
             </span>
             <span className={cn('font-medium', n === current ? 'text-slate-900' : 'text-slate-500')}>{s}</span>
           </li>
@@ -176,179 +165,171 @@ function Steps({ current }: { current: 1 | 2 }) {
   );
 }
 
+type Capture = { url: string; mode: 'camera' | 'demo' };
+
 function VerifyStudentPage() {
   const officer = useOfficer();
   const state = useJambState();
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const session = sessionFromSlug(params.get('session') ?? '') ?? '2026/2027';
-  const slug = sessionSlug(session);
+  const [params] = useSearchParams();
   const [entered, setEntered] = useState(params.get('reg') ?? '');
   const [error, setError] = useState('');
   const [issue, setIssue] = useState<'invalid' | 'not-found' | null>(null);
   const [reg, setReg] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [capture, setCapture] = useState<Capture | null>(null);
-  const [demo, setDemo] = useState<DemoResponse>('record');
   const [verifying, setVerifying] = useState(false);
-  const [result, setResult] = useState<VerificationEvent | null>(null);
+  const [result, setResult] = useState<Activity | null>(null);
   const record = reg ? recordOf(reg, state) : undefined;
 
-  const restart = () => { setStep(1); setReg(null); setCapture(null); setResult(null); setEntered(''); setIssue(null); setDemo('record'); };
+  const restart = () => { setStep(1); setReg(null); setCapture(null); setResult(null); setEntered(''); setIssue(null); navigate('/clearance/verify', { replace: true }); };
   const lookup = (value: string) => {
     setIssue(null); setReg(null);
     if (!value.trim()) { setError('Enter the student’s JAMB Registration Number.'); return; }
     setError('');
-    const r = lookupForClearance(value, session, officer);
-    if (!r.ok) { recordVerification({ entered: value, session, officer, outcome: r.outcome, captureMode: 'simulated' }); setIssue(r.outcome); return; }
+    const r = lookupForClearance(value, officer);
+    if (!r.ok) { recordUniversityVerification({ entered: value, officer, captureMode: 'demo', outcome: r.outcome }); setIssue(r.outcome); return; }
     setReg(r.record.reg);
   };
-  // Arriving from a student's record: look the student up straight away.
   const auto = useRef(false);
   useEffect(() => { if (!auto.current && params.get('reg')) { auto.current = true; lookup(params.get('reg')!); } });
 
-  const verify = (c: Capture) => {
-    if (!record) return;
-    setVerifying(true); setResult(null);
+  const verify = () => {
+    if (!record || !capture) return;
+    setVerifying(true);
     window.setTimeout(() => {
-      const outcome = demo === 'record' ? expectedOutcome(record) : demo;
-      const r = recordVerification({ entered: record.reg, session, officer, outcome, captureMode: c.mode, record });
+      const r = recordUniversityVerification({ entered: record.reg, officer, captureMode: capture.mode, record });
       setVerifying(false);
       if (r.ok) setResult(r.value);
-    }, 900);
+    }, 1200);
   };
-  const onCapture = (c: Capture | null) => { setCapture(c); setResult(null); if (c) verify(c); };
 
   return (
     <>
-      <PageHeader title="Verify student" breadcrumbs={[{ label: 'Clearance', to: '/clearance/sessions' }, { label: session, to: `/clearance/sessions/${slug}` }, { label: 'Verify student' }]} />
-      <Steps current={step} />
+      <PageHeader title="Verify Student" description={`${ACTIVE_ADMISSION_EVENT.name} · ${UNILAG.name}`} />
+      {!result && <Steps current={step} />}
 
       {step === 1 && (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_1fr]">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,24rem)_1fr]">
           <Card className="px-5 py-5">
             <form onSubmit={(e) => { e.preventDefault(); lookup(entered); }} className="space-y-4" noValidate>
-              <div className="[&_select]:w-full">
-                <FilterSelect label="Admission session" value={slug} onChange={(v) => { setParams((p) => { const n = new URLSearchParams(p); n.set('session', v); n.delete('reg'); return n; }, { replace: true }); restart(); }}
-                  options={SESSIONS.map((s) => ({ value: sessionSlug(s), label: `${s} Admission Session` }))} />
-              </div>
               <Field label="JAMB Registration Number" required error={error}>
-                {(p) => <Input {...p} value={entered} autoFocus autoComplete="off" placeholder="e.g. 20260100012AB" className="h-12 font-mono text-base uppercase tracking-wide" onChange={(e) => { setEntered(e.target.value); setError(''); setIssue(null); setReg(null); }} />}
+                {(p) => <Input {...p} value={entered} autoFocus autoComplete="off" placeholder="e.g. 20250190101CN" className="h-12 font-mono text-base uppercase tracking-wide" onChange={(e) => { setEntered(e.target.value); setError(''); setIssue(null); setReg(null); }} />}
               </Field>
-              <Button type="submit" size="lg" className="w-full" icon={<Search className="h-4 w-4" />}>Find student</Button>
+              <Button type="submit" size="lg" className="w-full" icon={<Search className="h-4 w-4" />}>Continue</Button>
             </form>
           </Card>
           <div aria-live="polite">
             {issue && (
               <Notice tone="warning" title={issue === 'invalid' ? 'Invalid registration number' : 'Student not found'}>
-                {issue === 'invalid' ? 'This isn’t a valid JAMB Registration Number. Check it with the student and try again.' : `No student with this registration number was admitted to ${UNILAG.name} for the ${session} session.`}
+                {issue === 'invalid' ? 'This isn’t a valid JAMB Registration Number. Check it with the student and try again.' : `No student with this registration number is on ${UNILAG.name}’s ${ACTIVE_SESSION} admission list.`}
               </Notice>
             )}
-            {record?.clearance === 'cleared' && (
-              <Notice tone="success" title="Already cleared">
-                {record.firstName} {record.lastName} was cleared on {record.clearedAt ? formatDateTime(record.clearedAt) : '—'}. <Link to={`/clearance/certificate/${record.reg}`} className="font-semibold underline">View clearance certificate</Link>
-              </Notice>
-            )}
-            {record && record.clearance !== 'cleared' && (
-              <Card className="px-5 py-5" aria-label="Student record">
-                <div className="flex flex-col gap-5 sm:flex-row">
-                  <figure className="w-32 shrink-0"><Portrait seed={record.reg} gender={record.gender} stage="registration" label="JAMB registration portrait" className="h-40" /><figcaption className="mt-1 text-center text-xs text-slate-500">Registration portrait</figcaption></figure>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Student found</p>
-                    <h2 className="mt-1 text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
-                    <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2" aria-label="Student information">
-                      {([['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department], ['Admission session', record.session]] as const).map(([k, v]) => (
-                        <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
-                      ))}
-                    </dl>
-                    {record.verification === 'failed' && <p className="mt-3 text-sm text-amber-800">A previous face match for this student was unsuccessful.</p>}
-                    <Button className="mt-5" size="lg" icon={<ArrowRight className="h-4 w-4" />} onClick={() => setStep(2)}>Confirm and continue</Button>
-                  </div>
-                </div>
-              </Card>
-            )}
-            {!issue && !record && (
-              <div className="flex h-full min-h-[10rem] items-center justify-center rounded-xl border border-dashed border-slate-300 px-6 text-center text-sm text-slate-500">
-                The student’s record appears here once found.
-              </div>
-            )}
+            {record && <StudentCard record={record} onContinue={() => setStep(2)} />}
+            {!issue && !record && <div className="flex h-full min-h-[10rem] items-center justify-center rounded-xl border border-dashed border-slate-300 px-6 text-center text-sm text-slate-500">The student’s record appears here.</div>}
           </div>
         </div>
       )}
 
-      {step === 2 && record && (
-        <>
-          {!result && !verifying && (
-            <Card className="px-5 py-5">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
-                <Button size="sm" variant="ghost" onClick={() => { setStep(1); setCapture(null); }}>Change student</Button>
-              </div>
-              <CameraCapture record={record} onCapture={onCapture} />
-              <details className="mt-6 text-xs text-slate-500">
-                <summary className="cursor-pointer select-none">Demo options</summary>
-                <div className="mt-2 max-w-sm">
-                  <FilterSelect label="Verification response" value={demo} onChange={(v) => setDemo(v as DemoResponse)} options={[
-                    { value: 'record', label: 'From the student’s record' }, { value: 'match', label: 'Match' }, { value: 'no-match', label: 'No match' },
-                    { value: 'missing-record', label: 'Missing identity record' }, { value: 'unavailable', label: 'Service unavailable' },
-                  ]} />
-                </div>
-              </details>
-            </Card>
-          )}
-          {verifying && (
-            <Card className="flex flex-col items-center gap-3 px-5 py-14 text-center" role="status">
+      {step === 2 && record && !result && (
+        <Card className="px-5 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <Portrait record={record} className="h-14 w-12" />
+              <p className="text-sm text-slate-600"><span className="block font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span><span className="font-mono">{record.reg}</span> · {record.department}</p>
+            </div>
+            <Button size="sm" variant="ghost" disabled={verifying} onClick={() => { setStep(1); setCapture(null); }}>Change student</Button>
+          </div>
+          {verifying ? (
+            <div className="flex flex-col items-center gap-3 py-14 text-center" role="status">
               <Loader2 className="h-10 w-10 animate-spin text-emerald-700" aria-hidden="true" />
               <p className="text-lg font-semibold text-slate-900">Verifying identity…</p>
-              <p className="text-sm text-slate-500">Matching the captured face against the JAMB registration record.</p>
-            </Card>
+              <p className="text-sm text-slate-500">Checking the face against the JAMB registration record and the NIN response.</p>
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-6 md:grid-cols-[1fr_16rem]">
+              <div>
+                <h2 className="mb-3 text-lg font-semibold text-slate-900">Capture the student’s face</h2>
+                <CameraCapture captured={capture?.url ?? null} startLabel="Start camera" capturedAlt="Captured face"
+                  onCapture={(url) => setCapture({ url, mode: 'camera' })} onRetake={() => setCapture(null)}
+                  demoFace={{ onUse: () => setCapture({ url: demoFace(record) ?? placeholderFaceUrl(`${record.firstName} ${record.lastName}`), mode: 'demo' }) }} />
+                {capture && <div className="mt-4 flex justify-center"><Button size="lg" icon={<ShieldCheck className="h-5 w-5" />} onClick={verify}>Verify identity</Button></div>}
+              </div>
+              <figure className="hidden md:block"><Portrait record={record} className="h-72 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+            </div>
           )}
-          {result && capture && (
-            <ResultPanel event={result} record={record} capture={capture} session={session}
-              onRetry={() => verify(capture)} onRecapture={() => { setCapture(null); setResult(null); }}
-              onNext={() => { restart(); navigate(`/clearance/verify?session=${slug}`, { replace: true }); }} />
-          )}
-        </>
+        </Card>
       )}
+
+      {result && record && <ResultPanel event={result} record={record} capture={capture} onNext={restart} />}
     </>
   );
 }
 
-function Notice({ tone, title, children }: { tone: 'success' | 'warning'; title: string; children: ReactNode }) {
+function StudentCard({ record, onContinue }: { record: StudentRecord; onContinue: () => void }) {
+  const state = useJambState();
+  const exc = exceptionsOf(state).find((e) => e.reg === record.reg && ['open', 'assigned', 'in-review', 'awaiting-information', 'reopened'].includes(e.status));
   return (
-    <div role="status" className={cn('rounded-xl px-5 py-4 text-sm ring-1 ring-inset', tone === 'success' ? 'bg-emerald-50 text-emerald-900 ring-emerald-200' : 'bg-amber-50 text-amber-900 ring-amber-200')}>
+    <Card className="px-5 py-5" aria-label="Student record">
+      <div className="flex flex-col gap-5 sm:flex-row">
+        <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
+          <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2" aria-label="Student information">
+            {([['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department], ['Course', record.course], ['Admission session', record.session]] as const).map(([k, v]) => (
+              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
+            ))}
+          </dl>
+          {record.clearance === 'cleared' ? (
+            <Notice tone="success" title="Already cleared" className="mt-4">Cleared on {record.clearedAt ? dateTime(record.clearedAt) : '—'} by {record.clearedBy}. <Link to={`/clearance/certificate/${record.reg}`} className="font-semibold underline">View clearance certificate</Link></Notice>
+          ) : record.blocked ? (
+            <Notice tone="warning" title="Clearance blocked" className="mt-4">{record.blocked === 'duplicate-clearance' ? 'A previous clearance exists for this admission record.' : 'The identity discrepancy is with JAMB for review.'}{exc && <> Exception <span className="font-mono">{exc.id}</span> is {exc.status.replace('-', ' ')}.</>}</Notice>
+          ) : (
+            <Button className="mt-5" size="lg" icon={<ArrowRight className="h-4 w-4" />} onClick={onContinue}>Confirm and continue</Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Notice({ tone, title, children, className }: { tone: 'success' | 'warning' | 'danger'; title: string; children: ReactNode; className?: string }) {
+  const t = { success: 'bg-emerald-50 text-emerald-900 ring-emerald-200', warning: 'bg-amber-50 text-amber-900 ring-amber-200', danger: 'bg-red-50 text-red-900 ring-red-200' }[tone];
+  return (
+    <div role="status" className={cn('rounded-xl px-5 py-4 text-sm ring-1 ring-inset', t, className)}>
       <p className="flex items-center gap-2 font-semibold">{tone === 'success' ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <AlertTriangle className="h-4 w-4" aria-hidden="true" />}{title}</p>
       <div className="mt-1">{children}</div>
     </div>
   );
 }
 
-/** The result is the focus: a clear outcome, the two portraits side by side, and the next action. */
-function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture, onNext }: {
-  event: VerificationEvent; record: StudentRecord; capture: Capture; session: Session; onRetry: () => void; onRecapture: () => void; onNext: () => void;
-}) {
+function Check({ label, value, good }: { label: string; value: string; good: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <dt className="text-slate-600">{label}</dt>
+      <dd className={cn('flex items-center gap-1.5 font-semibold', good ? 'text-emerald-700' : 'text-red-700')}>{good ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <XCircle className="h-4 w-4" aria-hidden="true" />}{value}</dd>
+    </div>
+  );
+}
+
+/** The outcome is the focus: a clear result, the identity checks, and the next action. */
+function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; record: StudentRecord; capture: Capture | null; onNext: () => void }) {
   const officer = useOfficer();
   const [error, setError] = useState('');
   const [evidence, setEvidence] = useState(false);
+  const [prior, setPrior] = useState(false);
   const cleared = record.clearance === 'cleared';
-  const listPath = `/clearance/sessions/${sessionSlug(session)}`;
-  const complete = () => { const r = confirmClearance(record.reg, officer); if (!r.ok) setError('Clearance couldn’t be completed. Verify the student again.'); };
+  const listPath = `/clearance/events/${ACTIVE_ADMISSION_EVENT.id}`;
+  const previous = priorClearanceOf(record.reg);
+  const complete = () => { const r = confirmClearance(record.reg, officer); if (!r.ok) setError(r.error); };
+  const o = e.outcome;
   const head = cleared
     ? { tone: 'success', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Clearance Successful', text: `${record.firstName} ${record.lastName} has been cleared by ${UNILAG.name}.` }
-    : e.outcome === 'match'
-      ? { tone: 'success', icon: <CheckCircle2 className="h-8 w-8" aria-hidden="true" />, title: 'Identity Verified', text: 'The student’s identity has been successfully confirmed against the JAMB registration record.' }
-      : e.outcome === 'no-match'
-        ? { tone: 'failed', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Could Not Be Confirmed', text: 'The captured face could not be successfully matched against the student’s registration record.' }
-        : e.outcome === 'missing-record'
-          ? { tone: 'warning', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Record Unavailable', text: 'JAMB holds no complete identity record for this student, so the face couldn’t be matched. Refer the student to JAMB to resolve their record.' }
-          : { tone: 'warning', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Verification Temporarily Unavailable', text: 'The identity verification service didn’t respond. Nothing has been recorded against the student: please try again.' };
-  const banner = { success: 'bg-emerald-700 text-white', failed: 'bg-red-700 text-white', warning: 'bg-amber-500 text-amber-950' }[head.tone as 'success' | 'failed' | 'warning'];
-  const rows: [string, ReactNode][] = cleared
-    ? [['Clearance reference', <span className="font-mono">{clearanceReference(record)}</span>], ['Date and time', record.clearedAt ? formatDateTime(record.clearedAt) : '—'], ['Student', `${record.firstName} ${record.middleName} ${record.lastName}`],
-      ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Department', record.department], ['Admission session', record.session],
-      ['Identity verification', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Identity verified · Face match successful</span>], ['Clearance status', <Badge tone="success">Cleared</Badge>], ['Clearance officer', record.clearedBy]]
-    : [['Student', `${record.firstName} ${record.middleName} ${record.lastName}`], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>],
-      ['Verification result', OUTCOME_LABEL[e.outcome]], ['Verification reference', <span className="font-mono">{e.ref}</span>]];
+    : o === 'identity-confirmed' ? { tone: 'success', icon: <CheckCircle2 className="h-8 w-8" aria-hidden="true" />, title: 'Identity Successfully Verified', text: 'The student’s identity is confirmed. You can complete clearance.' }
+      : o === 'nin-mismatch' ? { tone: 'danger', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Discrepancy Detected', text: 'The candidate’s identity could not be fully confirmed. Please contact JAMB for further review.' }
+        : o === 'duplicate-clearance' ? { tone: 'warning', icon: <ShieldAlert className="h-8 w-8" aria-hidden="true" />, title: 'Previous Clearance Record Found', text: 'This admission record has already been cleared by another institution. Clearance is blocked.' }
+          : { tone: 'danger', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Could Not Be Confirmed', text: 'The captured face does not match the student’s JAMB registration record.' };
+  const banner = { success: 'bg-emerald-700 text-white', danger: 'bg-red-700 text-white', warning: 'bg-amber-500 text-amber-950' }[head.tone as 'success' | 'danger' | 'warning'];
   return (
     <Card className="overflow-hidden" aria-label="Verification result">
       <div className={cn('flex items-center gap-4 px-6 py-5', banner)}>
@@ -356,27 +337,46 @@ function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture,
         <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
       </div>
       <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
+        <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
         {cleared ? (
-          // After clearance the registration portrait is the student's only portrait: the capture was evidence for the match.
-          <figure className="w-36"><Portrait seed={record.reg} gender={record.gender} stage="registration" label="JAMB registration portrait" className="h-44" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+          <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label="Clearance record">
+            {([['Student', `${record.firstName} ${record.middleName} ${record.lastName}`], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department],
+              ['Admission session', record.session], ['Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Identity verified · JAMB and NIN match</span>],
+              ['Clearance reference', <span className="font-mono">{record.clearanceRef}</span>], ['Clearance date and time', record.clearedAt ? dateTime(record.clearedAt) : '—'], ['Clearance officer', record.clearedBy], ['Clearance status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
+              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
+            ))}
+          </dl>
         ) : (
-          <div className="flex gap-4">
-            <figure className="w-28"><Portrait seed={record.reg} gender={record.gender} stage="registration" label="JAMB registration portrait" className="h-36" /><figcaption className="mt-1 text-center text-xs text-slate-500">Registration</figcaption></figure>
-            <figure className="w-28"><img src={capture.url} alt="Captured portrait" className="h-36 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-xs text-slate-500">{capture.mode === 'camera' ? 'Captured' : 'Captured (demo)'}</figcaption></figure>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
+            <dl className="max-w-md divide-y divide-slate-100 text-sm" aria-label="Identity checks">
+              <Check label="JAMB identity" value={e.checks?.face === 'match' ? 'Match' : 'No match'} good={e.checks?.face === 'match'} />
+              {e.checks?.nin && <Check label="NIN verification" value={e.checks.nin === 'match' ? 'Match' : 'Mismatch'} good={e.checks.nin === 'match'} />}
+              <Check label={o === 'identity-confirmed' ? 'Identity status' : 'Overall identity status'} value={o === 'identity-confirmed' || o === 'duplicate-clearance' ? 'Confirmed' : 'Not confirmed'} good={o === 'identity-confirmed' || o === 'duplicate-clearance'} />
+              {o === 'identity-confirmed' ? <Check label="Eligibility to proceed" value="Yes" good /> : <Check label="Clearance status" value="Blocked" good={false} />}
+            </dl>
+            {o === 'duplicate-clearance' && previous && (
+              <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-inset ring-amber-200" aria-label="Previous clearance record">
+                <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  {([['Previous institution', institutionByCode(previous.institution)?.name], ['Previous department', previous.department], ['Previous course', previous.course], ['Admission session', previous.session],
+                    ['Clearance date and time', dateTime(previous.clearedAt)], ['Clearance officer', previous.clearedBy], ['Clearance reference', <span className="font-mono">{previous.reference}</span>], ['Clearance status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
+                    <div key={k}><dt className="text-amber-900/70">{k}</dt><dd className="font-medium text-slate-900">{v}</dd></div>
+                  ))}
+                </dl>
+              </div>
+            )}
+            {e.exceptionId && <p className="text-sm text-slate-600">Referred to JAMB: exception <span className="font-mono font-medium text-slate-900">{e.exceptionId}</span>.</p>}
           </div>
         )}
-        <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label={cleared ? 'Clearance record' : 'Verification details'}>
-          {rows.map(([k, v]) => <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>)}
-        </dl>
       </div>
-      {cleared && evidence && (
+      {cleared && evidence && capture && (
         <section aria-label="Verification details" className="mx-6 mb-5 grid gap-5 rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200 sm:grid-cols-[auto_1fr]">
-          <figure className="w-24"><img src={capture.url} alt="Captured portrait used for the face match" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Live capture</figcaption></figure>
+          <figure className="w-24"><img src={capture.url} alt="Captured face used for the verification" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Live capture</figcaption></figure>
           <dl className="grid content-start gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', formatDateTime(e.at)], ['Result', OUTCOME_LABEL[e.outcome]], ['Capture', e.captureMode === 'camera' ? 'Camera' : 'Demo capture']] as const).map(([k, v]) => (
+            {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB identity', 'Match'], ['NIN verification', 'Match']] as [string, ReactNode][]).map(([k, v]) => (
               <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-slate-900">{v}</dd></div>
             ))}
-            <p className="text-xs text-slate-500 sm:col-span-2">The live capture was used only for this face match. It isn’t stored and is discarded when you leave this page.</p>
+            <p className="text-xs text-slate-500 sm:col-span-2">The capture was used only for this verification and is not stored.</p>
           </dl>
         </section>
       )}
@@ -384,117 +384,74 @@ function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture,
       <div className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
         {cleared ? (
           <>
-            <ButtonLink to={`/clearance/certificate/${record.reg}`} variant="primary" icon={<Printer className="h-4 w-4" />}>Print clearance certificate</ButtonLink>
-            <ButtonLink to={`/clearance/students/${record.reg}`} variant="secondary">View clearance details</ButtonLink>
-            <ButtonLink to={listPath} variant="secondary">Return to student list</ButtonLink>
-            <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify another student</Button>
-            <Button variant="ghost" className="sm:ml-auto" aria-expanded={evidence} onClick={() => setEvidence((v) => !v)}>{evidence ? 'Hide verification details' : 'View verification details'}</Button>
+            <ButtonLink to={`/clearance/certificate/${record.reg}`} variant="primary" icon={<Printer className="h-4 w-4" />}>Print Clearance Certificate</ButtonLink>
+            <ButtonLink to={`/clearance/students/${record.reg}`} variant="secondary">View Clearance Details</ButtonLink>
+            <ButtonLink to={listPath} variant="secondary">Return to Student List</ButtonLink>
+            <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify Another Student</Button>
+            {capture && <Button variant="ghost" className="sm:ml-auto" aria-expanded={evidence} onClick={() => setEvidence((v) => !v)}>{evidence ? 'Hide verification details' : 'View verification details'}</Button>}
           </>
-        ) : e.outcome === 'match' ? (
+        ) : o === 'identity-confirmed' ? (
           <>
             <Button size="lg" icon={<ShieldCheck className="h-4 w-4" />} onClick={complete}>Complete Clearance</Button>
-            <ButtonLink to={listPath} variant="secondary" size="lg">Return to student list</ButtonLink>
+            <ButtonLink to={listPath} variant="secondary" size="lg">Return to Student List</ButtonLink>
           </>
         ) : (
           <>
-            {e.outcome !== 'missing-record' && <Button icon={<RefreshCcw className="h-4 w-4" />} onClick={onRetry}>Retry verification</Button>}
-            {e.outcome !== 'missing-record' && <Button variant="secondary" icon={<Camera className="h-4 w-4" />} onClick={onRecapture}>Recapture portrait</Button>}
-            <ButtonLink to={`/clearance/students/${record.reg}`} variant="secondary">Return to student record</ButtonLink>
-            {e.outcome === 'missing-record' && <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify another student</Button>}
+            {o === 'duplicate-clearance' && <Button variant="primary" onClick={() => setPrior(true)}>View Previous Clearance Record</Button>}
+            <ButtonLink to={listPath} variant="secondary">Return to Student List</ButtonLink>
+            <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify Another Student</Button>
           </>
         )}
       </div>
+      {prior && previous && (
+        <Modal open onClose={() => setPrior(false)} title="Previous clearance record" description={`${record.firstName} ${record.middleName} ${record.lastName} · ${record.reg}`} footer={<Button variant="secondary" onClick={() => setPrior(false)}>Close</Button>}>
+          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+            {([['Institution', institutionByCode(previous.institution)?.name], ['Department', previous.department], ['Course', previous.course], ['Admission session', previous.session], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>],
+              ['Cleared', dateTime(previous.clearedAt)], ['Clearance officer', previous.clearedBy], ['Clearance reference', <span className="font-mono">{previous.reference}</span>], ['Status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
+              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
+            ))}
+          </dl>
+        </Modal>
+      )}
     </Card>
   );
 }
 
-/**
- * Face capture: the browser camera when available and permitted; otherwise a demo capture. Capturing hands the
- * image straight to verification. The image stays in this page's memory and is never stored or sent.
- */
-function CameraCapture({ record, onCapture }: { record: StudentRecord; onCapture: (c: Capture) => void }) {
-  const video = useRef<HTMLVideoElement>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const [state, setState] = useState<'idle' | 'starting' | 'live' | 'unavailable'>('idle');
-  const [message, setMessage] = useState('');
-  const stop = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
-  useEffect(() => stop, []);
-  const start = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) { setState('unavailable'); setMessage('A camera isn’t available on this device.'); return; }
-    setState('starting');
-    try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 } }, audio: false });
-      setState('live');
-      requestAnimationFrame(() => { if (video.current && stream.current) { video.current.srcObject = stream.current; void video.current.play().catch(() => undefined); } });
-    } catch (e) {
-      setState('unavailable');
-      setMessage((e as DOMException)?.name === 'NotAllowedError' ? 'Camera access was blocked. Allow it in your browser to capture the student’s face.' : 'The camera couldn’t be started.');
-    }
-  };
-  const take = () => {
-    const v = video.current;
-    if (!v || !v.videoWidth) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = v.videoWidth; canvas.height = v.videoHeight;
-    canvas.getContext('2d')?.drawImage(v, 0, 0);
-    stop(); setState('idle');
-    onCapture({ url: canvas.toDataURL('image/jpeg', 0.85), mode: 'camera' });
-  };
-  const demo = () => { stop(); setState('idle'); onCapture({ url: simulatedCaptureDataUrl(record.reg, record.gender), mode: 'simulated' }); };
-  return (
-    <div className="mt-5 grid gap-6 md:grid-cols-[minmax(0,22rem)_1fr] md:items-center">
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-slate-900">
-        {state === 'live'
-          ? <video ref={video} playsInline muted aria-label="Camera preview" className="h-full w-full object-cover [transform:scaleX(-1)]" />
-          : <div className="flex h-full items-center justify-center text-slate-400"><ScanFace className="h-16 w-16" aria-hidden="true" /></div>}
-        <span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 h-[70%] w-[46%] -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed border-white/70" />
-      </div>
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Capture the student’s face</h2>
-        <p className="mt-1 text-sm text-slate-600">Position the face inside the oval, looking at the camera in good light.</p>
-        {state === 'unavailable' && <p role="status" className="mt-3 text-sm text-amber-800">{message}</p>}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {state === 'live'
-            ? <Button size="lg" icon={<Camera className="h-5 w-5" />} onClick={take}>Capture and verify</Button>
-            : <Button size="lg" icon={state === 'starting' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />} disabled={state === 'starting'} onClick={start}>Start camera</Button>}
-          {state === 'unavailable' && <Button size="lg" variant="secondary" onClick={demo}>Use demo capture</Button>}
-        </div>
-        {state !== 'unavailable' && <button type="button" onClick={demo} className="mt-3 text-xs text-slate-500 underline-offset-2 hover:underline">No camera? Use demo capture</button>}
-      </div>
-    </div>
-  );
-}
+/* ---------------- My clearance records ---------------- */
 
-/* ---------------- cleared students and profiles ---------------- */
-
-function ClearedStudentsPage() {
-  const state = useJambState();
+function RecordsPage() {
+  const mine = useMyRecords();
+  const [view, setView] = useQueryState('view', 'all');
   const [q, setQ] = useQueryState('q');
   const [sess, setSess] = useQueryState('session', 'all');
   const [page, setPage] = usePageParam();
-  const all = useMemo(() => SESSIONS.flatMap((s) => recordsOf(UNILAG, s, state)).filter((r) => r.clearance === 'cleared'), [state]);
   const query = q.trim().toLowerCase();
-  const rows = all.filter((r) => (sess === 'all' || sessionSlug(r.session) === sess) && (!query || r.reg.toLowerCase().includes(query.replace(/\s/g, '')) || `${r.firstName} ${r.lastName}`.toLowerCase().includes(query)))
-    .sort((a, b) => (b.clearedAt ?? '').localeCompare(a.clearedAt ?? ''));
+  const rows = mine.filter((r) => (view === 'all' || recordStatus(r).key === view) && (sess === 'all' || sessionSlug(r.session) === sess)
+    && (!query || r.reg.toLowerCase().includes(query.replace(/\s/g, '')) || `${r.firstName} ${r.lastName}`.toLowerCase().includes(query)))
+    .sort((a, b) => (b.clearedAt ?? b.verifiedAt ?? '').localeCompare(a.clearedAt ?? a.verifiedAt ?? ''));
   const { pageRows, pageCount, current } = usePageSlice(rows, page, 20);
+  const count = (k: string) => mine.filter((r) => recordStatus(r).key === k).length;
   return (
     <>
-      <PageHeader title="Cleared students" description={`Students who completed identity verification and institutional clearance at ${UNILAG.name}.`} />
+      <PageHeader title="My Clearance Records" description="Students you verified or cleared." />
+      <Tabs value={view as 'all'} onChange={(v) => setView(v)} tabs={[
+        { value: 'all', label: 'All', count: mine.length }, { value: 'cleared' as 'all', label: 'Cleared', count: count('cleared') },
+        { value: 'failed' as 'all', label: 'Failed verification', count: count('failed') }, { value: 'blocked' as 'all', label: 'Duplicate blocked', count: count('blocked') },
+        { value: 'exception' as 'all', label: 'Referred to JAMB', count: count('exception') },
+      ]} />
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end">
-          <SearchInput value={q} onChange={setQ} placeholder="Student name or JAMB registration number" className="sm:w-80" label="Search cleared students" />
+          <SearchInput value={q} onChange={setQ} placeholder="Student name or JAMB registration number" className="sm:w-80" label="Search records" />
           <FilterSelect label="Admission session" value={sess} onChange={setSess} options={[{ value: 'all', label: 'All sessions' }, ...SESSIONS.map((s) => ({ value: sessionSlug(s), label: s }))]} />
         </div>
-        <DataTable rows={pageRows} rowKey={(r) => r.reg} rowHref={(r) => `/clearance/students/${r.reg}`} empty={<EmptyState title="No cleared students match" />}
+        <DataTable rows={pageRows} rowKey={(r) => r.reg} rowHref={(r) => `/clearance/students/${r.reg}`} empty={<EmptyState title="No records match" />}
           columns={[
-            { key: 'n', header: 'Student', cell: (r) => <Link to={`/clearance/students/${r.reg}`} className="font-medium text-slate-900 hover:text-brand-700">{r.lastName}, {r.firstName}</Link> },
+            { key: 'n', header: 'Student', className: '!whitespace-normal min-w-[10rem]', cell: (r) => <Link to={`/clearance/students/${r.reg}`} className="font-medium text-slate-900 hover:text-brand-700">{r.lastName}, {r.firstName}</Link> },
             { key: 'r', header: 'JAMB registration number', cell: (r) => <span className="font-mono text-xs">{r.reg}</span> },
             { key: 'd', header: 'Department', cell: (r) => <span className="text-slate-600">{r.department}</span> },
             { key: 's', header: 'Session', cell: (r) => r.session },
-            { key: 'v', header: 'Identity verification', cell: (r) => <VerificationBadge status={r.verification} /> },
-            { key: 'c', header: 'Clearance', cell: () => <Badge tone="success">Cleared</Badge> },
-            { key: 'at', header: 'Date cleared', cell: (r) => <span className="tabular-nums text-slate-600">{r.clearedAt ? formatDate(r.clearedAt) : '—'}</span> },
-            { key: 'o', header: 'Clearance officer', cell: (r) => <span className="text-slate-600">{r.clearedBy}</span> },
+            { key: 'st', header: 'Status', cell: (r) => { const s = recordStatus(r); return <Badge tone={s.tone}>{s.label}</Badge>; } },
+            { key: 'at', header: 'Date', cell: (r) => <span className="tabular-nums text-slate-600">{formatDate(r.clearedAt ?? r.verifiedAt ?? r.registeredAt)}</span> },
           ]} />
         <Pagination page={current} pageCount={pageCount} total={rows.length} pageSize={20} onPage={setPage} />
       </Card>
@@ -510,33 +467,33 @@ function ClearanceStudentPage() {
   const [matric, setMatric] = useState<string | null>(null);
   const [error, setError] = useState('');
   const r = ownRecord(reg, state);
-  if (!r) return <NotFound what="Student" back="/clearance/sessions" />;
-  const clear = () => { const x = confirmClearance(r.reg, officer); toast(x.ok ? { tone: 'success', title: 'Student cleared' } : { tone: 'error', title: 'Not cleared', description: x.error }); };
+  if (!r) return <NotFound what="Student" back="/clearance/records" />;
+  const clear = () => { const x = confirmClearance(r.reg, officer); toast(x.ok ? { tone: 'success', title: 'Clearance completed', description: x.value.clearanceRef } : { tone: 'error', title: 'Not cleared', description: x.error }); };
   const confirmMatric = () => {
     const x = confirmMatriculation(r.reg, officer, matric ?? undefined);
     if (!x.ok) { setError(x.error); return; }
     setMatric(null);
     toast({ tone: 'success', title: 'Matriculation confirmed', description: x.value.matricNo });
   };
+  const active = r.session === ACTIVE_SESSION;
   const actions = (
     <>
-      {r.clearance !== 'cleared' && r.verification !== 'verified' && <ButtonLink to={`/clearance/verify?session=${sessionSlug(r.session)}&reg=${r.reg}`} variant="primary" icon={<ScanFace className="h-4 w-4" />}>Verify student</ButtonLink>}
-      {r.clearance !== 'cleared' && r.verification === 'verified' && <Button icon={<CheckCircle2 className="h-4 w-4" />} onClick={clear}>Confirm clearance</Button>}
-      {r.clearance === 'cleared' && <ButtonLink to={`/clearance/certificate/${r.reg}`} variant="secondary">View certificate</ButtonLink>}
-      {r.clearance === 'cleared' && r.matriculation !== 'matriculated' && <Button onClick={() => { setError(''); setMatric(''); }}>Confirm matriculation</Button>}
+      {active && r.clearance !== 'cleared' && !r.blocked && r.verification !== 'verified' && <ButtonLink to={`/clearance/verify?reg=${r.reg}`} variant="primary" icon={<ScanFace className="h-4 w-4" />}>Verify Student</ButtonLink>}
+      {active && r.clearance !== 'cleared' && !r.blocked && r.verification === 'verified' && <Button icon={<ShieldCheck className="h-4 w-4" />} onClick={clear}>Complete Clearance</Button>}
+      {r.clearance === 'cleared' && <ButtonLink to={`/clearance/certificate/${r.reg}`} icon={<Printer className="h-4 w-4" />}>Clearance Certificate</ButtonLink>}
+      {r.clearance === 'cleared' && r.matriculation !== 'matriculated' && <Button onClick={() => { setError(''); setMatric(''); }}>Confirm Matriculation</Button>}
     </>
   );
   return (
     <>
-      <PageHeader title="" breadcrumbs={[{ label: 'Clearance', to: '/clearance/sessions' }, { label: r.session, to: `/clearance/sessions/${sessionSlug(r.session)}` }, { label: `${r.firstName} ${r.lastName}` }]} />
+      <PageHeader title="" breadcrumbs={[{ label: 'My Clearance Records', to: '/clearance/records' }, { label: `${r.firstName} ${r.lastName}` }]} />
       <StudentJourney record={r} actions={actions} />
       {matric !== null && (
-        <Modal open onClose={() => setMatric(null)} title="Confirm matriculation" description={`${r.firstName} ${r.lastName} · ${institutionByCode(r.institution)?.name}`}
+        <Modal open onClose={() => setMatric(null)} title="Confirm matriculation" description={`${r.firstName} ${r.lastName} · ${UNILAG.name}`}
           footer={<><Button variant="secondary" onClick={() => setMatric(null)}>Cancel</Button><Button onClick={confirmMatric}>Confirm matriculation</Button></>}>
           <div className="space-y-3">
-            <p className="text-sm text-slate-600">The institution confirms that this cleared student has matriculated. JAMB sees the confirmation in its reconciliation.</p>
             {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-            <Field label="Matriculation number" hint="Optional: leave empty to assign the next number.">{(p) => <Input {...p} value={matric} onChange={(e) => setMatric(e.target.value)} />}</Field>
+            <Field label="Matriculation number" hint="Leave empty to assign the next number.">{(p) => <Input {...p} value={matric} onChange={(e) => setMatric(e.target.value)} />}</Field>
           </div>
         </Modal>
       )}
@@ -548,6 +505,6 @@ function ClearanceStudentPage() {
 function CertificateGuard() {
   const { reg = '' } = useParams();
   const state = useJambState();
-  if (!ownRecord(reg, state)) return <NotFound what="Certificate" back="/clearance/cleared" />;
+  if (!ownRecord(reg, state)) return <NotFound what="Certificate" back="/clearance/records" />;
   return <CertificatePage backTo={(r) => `/clearance/students/${r}`} />;
 }

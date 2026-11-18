@@ -352,27 +352,34 @@ Every check runs in the store (`authorizeAction` and the reducer, plus the `appl
 - **Access:** `audit.view` (Organization Admin and Auditor). Only the current organization's events are shown. Verifiers have no access.
 - **Limitations:** the log lives in browser storage. It is illustrative, not tamper-resistant production audit evidence.
 
-## JAMB identity assurance demo (proposed use case)
+## JAMB Identity Verification Platform (demo)
 
-Two extra demo accounts show how JAMB and tertiary institutions could use FixID to keep one identity chain from **JAMB registration → examination verification → university clearance → matriculation**. They are additions only: no existing account, journey or data changes. Sign in → *View demo accounts* → **JAMB identity assurance (proposed)** → Use → Sign in (password `FixIDDemo2026!`, demo builds only).
+One platform operated by JAMB, three role workspaces on **shared student records**: JAMB Registration → Examination Clearance → University Clearance → Matriculation → NYSC Verification. These are additions only: no existing FixID account, journey or data changes. Sign in → *View demo accounts* → **JAMB Identity Verification Platform** → Use → Sign in (password `FixIDDemo2026!`, demo builds only).
 
-| Account | Console |
+| Account | Workspace |
 | --- | --- |
-| jamb.officer@jamb-demo.example (Aisha Danjuma), JAMB Officer | `/jamb`: national overview with charts, Institutions (25), institution → admission session → student records, Matriculation reconciliation, Find a student |
-| clearance.officer@unilag-demo.example (Tolulope Adebayo), University Clearance Officer, UNILAG | `/clearance`: dashboard, Clearance (admission sessions), Verify Student, Cleared students, certificates |
+| jamb.officer@jamb-demo.example (Aisha Danjuma), JAMB Officer · Central Administrator | `/jamb`: Home, Verification (Events, Activity, Exceptions, Student Records), Institutions (directory, Reports), Users & Access, Administration (Audit Logs, Settings) |
+| clearance.officer@unilag-demo.example (Tolulope Adebayo), University Clearance Officer · University of Lagos | `/clearance`: Home, Clearance Events, Verify Student (two steps), My Clearance Records, certificate |
+| nysc.officer@nysc-demo.example (Hadiza Lawal), NYSC Clearance Officer · National Youth Service Corps | `/nysc`: Home, Verify Candidate, My Verifications, printable verification report |
 
-- **Separate consoles.** Like the Platform Administrator, each account has a `consoleRole` and opens its own console, never an organization workspace. Each console refuses the other account; the clearance officer sees only UNILAG records, and a registration number from another institution or session is simply "not found".
-- **Data** (`src/jamb/data.ts`): 25 real Nigerian institution names with **illustrative** figures: 50,000 admitted, 35,000 cleared, 30,000 matriculated, 15,000 pending, 200 failed verifications, 150 exceptions; UNILAG 1,000 / 700 / 650 across 2024/2025, 2025/2026 and 2026/2027. Every student record is generated from a fixed seed (the same on every load), and the counts are exactly the counts of those records, so everything reconciles.
-- **Shared state** (`src/jamb/store.ts`, browser storage key `fixid.jamb.v1`, separate from the rest of the prototype): only officers' actions are saved. A clearance updates the student, the session and university dashboards, JAMB's totals, reconciliation and the identity timeline, in other open tabs too.
-- **Branding:** both consoles present as *JAMB Identity Verification & Clearance* with the JAMB logo (`src/jamb/assets/jamb-logo.png`); the clearance officer's header adds the institution (University of Lagos · University Clearance Officer). No FixID branding appears inside these consoles. One discreet *Demo environment* label in the footer is the only disclosure: illustrative records, simulated verification responses.
-- **Verify Student, two steps:**
-  1. **Identify student:** the JAMB Registration Number is validated against the chosen admission session, and the retrieved record is shown in place: registration portrait, name, institution, department and session, then *Confirm and continue*.
-  2. **Capture face and verify:** the camera, with a positioning oval. Capturing runs the verification immediately. Without a camera, *Use demo capture*.
-  - **Result:** *Identity Verified* shows both portraits and the reference, then *Complete Clearance* → *Clearance Successful*, with print certificate, view details, back to the list, or verify another. *Identity Could Not Be Confirmed* offers retry, recapture or the student's record. A missing identity record or an unavailable service gets a plain message, never a raw error. A collapsed *Demo options* control can force any response.
-- **Certificate:** FixID and university branding, a *demonstration record* watermark, and a scannable QR code (`qrcode-generator`) opening `/verify-clearance/:ref`, which works without sign-in because the code carries the details. Print, and Download PDF via the existing jsPDF and html-to-image libraries.
-- **Matriculation** is confirmed by the institution on a cleared student's profile. Clearance never matriculates anyone, and reconciliation checks that no one is matriculated without clearance.
-- **Identity journey:** a summary and four stages. Only checkpoints the record holds evidence for are counted; some records have no examination evidence.
-- **Simulated:** all figures and students are illustrative; face matching and JAMB's service are simulated; portraits are drawings. A camera capture stays in the page's memory for that visit and is never stored or sent. The JAMB console header shows the JAMB logo supplied for this demo (`src/jamb/assets/jamb-logo.png`).
+### Test data sheet
+
+| | University scenario (UNILAG, 2025/2026) | NYSC scenario (2022/2023 entrants) |
+| --- | --- | --- |
+| **Candidate A** | `20250190101CN` Chiamaka Adaeze Nwankwo, Computer Science: **Identity Successfully Verified** (JAMB: Match, NIN: Match) → Complete Clearance → Clearance Successful, certificate | `20220290101EO` Emeka Chukwudi Obi, University of Ibadan, Economics: **Candidate Identity Confirmed**, timeline and printable report |
+| **Candidate B** | `20250190102IA` Ibrahim Musa Abdullahi, Mechanical Engineering: **Identity Discrepancy Detected** (JAMB: Match, NIN: Mismatch), clearance blocked, exception raised for JAMB | `20220490102FB` Fatima Zainab Bello, Ahmadu Bello University, Biochemistry: **Candidate Identity Could Not Be Confirmed** (face mismatch), no report; *Refer to JAMB* raises an exception |
+| **Candidate C** | `20250190103OA` Oluwaseun Ayomide Adeyemi, Economics: **Previous Clearance Record Found** (University of Benin, 14 Jan 2026, Osagie Igbinedion), duplicate blocked | `20220690103TO` Babatunde Olumide Ogunleye, Obafemi Awolowo University, Law: **Matriculation Status Not Confirmed** (face match, no clearance or matriculation) |
+
+In each flow, **Use Demo Face** loads the candidate's predefined face and produces the outcome above (for NYSC Candidate B it is a different person). The university and NYSC candidates are different people: an NYSC candidate entered university years earlier.
+
+Cross-workspace checks: clear University Candidate A, then JAMB sees the clearance (Home, event, student record, audit) and NYSC verifying `20250190101CN` shows *Matriculation Status Not Confirmed* until the university confirms matriculation, after which it is *Candidate Identity Confirmed*. JAMB resolving Candidate B's exception with *Identity confirmed* lifts the block so the university can complete clearance. Disabling a user in Users & Access blocks their workspace. *Settings → Reset demonstration data* restores everything.
+
+### Implementation notes
+
+- **Reused FixID components:** the sidebar (`SidebarNav`, extended with optional navigation/branding props; the FixID workspace is unchanged), camera capture (`CameraCapture`, extended with an optional *Use Demo Face* action), the UI kit (tables, stat cards, drawers, modals, menus, badges) and the exception lifecycle model (`domain/exceptions`: statuses, history events, `ExceptionStatusBadge`). FixID's own Exceptions, Users and Audit *pages* are bound to the organisation-workspace store, so the JAMB pages use the same components and lifecycle on the JAMB store rather than mixing 50,000 student records into workspace data.
+- **Data:** deterministic generated records (25 institutions, sessions 2022/2023–2025/2026, ~50,000 students) plus the six test candidates (`src/jamb/scenarios.ts`); totals reconcile. Officers' actions, exceptions, users and the audit trail are saved in browser storage (`fixid.jamb.v2`), shared by all three workspaces and other open tabs.
+- **Simulated integrations:** face matching against the JAMB registration portrait and the NIN response are predefined per record (no biometric or NIN service is called). NIN is modelled as match/mismatch only; it never returns a portrait. Camera capture is real but the image is only held in the page and never stored. A discreet *Demo environment* label is the only in-app disclosure.
+- **Portraits:** drop licensed photographs into `src/jamb/assets/portraits/` (see its README); until then a neutral "Portrait on file" placeholder is shown.
 
 ## Verification journeys and transactions (Phase 4)
 

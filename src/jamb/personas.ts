@@ -1,9 +1,9 @@
 /**
- * Demonstration accounts for the proposed JAMB identity assurance use case. Like the Platform Administrator,
- * they open a separate console instead of an organization workspace, so no existing account, organization
- * or permission is affected. Fictional people; demo builds only.
+ * Demonstration accounts for the JAMB Identity Verification Platform. Like the Platform Administrator, they
+ * open their own workspace instead of an organization workspace, so no existing account, organization or
+ * permission is affected. Fictional people; demo builds only.
  */
-export type ConsoleRole = 'jamb-officer' | 'clearance-officer';
+export type ConsoleRole = 'jamb-officer' | 'clearance-officer' | 'nysc-officer';
 
 export interface ConsolePersona {
   accountId: string;
@@ -22,16 +22,22 @@ export interface ConsolePersona {
 export const JAMB_PERSONAS: ConsolePersona[] = [
   {
     accountId: 'acct_demo_jamb_officer', consoleRole: 'jamb-officer', persona: 'JAMB Officer',
-    organization: 'Joint Admissions and Matriculation Board (JAMB)', role: 'Central Identity Assurance Administrator',
-    description: 'Monitor student identity verification, institutional clearance and matriculation activities across participating universities.',
+    organization: 'Joint Admissions and Matriculation Board', role: 'Central Administrator',
+    description: 'Oversee verification events, institutions, exceptions, student identity records and delegated access.',
     firstName: 'Aisha', lastName: 'Danjuma', email: 'jamb.officer@jamb-demo.example',
   },
   {
     accountId: 'acct_demo_unilag_clearance', consoleRole: 'clearance-officer', persona: 'University Clearance Officer',
-    organization: 'University of Lagos (UNILAG)', role: 'Institutional Clearance Officer',
-    description: 'Perform biometric identity verification of admitted students before clearance and matriculation.',
+    organization: 'University of Lagos', role: 'Institutional Clearance Officer',
+    description: 'Verify admitted students’ identity and complete their admission clearance.',
     firstName: 'Tolulope', lastName: 'Adebayo', email: 'clearance.officer@unilag-demo.example', institution: 'UNILAG',
+  },
+  {
+    accountId: 'acct_demo_nysc_officer', consoleRole: 'nysc-officer', persona: 'NYSC Clearance Officer',
+    organization: 'National Youth Service Corps', role: 'NYSC Verification Officer',
+    description: 'Verify prospective corps members’ identity and confirm their educational and matriculation history.',
+    firstName: 'Hadiza', lastName: 'Lawal', email: 'nysc.officer@nysc-demo.example',
   },
 ];
 
-export const consoleHome = (role: ConsoleRole) => (role === 'jamb-officer' ? '/jamb' : '/clearance');
+export const consoleHome = (role: ConsoleRole) => (role === 'jamb-officer' ? '/jamb' : role === 'nysc-officer' ? '/nysc' : '/clearance');

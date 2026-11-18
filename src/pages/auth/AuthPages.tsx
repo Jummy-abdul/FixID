@@ -358,9 +358,9 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
           </section>
           {/* Proposed use case: separate consoles, independent of the sample organization above. */}
           <section aria-labelledby="demo-jamb-accounts">
-            <h3 id="demo-jamb-accounts" className="text-sm font-semibold text-slate-900">JAMB identity assurance (proposed)</h3>
-            <p className="mb-1.5 text-xs text-slate-500">Student identity verification from JAMB registration to university clearance and matriculation. Illustrative demo data.</p>
-            <ul className="space-y-1.5" aria-label="JAMB identity assurance (proposed)">
+            <h3 id="demo-jamb-accounts" className="text-sm font-semibold text-slate-900">JAMB Identity Verification Platform</h3>
+            <p className="mb-1.5 text-xs text-slate-500">One platform, three roles: JAMB oversight, university clearance and NYSC verification, on shared student records.</p>
+            <ul className="space-y-1.5" aria-label="JAMB Identity Verification Platform">
               {JAMB_PERSONAS.map((p) => (
                 <li key={p.email} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
                   <span className="min-w-0">
@@ -375,7 +375,7 @@ function DemoAccounts({ onUse }: { onUse: (email: string) => void }) {
               ))}
             </ul>
           </section>
-          <p className="text-slate-500">All accounts above belong to the same sample organization except the Platform Administrator; the JAMB accounts open their own consoles. Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
+          <p className="text-slate-500">All accounts above belong to the same sample organization except the Platform Administrator; the JAMB platform accounts open their own workspaces. Guided test scenarios, account switching and demo data reset are in the <Link to="/demo" className="font-medium text-brand-600 hover:text-brand-700">Demo Control Centre</Link>.</p>
         </div>
       </Modal>
     </div>

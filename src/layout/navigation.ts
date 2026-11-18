@@ -9,6 +9,8 @@ export interface NavItem {
   alsoActiveOn?: string[];
   /** Hidden from administrators without this permission (or without all of these, given a list: shown with any one). */
   permission?: Permission | Permission[];
+  /** Matches only this exact path (defaults to true for the home items). */
+  end?: boolean;
   /** Hidden when the administrator has this permission: the organization-wide item covers it (no duplicate navigation). */
   hiddenWith?: Permission;
 }

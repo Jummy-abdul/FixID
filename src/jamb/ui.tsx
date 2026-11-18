@@ -1,105 +1,147 @@
-import { useState, type ReactNode } from 'react';
-import { Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, CircleDashed, Clock, LogOut, MinusCircle, XCircle } from 'lucide-react';
-import { Badge, Button } from '@/components/ui';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { AlertTriangle, CheckCircle2, CircleDashed, Clock, LogOut, Menu, MinusCircle, ShieldOff, UserRound, X, XCircle } from 'lucide-react';
+import { Avatar, Badge, Button } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
+import { handleMenuKeys, usePopover } from '@/hooks/usePopover';
+import { SidebarNav } from '@/layout/Sidebar';
+import type { NavGroup } from '@/layout/navigation';
 import { cn } from '@/lib/cn';
 import type { StudentRecord } from './data';
 import jambLogo from './assets/jamb-logo.png';
-import { JAMB_PERSONAS, type ConsoleRole } from './personas';
-import type { Officer } from './store';
+import { type ConsoleRole } from './personas';
+import { registrationPortrait } from './portraits';
+import { accessDisabled, officerFor, useJambState, type Officer } from './store';
 
 /* ---------------- access and layout ---------------- */
 
-/** Only the matching demo account opens a console; everyone else goes to their own home. */
+/** Only the matching demo account opens a workspace; everyone else goes to their own home. JAMB can disable access. */
 export function RequireConsole({ role, children }: { role: ConsoleRole; children: ReactNode }) {
   const { account } = useAuth();
   const location = useLocation();
+  const state = useJambState();
   if (!account) return <Navigate to="/signin" replace state={{ from: `${location.pathname}${location.search}` }} />;
   if (account.consoleRole !== role) return <Navigate to={homeFor(account)} replace />;
+  if (accessDisabled(account.email, state)) return <AccessDisabled />;
   return <>{children}</>;
+}
+
+function AccessDisabled() {
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-card ring-1 ring-slate-200">
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600"><ShieldOff className="h-6 w-6" aria-hidden="true" /></span>
+        <h1 className="mt-4 text-lg font-semibold text-slate-900">Your access has been disabled</h1>
+        <p className="mt-1 text-sm text-slate-500">JAMB has disabled your account on the identity verification platform. Contact your JAMB administrator to restore access.</p>
+        <Button className="mt-6" variant="secondary" icon={<LogOut className="h-4 w-4" />} onClick={() => { signOut(); navigate('/signin', { replace: true }); }}>Sign out</Button>
+      </div>
+    </div>
+  );
 }
 
 /** The signed-in officer, for the store's permission checks. */
 export function useOfficer(): Officer {
   const { account } = useAuth();
-  const p = JAMB_PERSONAS.find((x) => x.accountId === account?.id);
-  return { name: p ? `${p.firstName} ${p.lastName}` : 'Officer', role: p?.consoleRole ?? 'jamb-officer', institution: p?.institution };
+  return officerFor(account?.email);
 }
 
-export interface NavItem { label: string; to: string; end?: boolean }
-
 /**
- * A JAMB Identity Verification & Clearance console: JAMB is the platform identity; a university officer's
- * console adds the institution as context. One discreet "Demo environment" label in the footer discloses that
- * records are illustrative and verification responses simulated. Chrome is hidden when printing.
+ * A workspace of the JAMB Identity Verification Platform, built on FixID's layout: the same sidebar (with
+ * JAMB branding and the role's navigation), a header naming the organisation and role, and the account menu.
+ * Chrome is hidden when printing.
  */
-export function ConsoleShell({ context, nav, roleLabel, children }: { context?: { title: string; subtitle: string }; nav: NavItem[]; roleLabel: string; children: ReactNode }) {
-  const { account, signOut } = useAuth();
-  const navigate = useNavigate();
-  const name = [account?.firstName, account?.lastName].filter(Boolean).join(' ');
+export function ConsoleLayout({ nav, organisation, mark, children }: { nav: NavGroup[]; organisation: { name: string; role: string }; mark?: ReactNode; children: ReactNode }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo?.(0, 0); }, [pathname]);
+  const brand = (
+    <div className="flex h-16 items-center gap-2.5 px-4">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white p-0.5"><img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-full w-full object-contain" /></span>
+      <div className="min-w-0 leading-tight">
+        <p className="truncate text-[15px] font-semibold text-white">JAMB Identity</p>
+        <p className="truncate text-[11px] text-slate-400">Verification Platform</p>
+      </div>
+    </div>
+  );
+  const footer = <p className="px-5 pb-4 text-[11px] text-slate-500"><span className="rounded-full bg-white/5 px-2 py-0.5">Demo environment</span></p>;
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      <header className="bg-emerald-950 text-white print:hidden">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <JambLogo />
-            <div className="min-w-0 leading-tight">
-              <p className="truncate text-base font-semibold">JAMB Identity Verification &amp; Clearance</p>
-              <p className="truncate text-xs text-emerald-100/80">Joint Admissions and Matriculation Board</p>
-            </div>
-          </div>
-          {context && (
-            <div className="min-w-0 border-l border-white/20 pl-5 leading-tight" aria-label="Institution">
-              <p className="truncate text-sm font-semibold">{context.title}</p>
-              <p className="truncate text-xs text-emerald-100/80">{context.subtitle}</p>
-            </div>
-          )}
-          <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="hidden text-right leading-tight md:block">
-              <span className="block font-medium">{name}</span>
-              <span className="block text-xs text-white/70">{roleLabel}</span>
-            </span>
-            <Button size="sm" variant="secondary" icon={<LogOut className="h-4 w-4" />} onClick={() => { signOut(); navigate('/signin', { replace: true }); }}>Sign out</Button>
-          </div>
+    <div className="min-h-screen bg-slate-50">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block print:hidden"><SidebarNav groups={nav} brand={brand} footer={footer} /></aside>
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-slate-900/50" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside className="relative h-full w-64">
+            <SidebarNav groups={nav} brand={brand} footer={footer} onNavigate={() => setMobileOpen(false)} />
+            <button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" className="absolute right-2 top-4 rounded-md p-1.5 text-slate-400 hover:bg-white/10"><X className="h-5 w-5" /></button>
+          </aside>
         </div>
-        <nav aria-label="Console" className="mx-auto w-full max-w-7xl overflow-x-auto px-4 sm:px-6 lg:px-8">
-          <ul className="flex gap-1">
-            {nav.map((n) => (
-              <li key={n.to}>
-                <NavLink to={n.to} end={n.end} className={({ isActive }) => cn('block whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-medium', isActive ? 'bg-slate-50 text-slate-900' : 'text-white/80 hover:bg-white/10 hover:text-white')}>
-                  {n.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:max-w-none print:p-0">{children}</main>
-      <footer className="mx-auto w-full max-w-7xl px-4 pb-6 sm:px-6 lg:px-8 print:hidden">
-        <DemoEnvironment />
-      </footer>
+      )}
+      <div className="lg:pl-64 print:pl-0">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6 print:hidden">
+          <button type="button" onClick={() => setMobileOpen(true)} aria-label="Open navigation" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden"><Menu className="h-5 w-5" /></button>
+          <div className="flex min-w-0 items-center gap-2.5" role="region" aria-label="Workspace">
+            {mark}
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold text-slate-900">{organisation.name}</p>
+              <p className="truncate text-xs text-slate-500">{organisation.role}</p>
+            </div>
+          </div>
+          <div className="ml-auto"><AccountMenu /></div>
+        </header>
+        <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:max-w-none print:p-0">{children}</main>
+      </div>
     </div>
   );
 }
 
-/** The single, discreet disclosure: illustrative records and simulated verification responses. */
-export function DemoEnvironment() {
+/** The signed-in officer's menu (same pattern as FixID's account menu). */
+function AccountMenu() {
+  const { account, signOut } = useAuth();
+  const officer = useOfficer();
+  const navigate = useNavigate();
+  const { open, toggle, close, containerRef, triggerRef } = usePopover();
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus(); }, [open]);
   return (
-    <p className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-      <span className="rounded-full bg-slate-200/70 px-2 py-0.5 font-medium text-slate-500">Demo environment</span>
-      <span>Illustrative records; identity verification responses are simulated.</span>
-    </p>
+    <div ref={containerRef} className="relative">
+      <button ref={triggerRef} type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} aria-label={`Account menu for ${officer.name}`}
+        className="flex items-center gap-2 rounded-full p-0.5 hover:ring-2 hover:ring-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+        <span className="hidden text-right leading-tight sm:block"><span className="block text-sm font-medium text-slate-900">{officer.name}</span><span className="block text-xs text-slate-500">{officer.title}</span></span>
+        <Avatar name={officer.name} size="sm" />
+      </button>
+      {open && (
+        <div ref={menuRef} role="menu" aria-label="Account" onKeyDown={(e) => handleMenuKeys(e)} className="absolute right-0 z-40 mt-2 w-64 rounded-xl bg-white p-1.5 shadow-lg ring-1 ring-slate-200">
+          <div className="flex items-center gap-3 px-2.5 py-2.5">
+            <Avatar name={officer.name} />
+            <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{officer.name}</p><p className="truncate text-xs text-slate-500">{account?.email}</p></div>
+          </div>
+          <div className="my-1 h-px bg-slate-100" />
+          <p className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-slate-500"><UserRound className="h-3.5 w-3.5" aria-hidden="true" />{officer.title} · {officer.organisation}</p>
+          <button type="button" role="menuitem" onClick={() => { close(); signOut(); navigate('/signin', { replace: true }); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none">
+            <LogOut className="h-4 w-4 text-slate-400" />Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
-/** The JAMB logo, on a white disc so it reads on the dark header. Replace src/jamb/assets/jamb-logo.png to update it. */
-export function JambLogo({ size = 'md' }: { size?: 'md' | 'lg' }) {
+/** The JAMB logo on a white disc. Replace src/jamb/assets/jamb-logo.png to update it. */
+export function JambLogo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-full bg-white p-0.5 shadow-sm', size === 'lg' ? 'h-16 w-16' : 'h-12 w-12')}>
+    <span className={cn('flex shrink-0 items-center justify-center rounded-full bg-white p-0.5 ring-1 ring-slate-200', size === 'lg' ? 'h-16 w-16' : size === 'sm' ? 'h-8 w-8' : 'h-12 w-12')}>
       <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-full w-full object-contain" />
     </span>
   );
+}
+
+/** An organisation's mark: a lettermark until the organisation's own logo is supplied. */
+export function OrgMark({ letters, tone = 'slate' }: { letters: string; tone?: 'slate' | 'green' | 'blue' }) {
+  const t = { slate: 'bg-slate-100 text-slate-700', green: 'bg-emerald-100 text-emerald-800', blue: 'bg-sky-100 text-sky-800' }[tone];
+  return <span aria-hidden="true" className={cn('flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg px-1.5 text-[11px] font-bold tracking-tight', t)}>{letters}</span>;
 }
 
 /* ---------------- statuses ---------------- */
@@ -124,38 +166,25 @@ export const VERIFICATION_FILTER = [
 export const CLEARANCE_FILTER = [{ value: 'all', label: 'Any clearance status' }, { value: 'cleared', label: 'Cleared' }, { value: 'pending', label: 'Pending' }];
 export const MATRIC_FILTER = [{ value: 'all', label: 'Any matriculation status' }, { value: 'matriculated', label: 'Matriculated' }, { value: 'not-matriculated', label: 'Not yet matriculated' }];
 
-/* ---------------- illustrative portraits ---------------- */
+/* ---------------- portraits ---------------- */
 
-/**
- * A drawn, clearly illustrative portrait (never a photograph or derived from anyone). The same student keeps
- * the same features across stages; the stage changes the background.
- */
-export function Portrait({ seed, gender, stage, label, className }: { seed: string; gender: StudentRecord['gender']; stage: 'registration' | 'exam' | 'clearance'; label: string; className?: string }) {
-  let h = 0;
-  for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const skin = ['#8a5a3c', '#a66a43', '#6e4630', '#b47a52', '#7c5034'][h % 5];
-  const hair = ['#1f1b18', '#2f2a26', '#140f0c'][(h >> 3) % 3];
-  const bg = { registration: '#e0e7ff', exam: '#dcfce7', clearance: '#fef3c7' }[stage];
-  const shirt = { registration: '#4f46e5', exam: '#15803d', clearance: '#b45309' }[stage];
+/** A student's original JAMB registration portrait (a photograph when supplied, otherwise "portrait on file"). */
+export function Portrait({ record, label = 'JAMB registration portrait', className }: { record: Pick<StudentRecord, 'reg' | 'gender' | 'firstName' | 'lastName'>; label?: string; className?: string }) {
+  const url = registrationPortrait(record);
+  if (url) return <img src={url} alt={`${label}: ${record.firstName} ${record.lastName}`} className={cn('rounded-lg object-cover ring-1 ring-slate-200', className ?? 'h-40 w-full')} />;
+  return <PortraitPlaceholder label={`${label}: ${record.firstName} ${record.lastName}`} className={className} />;
+}
+export function PortraitPlaceholder({ label, className }: { label: string; className?: string }) {
   return (
-    <svg viewBox="0 0 120 140" role="img" aria-label={`${label} (illustrative drawing)`} className={cn('h-36 w-full rounded-lg bg-white', className)}>
-      <rect width="120" height="140" fill={bg} rx="6" />
-      <ellipse cx="60" cy="130" rx="44" ry="28" fill={shirt} />
-      {gender === 'Female' && <ellipse cx="60" cy="58" rx="33" ry="38" fill={hair} />}
-      <ellipse cx="60" cy="62" rx="25" ry="30" fill={skin} />
-      <path d={gender === 'Female' ? 'M33 58 Q60 14 87 58 Q84 34 60 30 Q36 34 33 58Z' : 'M36 50 Q60 24 84 50 Q80 36 60 33 Q40 36 36 50Z'} fill={hair} />
-      <circle cx="50" cy="62" r="2.6" fill="#111827" /><circle cx="70" cy="62" r="2.6" fill="#111827" />
-      <path d="M52 78 Q60 83 68 78" stroke="#3f1d0b" strokeWidth="2" fill="none" strokeLinecap="round" />
-    </svg>
+    <div role="img" aria-label={label} className={cn('flex flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-slate-100 text-slate-400 ring-1 ring-slate-200', className ?? 'h-40 w-full')}>
+      <UserRound className="h-1/3 max-h-12 w-1/3 max-w-12" aria-hidden="true" />
+      {!/\bh-(1\d|2\d)\b/.test(className ?? '') && <span className="text-[11px] font-medium">Portrait on file</span>}
+    </div>
   );
 }
-
-/** A deterministic, clearly simulated "capture" used when no camera is available. */
-export function simulatedCaptureDataUrl(seed: string, gender: StudentRecord['gender']) {
-  let h = 0;
-  for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const skin = ['#8a5a3c', '#a66a43', '#6e4630', '#b47a52', '#7c5034'][h % 5];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140"><rect width="120" height="140" fill="#fef3c7"/><ellipse cx="60" cy="130" rx="44" ry="28" fill="#b45309"/>${gender === 'Female' ? '<ellipse cx="60" cy="58" rx="33" ry="38" fill="#1f1b18"/>' : ''}<ellipse cx="60" cy="62" rx="25" ry="30" fill="${skin}"/><circle cx="50" cy="62" r="2.6" fill="#111827"/><circle cx="70" cy="62" r="2.6" fill="#111827"/><path d="M52 78 Q60 83 68 78" stroke="#3f1d0b" stroke-width="2" fill="none"/></svg>`;
+/** An image for a capture when no demo photograph has been supplied. */
+export function placeholderFaceUrl(name: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400"><rect width="300" height="400" fill="#e2e8f0"/><circle cx="150" cy="150" r="70" fill="#94a3b8"/><ellipse cx="150" cy="370" rx="120" ry="110" fill="#94a3b8"/><text x="150" y="40" font-family="sans-serif" font-size="18" text-anchor="middle" fill="#475569">${name.replace(/[<&>]/g, '')}</text></svg>`;
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 

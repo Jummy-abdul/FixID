@@ -3,10 +3,10 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import qrcode from 'qrcode-generator';
 import { CheckCircle2, Download, Printer, ShieldAlert } from 'lucide-react';
 import { Button, Card, useToast } from '@/components/ui';
-import { formatDate, formatDateTime } from '@/lib/dates';
+import { dateTime } from './format';
+import { formatDate } from '@/lib/dates';
 import { institutionByCode, type StudentRecord } from './data';
 import { clearanceReference, getJambState, recordOf, useJambState } from './store';
-import { DemoEnvironment } from './ui';
 import jambLogo from './assets/jamb-logo.png';
 
 /** What the QR code carries, so the verification page can show it on any device (demo only). */
@@ -36,12 +36,12 @@ export function QrCode({ text, label, size = 132 }: { text: string; label: strin
 }
 
 /** Saves the certificate as a one-page PDF (the libraries load only when asked). */
-async function downloadPdf(el: HTMLElement, fileName: string) {
+export async function downloadPdf(el: HTMLElement, fileName: string, title = 'Clearance certificate') {
   const [{ jsPDF }, { toPng }] = await Promise.all([import('jspdf'), import('html-to-image')]);
   let png: string;
   try { png = await toPng(el, { pixelRatio: 2, backgroundColor: '#ffffff' }); } catch { png = await toPng(el, { pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: true }); }
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
-  doc.setProperties({ title: 'Clearance certificate (demonstration record)', creator: 'JAMB Identity Verification & Clearance (demo)' });
+  doc.setProperties({ title, creator: 'JAMB Identity Verification Platform' });
   const w = 190; const h = (el.offsetHeight / el.offsetWidth) * w;
   doc.addImage(png, 'PNG', 10, 10, w, Math.min(h, 277));
   doc.save(fileName);
@@ -91,7 +91,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
           <div className="flex items-center gap-3">
             <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-14 w-14 object-contain" />
-            <span><span className="block text-base font-semibold text-slate-900">JAMB Identity Verification &amp; Clearance</span><span className="block text-xs text-slate-500">Joint Admissions and Matriculation Board</span></span>
+            <span><span className="block text-base font-semibold text-slate-900">JAMB Identity Verification</span><span className="block text-xs text-slate-500">Joint Admissions and Matriculation Board</span></span>
           </div>
           <div className="text-right">
             <p className="font-semibold text-slate-900">{inst.name}</p>
@@ -99,7 +99,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
           </div>
         </div>
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-900">Identity Verification &amp; Clearance Certificate</h1>
-        <p className="mt-1 text-sm text-slate-600">This confirms that the student below completed biometric identity verification against their JAMB registration record and was cleared by the institution.</p>
+        <p className="mt-1 text-sm text-slate-600">The student below completed identity verification against their JAMB registration record and was cleared by the institution.</p>
         <div className="mt-6 grid gap-6 sm:grid-cols-[1fr_auto]">
           <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
             {row('Student name', `${r.firstName} ${r.middleName} ${r.lastName}`)}
@@ -107,18 +107,19 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
             {row('University', inst.name)}
             {row('Admission session', r.session)}
             {row('Department', r.department)}
-            {row('Biometric verification outcome', <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Face match successful</span>)}
-            {row('Verification date', r.verifiedAt ? formatDateTime(r.verifiedAt) : '—')}
-            {row('Clearance date', r.clearedAt ? formatDateTime(r.clearedAt) : '—')}
+            {row('Course', r.course)}
+            {row('Verification outcome', <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Identity verified (JAMB and NIN match)</span>)}
+            {row('Verification date', r.verifiedAt ? dateTime(r.verifiedAt) : '—')}
+            {row('Clearance date', r.clearedAt ? dateTime(r.clearedAt) : '—')}
             {row('Clearance officer', r.clearedBy ?? '—')}
-            {row('Verification reference', <span className="font-mono">{reference}</span>)}
+            {row('Clearance reference', <span className="font-mono">{reference}</span>)}
           </dl>
           <div className="flex flex-col items-center gap-1">
             <QrCode text={url} label={`QR code linking to the verification page for reference ${reference}`} />
             <span className="max-w-[9rem] text-center text-[11px] text-slate-500">Scan to view the verification details</span>
           </div>
         </div>
-        <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Issued {formatDate(new Date().toISOString())}. Demonstration record, not an official document. Matriculation is confirmed separately by the institution.</p>
+        <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Issued {formatDate(new Date().toISOString())}. Matriculation is confirmed separately by the institution. Demo environment.</p>
       </div>
     </>
   );
@@ -141,13 +142,13 @@ export function PublicVerificationPage() {
       <div className="mx-auto max-w-lg space-y-4">
         <div className="flex items-center gap-3">
           <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-12 w-12 object-contain" />
-          <span><span className="block font-semibold text-slate-900">JAMB Identity Verification &amp; Clearance</span><span className="block text-xs text-slate-500">Clearance verification</span></span>
+          <span><span className="block font-semibold text-slate-900">JAMB Identity Verification</span><span className="block text-xs text-slate-500">Clearance verification</span></span>
         </div>
         {valid ? (
           <Card className="px-5 py-5">
             <p className="flex items-center gap-2 font-semibold text-emerald-700"><CheckCircle2 className="h-5 w-5" aria-hidden="true" />Clearance record confirmed</p>
             <dl className="mt-4 space-y-3 text-sm" aria-label="Verification details">
-              {([['Reference', <span className="font-mono">{p.r}</span>], ['Student', p.n], ['JAMB registration number', <span className="font-mono">{p.g}</span>], ['Institution', p.i], ['Admission session', p.s], ['Cleared', p.d ? formatDateTime(p.d) : '—'], ['Clearance officer', p.o], ['Biometric outcome', 'Face match successful']] as const).map(([k, v]) => (
+              {([['Reference', <span className="font-mono">{p.r}</span>], ['Student', p.n], ['JAMB registration number', <span className="font-mono">{p.g}</span>], ['Institution', p.i], ['Admission session', p.s], ['Cleared', p.d ? dateTime(p.d) : '—'], ['Clearance officer', p.o], ['Verification outcome', 'Identity verified']] as const).map(([k, v]) => (
                 <div key={k} className="grid grid-cols-[10rem_1fr] gap-2"><dt className="text-slate-500">{k}</dt><dd className="text-slate-900">{v}</dd></div>
               ))}
             </dl>
@@ -159,7 +160,7 @@ export function PublicVerificationPage() {
             <p className="mt-2 text-sm text-slate-600">Scan the QR code on the certificate again, or ask the institution for the reference.</p>
           </Card>
         )}
-        <DemoEnvironment />
+        <p className="text-xs text-slate-400">Demo environment</p>
       </div>
     </div>
   );

@@ -1,32 +1,144 @@
 import { useSyncExternalStore } from 'react';
+import type { ExceptionAction, ExceptionEvent, ExceptionStatus } from '@/domain/exceptions';
+import { OPEN_STATUSES } from '@/domain/exceptions';
 import {
-  INSTITUTIONS, SESSIONS, UNILAG, baseCounts, baseRecord, baseRecords, institutionByCode, parseRegistration,
+  ACTIVE_SESSION, EVENTS, INSTITUTIONS, NYSC_EVENT_ID, SESSIONS, UNILAG, baseCounts, baseRecord, baseRecordOf, baseRecords, eventForSession, institutionByCode,
+  issueIndexes, normaliseReg, workingHours, officersOf, parseRegistration, rng, scenarioRecords, sessionYear, verifiedIndexes,
   type Institution, type Session, type StudentRecord,
 } from './data';
+import { JAMB_PERSONAS, type ConsoleRole } from './personas';
+import { scenarioByReg, type PriorClearance } from './scenarios';
 
 /**
- * What officers do in the JAMB demonstration: verifications, clearances and matriculation confirmations.
- * Kept apart from the rest of the prototype's data (its own browser storage key), so nothing existing is
- * changed. Both demo consoles read and write the same store, so a clearance done by the university
- * appears in JAMB's oversight straight away (in other open tabs too). Browser storage only: illustrative.
+ * The platform's shared state: what officers do (verifications, clearances, matriculation confirmations,
+ * NYSC verifications), the exceptions register, delegated users and the audit trail. All three workspaces read
+ * and write this one store, so a clearance done by a university appears for JAMB and NYSC straight away (other
+ * open tabs too). Kept apart from the rest of the prototype's data under its own browser storage key.
  */
-export const JAMB_STORAGE_KEY = 'fixid.jamb.v1';
+export const JAMB_STORAGE_KEY = 'fixid.jamb.v2';
 
-/** A simulated response from JAMB's identity verification service (no real service is called). */
-export type VerificationOutcome = 'match' | 'no-match' | 'missing-record' | 'unavailable' | 'not-found' | 'invalid';
+/* ---------------- types ---------------- */
 
-export const OUTCOME_LABEL: Record<VerificationOutcome, string> = {
-  match: 'Face match successful', 'no-match': 'Face match unsuccessful', 'missing-record': 'Missing identity record',
-  unavailable: 'Verification service unavailable', 'not-found': 'Student record not found', invalid: 'Invalid JAMB registration number',
+export interface Officer {
+  name: string;
+  email: string;
+  role: ConsoleRole;
+  /** Job title, e.g. Institutional Clearance Officer. */
+  title: string;
+  organisation: string;
+  institution?: string;
+}
+
+export type UniversityOutcome = 'identity-confirmed' | 'nin-mismatch' | 'duplicate-clearance' | 'face-mismatch' | 'not-found' | 'invalid';
+export type NyscOutcome = 'confirmed' | 'face-mismatch' | 'matriculation-not-confirmed' | 'not-found' | 'invalid';
+export type ActivityOutcome = UniversityOutcome | NyscOutcome | 'clearance-completed' | 'matriculation-confirmed';
+
+export const OUTCOME_LABEL: Record<ActivityOutcome, string> = {
+  'identity-confirmed': 'Identity verified', 'nin-mismatch': 'JAMB/NIN discrepancy', 'duplicate-clearance': 'Duplicate clearance blocked',
+  'face-mismatch': 'Face verification failed', 'not-found': 'Record not found', invalid: 'Invalid registration number',
+  confirmed: 'Identity confirmed', 'matriculation-not-confirmed': 'Matriculation not confirmed',
+  'clearance-completed': 'Clearance completed', 'matriculation-confirmed': 'Matriculation confirmed',
 };
-/** Success, failure or an exception (which isn't an identity decision). */
-export const outcomeKind = (o: VerificationOutcome): 'success' | 'failed' | 'exception' => (o === 'match' ? 'success' : o === 'no-match' ? 'failed' : 'exception');
+export const outcomeTone = (o: ActivityOutcome): 'success' | 'danger' | 'warning' | 'neutral' =>
+  o === 'identity-confirmed' || o === 'confirmed' || o === 'clearance-completed' || o === 'matriculation-confirmed' ? 'success'
+    : o === 'face-mismatch' ? 'danger' : o === 'not-found' || o === 'invalid' ? 'neutral' : 'warning';
+
+/** A verification activity: one university clearance check or NYSC verification (or a clearance decision). */
+export interface Activity {
+  ref: string;
+  at: string;
+  kind: 'university' | 'nysc';
+  eventId: string;
+  officer: string;
+  officerTitle: string;
+  organisation: string;
+  institution?: string;
+  session?: Session;
+  input: string;
+  reg?: string;
+  outcome: ActivityOutcome;
+  checks?: { face?: 'match' | 'no-match'; nin?: 'match' | 'mismatch' };
+  captureMode?: 'camera' | 'demo';
+  exceptionId?: string;
+}
+
+export type ExceptionCategory = 'jamb-nin-discrepancy' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
+export const CATEGORY_LABEL: Record<ExceptionCategory, string> = {
+  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Duplicate clearance',
+  'record-inconsistency': 'Student record inconsistency', 'failed-verification': 'Failed identity verification', 'manual-review': 'Manual review required',
+};
+export type ExceptionResolution = 'identity-confirmed' | 'identity-not-confirmed' | 'record-corrected' | 'clearance-revoked' | 'no-further-action';
+export const RESOLUTION_LABEL: Record<ExceptionResolution, string> = {
+  'identity-confirmed': 'Identity confirmed: clearance may proceed', 'identity-not-confirmed': 'Identity not confirmed: clearance remains blocked',
+  'record-corrected': 'Record corrected by JAMB', 'clearance-revoked': 'Earlier clearance upheld: duplicate blocked', 'no-further-action': 'No further action required',
+};
+
+export interface Evidence { label: string; value: string; tone?: 'good' | 'bad' | 'neutral' }
+export interface JambException {
+  id: string;
+  reg: string;
+  institution: string;
+  session: Session;
+  eventId: string;
+  category: ExceptionCategory;
+  summary: string;
+  raisedAt: string;
+  raisedBy: string;
+  raisedByOrganisation: string;
+  status: ExceptionStatus;
+  assignedTo?: string;
+  evidence: Evidence[];
+  activityRef?: string;
+  history: ExceptionEvent[];
+  resolution?: { outcome: ExceptionResolution; note: string; at: string; by: string };
+}
+
+export type UserRole = 'jamb-admin' | 'jamb-reviewer' | 'clearance-officer' | 'clearance-supervisor' | 'nysc-officer';
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  'jamb-admin': 'Central Administrator', 'jamb-reviewer': 'Exception Reviewer', 'clearance-officer': 'Clearance Officer',
+  'clearance-supervisor': 'Clearance Supervisor', 'nysc-officer': 'NYSC Verification Officer',
+};
+export const ROLE_ACCESS: Record<UserRole, string> = {
+  'jamb-admin': 'All institutions, events, exceptions, student identity records and user access.',
+  'jamb-reviewer': 'Exceptions and student identity records, read-only elsewhere.',
+  'clearance-officer': 'Their institution’s published clearance events: verify and clear students.',
+  'clearance-supervisor': 'Their institution’s clearance records and officers’ activity.',
+  'nysc-officer': 'The NYSC Identity Verification event: verify candidates and view their history.',
+};
+export const rolesFor = (organisation: string): UserRole[] => (organisation === 'JAMB' ? ['jamb-admin', 'jamb-reviewer'] : organisation === 'NYSC' ? ['nysc-officer'] : ['clearance-officer', 'clearance-supervisor']);
+export interface PlatformUser {
+  id: string;
+  name: string;
+  email: string;
+  /** JAMB, NYSC or an institution code. */
+  organisation: string;
+  role: UserRole;
+  status: 'active' | 'invited' | 'disabled';
+  lastActiveAt?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  user: string;
+  role: string;
+  organisation: string;
+  action: string;
+  reg?: string;
+  student?: string;
+  outcome?: string;
+  reference?: string;
+}
 
 export interface StudentOverride {
   verification?: StudentRecord['verification'];
   verifiedAt?: string;
+  verifiedBy?: string;
   verificationRef?: string;
-  captureMode?: 'camera' | 'simulated';
+  nin?: StudentRecord['nin'];
+  blocked?: StudentRecord['blocked'] | null;
   clearance?: StudentRecord['clearance'];
   clearedAt?: string;
   clearedBy?: string;
@@ -37,27 +149,25 @@ export interface StudentOverride {
   matriculatedBy?: string;
 }
 
-export interface VerificationEvent {
-  ref: string;
-  at: string;
-  by: string;
-  institution: string;
-  session: Session;
-  /** The registration number entered (as typed when it wasn't valid). */
-  input: string;
-  reg?: string;
-  outcome: VerificationOutcome;
-  captureMode: 'camera' | 'simulated';
+export interface JambState {
+  version: 2;
+  students: Record<string, StudentOverride>;
+  activities: Activity[];
+  exceptions: Record<string, Partial<JambException>>;
+  createdExceptions: JambException[];
+  users: Record<string, Partial<PlatformUser>>;
+  invitedUsers: PlatformUser[];
+  audit: AuditEntry[];
 }
 
-export interface JambState { version: 1; students: Record<string, StudentOverride>; events: VerificationEvent[] }
+/* ---------------- persistence ---------------- */
 
-const empty = (): JambState => ({ version: 1, students: {}, events: [] });
+const empty = (): JambState => ({ version: 2, students: {}, activities: [], exceptions: {}, createdExceptions: [], users: {}, invitedUsers: [], audit: [] });
 function load(): JambState {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(JAMB_STORAGE_KEY) : null;
     const parsed = raw ? JSON.parse(raw) as JambState : null;
-    return parsed?.version === 1 && parsed.students && Array.isArray(parsed.events) ? parsed : empty();
+    return parsed?.version === 2 ? { ...empty(), ...parsed } : empty();
   } catch { return empty(); }
 }
 
@@ -81,19 +191,24 @@ export function useJambState(): JambState {
   return useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l); }, () => current, () => current);
 }
 
+const code6 = () => Array.from({ length: 6 }, () => '0123456789'[Math.floor(Math.random() * 10)]).join('');
+const now = () => new Date().toISOString();
 
 /* ---------------- records and counts ---------------- */
 
 export function recordOf(reg: string, state: JambState = current): StudentRecord | undefined {
-  const p = parseRegistration(reg);
-  if (!p.ok) return undefined;
-  const base = baseRecord(p.institution, p.session, p.index);
-  return { ...base, ...(state.students[base.reg] ?? {}) };
+  const base = baseRecordOf(reg);
+  if (!base) return undefined;
+  const o = state.students[base.reg];
+  if (!o) return base;
+  const merged = { ...base, ...o } as StudentRecord & { blocked?: StudentRecord['blocked'] | null };
+  if (merged.blocked === null) delete merged.blocked;
+  return merged as StudentRecord;
 }
+export const priorClearanceOf = (reg: string): PriorClearance | undefined => scenarioByReg(reg)?.priorClearance;
 
 export function recordsOf(inst: Institution, s: Session, state: JambState = current): StudentRecord[] {
-  const base = baseRecords(inst, s);
-  return base.map((r) => (state.students[r.reg] ? { ...r, ...state.students[r.reg] } : r));
+  return baseRecords(inst, s).map((r) => (state.students[r.reg] ? recordOf(r.reg, state)! : r));
 }
 
 export interface Counts {
@@ -128,7 +243,7 @@ function bump(c: Counts, r: Pick<StudentRecord, 'verification' | 'clearance' | '
 }
 export const add = (a: Counts, b: Counts): Counts => Object.fromEntries(Object.keys(a).map((k) => [k, a[k as keyof Counts] + b[k as keyof Counts]])) as unknown as Counts;
 
-/** Counts for an institution's session: JAMB's records, adjusted by what's been done in the prototype. */
+/** Counts for an institution's session: JAMB's records, adjusted by what's been done on the platform. */
 export function countsOf(code: string, s: Session, state: JambState = current): Counts {
   const b = baseCounts(code, s);
   const c: Counts = {
@@ -136,13 +251,15 @@ export function countsOf(code: string, s: Session, state: JambState = current): 
     failed: b.failed, exceptions: b.exceptions, awaitingClearance: b.verifiedAwaiting, clearedNotMatriculated: b.cleared - b.matriculated,
     notStarted: b.admitted - b.cleared - b.failed - b.exceptions - b.verifiedAwaiting,
   };
+  for (const r of scenarioRecords(code, s)) { c.admitted += 1; bump(c, recordOf(r.reg, state)!, 1); }
   const inst = institutionByCode(code)!;
   for (const [reg, o] of Object.entries(state.students)) {
+    if (scenarioByReg(reg)) continue;
     const p = parseRegistration(reg);
     if (!p.ok || p.institution.code !== code || p.session !== s) continue;
     const base = baseRecord(inst, s, p.index);
     bump(c, base, -1);
-    bump(c, { ...base, ...o }, 1);
+    bump(c, { ...base, ...o } as StudentRecord, 1);
   }
   return c;
 }
@@ -150,66 +267,317 @@ export const institutionCounts = (code: string, state: JambState = current) => S
 export const sessionTotals = (s: Session, state: JambState = current) => INSTITUTIONS.map((i) => countsOf(i.code, s, state)).reduce(add, zero());
 export const nationalCounts = (state: JambState = current) => INSTITUTIONS.map((i) => institutionCounts(i.code, state)).reduce(add, zero());
 
+/* ---------------- officers ---------------- */
+
+export function officerFor(accountEmail: string | undefined): Officer {
+  const p = JAMB_PERSONAS.find((x) => x.email === accountEmail) ?? JAMB_PERSONAS[0];
+  const inst = p.institution ? institutionByCode(p.institution) : undefined;
+  return { name: `${p.firstName} ${p.lastName}`, email: p.email, role: p.consoleRole, title: p.role, organisation: inst?.name ?? p.organization, institution: p.institution };
+}
+
+/* ---------------- seeded history (derived, deterministic) ---------------- */
+
+const titleFor = (kind: Activity['kind']) => (kind === 'nysc' ? 'NYSC Verification Officer' : 'Institutional Clearance Officer');
+function activityFromRecord(r: StudentRecord): Activity {
+  const inst = institutionByCode(r.institution)!;
+  const outcome: ActivityOutcome = r.verification === 'failed' ? 'face-mismatch' : r.verification === 'exception' ? 'nin-mismatch' : 'identity-confirmed';
+  return {
+    ref: r.verificationRef!, at: r.verifiedAt!, kind: 'university', eventId: eventForSession(r.session).id, officer: r.verifiedBy!, officerTitle: titleFor('university'),
+    organisation: inst.name, institution: inst.code, session: r.session, input: r.reg, reg: r.reg, outcome,
+    checks: { face: outcome === 'face-mismatch' ? 'no-match' : 'match', nin: outcome === 'face-mismatch' ? undefined : outcome === 'nin-mismatch' ? 'mismatch' : 'match' }, captureMode: 'camera',
+  };
+}
+
+let seededUniversity: Activity[] | null = null;
+/** University verifications already on record for the active admission session (newest first). */
+export function seededUniversityActivities(): Activity[] {
+  if (seededUniversity) return seededUniversity;
+  const list: Activity[] = [];
+  for (const inst of INSTITUTIONS) {
+    for (const index of verifiedIndexes(inst.code, ACTIVE_SESSION)) list.push(activityFromRecord(baseRecord(inst, ACTIVE_SESSION, index)));
+  }
+  seededUniversity = list.sort((a, b) => b.at.localeCompare(a.at));
+  return seededUniversity;
+}
+/** An institution's verifications on record, all sessions (newest first). */
+export function institutionActivities(code: string, state: JambState = current): Activity[] {
+  const inst = institutionByCode(code)!;
+  const seeded = SESSIONS.flatMap((s) => verifiedIndexes(code, s).map((i) => activityFromRecord(baseRecord(inst, s, i))));
+  return [...state.activities.filter((a) => a.institution === code), ...seeded].sort((a, b) => b.at.localeCompare(a.at));
+}
+
+export const NYSC_OFFICERS = ['Hadiza Lawal', 'Kelechi Amadi', 'Rotimi Babalola'];
+let seededNysc: Activity[] | null = null;
+/** NYSC verifications already on record (2022/2023 entrants presenting for NYSC). */
+export function seededNyscActivities(): Activity[] {
+  if (seededNysc) return seededNysc;
+  const r = rng('nysc-seed');
+  const out: Activity[] = [];
+  const s: Session = '2022/2023';
+  const from = Date.UTC(2026, 8, 1, 9); const to = Date.UTC(2026, 10, 14, 16);
+  INSTITUTIONS.slice(0, 18).forEach((inst, k) => {
+    const c = baseCounts(inst.code, s);
+    const order = verifiedIndexes(inst.code, s);
+    const picks = [order[k % Math.max(1, c.matriculated)], order[(k * 7 + 3) % Math.max(1, c.matriculated)]];
+    picks.forEach((index, j) => {
+      const rec = baseRecord(inst, s, index);
+      const roll = r();
+      const outcome: NyscOutcome = roll < 0.08 ? 'face-mismatch' : 'confirmed';
+      out.push({
+        ref: `NYV-2026-${String(400000 + k * 97 + j * 13).padStart(6, '0')}`, at: workingHours(from + r() * (to - from), r), kind: 'nysc', eventId: NYSC_EVENT_ID,
+        officer: NYSC_OFFICERS[(k + j) % 3], officerTitle: titleFor('nysc'), organisation: 'National Youth Service Corps', input: rec.reg, reg: rec.reg, outcome,
+        checks: { face: outcome === 'face-mismatch' ? 'no-match' : 'match' }, captureMode: 'camera',
+      });
+    });
+    // A few candidates who never completed clearance.
+    if (k % 5 === 2) {
+      const pendingIndex = shufflePending(inst.code, s);
+      if (pendingIndex !== undefined) {
+        const rec = baseRecord(inst, s, pendingIndex);
+        out.push({
+          ref: `NYV-2026-${String(500000 + k * 31).padStart(6, '0')}`, at: workingHours(from + r() * (to - from), r), kind: 'nysc', eventId: NYSC_EVENT_ID,
+          officer: NYSC_OFFICERS[k % 3], officerTitle: titleFor('nysc'), organisation: 'National Youth Service Corps', input: rec.reg, reg: rec.reg,
+          outcome: 'matriculation-not-confirmed', checks: { face: 'match' }, captureMode: 'camera',
+        });
+      }
+    }
+  });
+  seededNysc = out.sort((a, b) => b.at.localeCompare(a.at));
+  return seededNysc;
+}
+function shufflePending(code: string, s: Session): number | undefined {
+  const c = baseCounts(code, s);
+  for (let i = 0; i < c.admitted; i++) {
+    const rec = baseRecord(institutionByCode(code)!, s, i);
+    if (rec.verification === 'not-started') return i;
+  }
+  return undefined;
+}
+
+/** Every verification activity: recorded on the platform now, then those on record (newest first). */
+export function allActivities(state: JambState = current): Activity[] {
+  return [...state.activities, ...seededNyscActivities(), ...seededUniversityActivities()].sort((a, b) => b.at.localeCompare(a.at));
+}
+export function activitiesFor(reg: string, state: JambState = current): Activity[] {
+  const base = baseRecordOf(reg);
+  const seeded = base?.verificationRef && base.verifiedAt ? [activityFromRecord(base)] : [];
+  return [...state.activities.filter((a) => a.reg === base?.reg), ...seededNyscActivities().filter((a) => a.reg === base?.reg), ...seeded].sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/* ---------------- exceptions register ---------------- */
+
+const JAMB_REVIEWERS = ['Grace Uwaifo', 'Musa Idris', 'Aisha Danjuma'];
+let seededExceptions: JambException[] | null = null;
+function ev(id: string, at: string, action: ExceptionAction, actor: string, org: string, from?: ExceptionStatus, to?: ExceptionStatus, comment?: string): ExceptionEvent {
+  return { id, at, action, actorId: actor, actorName: actor, actorOrganizationId: org, fromStatus: from, toStatus: to, comment };
+}
+const plus = (iso: string, hours: number) => new Date(new Date(iso).getTime() + hours * 36e5).toISOString();
+
+/** Exceptions raised by institutional clearance on record (deterministic). */
+export function seededExceptionList(): JambException[] {
+  if (seededExceptions) return seededExceptions;
+  const out: JambException[] = [];
+  for (const inst of INSTITUTIONS) {
+    for (const s of SESSIONS) {
+      for (const { index, kind } of issueIndexes(inst.code, s)) {
+        const rec = baseRecord(inst, s, index);
+        const r = rng(`${rec.reg}|exc`);
+        const roll = r();
+        const category: ExceptionCategory = kind === 'failed' ? (roll < 0.72 ? 'failed-verification' : 'potential-fraud')
+          : roll < 0.5 ? 'jamb-nin-discrepancy' : roll < 0.82 ? 'record-inconsistency' : 'manual-review';
+        const id = `EXC-${sessionYear(s)}-${String(10000 + Math.floor(r() * 89999))}`;
+        const reviewer = JAMB_REVIEWERS[Math.floor(r() * 2)];
+        const active = s === ACTIVE_SESSION;
+        const stRoll = r();
+        const status: ExceptionStatus = !active ? (stRoll < 0.6 ? 'resolved' : 'closed')
+          : stRoll < 0.3 ? 'resolved' : stRoll < 0.4 ? 'closed' : stRoll < 0.6 ? 'open' : stRoll < 0.75 ? 'assigned' : stRoll < 0.94 ? 'in-review' : 'awaiting-information';
+        const raised = rec.verifiedAt!;
+        const history: ExceptionEvent[] = [ev(`${id}-1`, raised, 'created', rec.verifiedBy!, inst.name, undefined, 'open', 'Raised at institutional clearance.')];
+        if (status !== 'open') history.push(ev(`${id}-2`, plus(raised, 24), 'assigned', 'Aisha Danjuma', 'JAMB', 'open', 'assigned', `Assigned to ${reviewer}.`));
+        if (['in-review', 'awaiting-information', 'resolved', 'closed'].includes(status)) history.push(ev(`${id}-3`, plus(raised, 26), 'review-started', reviewer, 'JAMB', 'assigned', 'in-review'));
+        if (status === 'awaiting-information') history.push(ev(`${id}-4`, plus(raised, 50), 'information-requested', reviewer, 'JAMB', 'in-review', 'awaiting-information', 'Requested the candidate’s NIN slip and admission letter from the institution.'));
+        let resolution: JambException['resolution'];
+        if (status === 'resolved' || status === 'closed') {
+          const outcome: ExceptionResolution = category === 'failed-verification' || category === 'potential-fraud' ? 'identity-not-confirmed' : category === 'record-inconsistency' ? 'record-corrected' : 'identity-confirmed';
+          const note = outcome === 'identity-not-confirmed' ? 'Candidate did not attend the in-person review. Clearance remains blocked.' : outcome === 'record-corrected' ? 'Biodata corrected against the NIMC record; institution notified.' : 'Candidate attended JAMB office with valid NIN; discrepancy explained by a name change.';
+          history.push(ev(`${id}-5`, plus(raised, 144), 'resolution-recorded', reviewer, 'JAMB', 'in-review', 'resolved', note));
+          if (status === 'closed') history.push(ev(`${id}-6`, plus(raised, 168), 'closed', reviewer, 'JAMB', 'resolved', 'closed'));
+          resolution = { outcome, note, at: plus(raised, 144), by: reviewer };
+        }
+        out.push({
+          id, reg: rec.reg, institution: inst.code, session: s, eventId: eventForSession(s).id, category,
+          summary: summaryFor(category), raisedAt: raised, raisedBy: rec.verifiedBy!, raisedByOrganisation: inst.name, status,
+          assignedTo: status === 'open' ? undefined : reviewer, activityRef: rec.verificationRef, history, resolution,
+          evidence: kind === 'failed'
+            ? [{ label: 'Face match against JAMB registration portrait', value: 'No match', tone: 'bad' }, { label: 'Verification reference', value: rec.verificationRef! }]
+            : [{ label: 'Face match against JAMB registration portrait', value: 'Match', tone: 'good' }, { label: 'NIN verification response', value: category === 'jamb-nin-discrepancy' ? 'Mismatch' : 'Match', tone: category === 'jamb-nin-discrepancy' ? 'bad' : 'good' }, { label: 'Verification reference', value: rec.verificationRef! }],
+        });
+      }
+    }
+  }
+  seededExceptions = out;
+  return out;
+}
+function summaryFor(c: ExceptionCategory) {
+  return {
+    'jamb-nin-discrepancy': 'The presented face matched the JAMB registration record, but the NIN verification response did not match.',
+    'potential-fraud': 'The presented face did not match the JAMB registration record; the person presenting may not be the candidate.',
+    'duplicate-clearance': 'The same JAMB admission record has already been cleared by another institution.',
+    'record-inconsistency': 'The candidate’s biodata differs between the JAMB record and the institution’s admission list.',
+    'failed-verification': 'The presented face did not match the JAMB registration record.',
+    'manual-review': 'The verification result needs a manual review by JAMB before clearance.',
+  }[c];
+}
+
+export function exceptionsOf(state: JambState = current): JambException[] {
+  const all = [...state.createdExceptions, ...seededExceptionList()];
+  return all.map((e) => (state.exceptions[e.id] ? { ...e, ...state.exceptions[e.id] } as JambException : e)).sort((a, b) => b.raisedAt.localeCompare(a.raisedAt));
+}
+export const exceptionById = (id: string, state: JambState = current) => exceptionsOf(state).find((e) => e.id === id);
+export const exceptionsForReg = (reg: string, state: JambState = current) => exceptionsOf(state).filter((e) => e.reg === reg);
+export const isOpenException = (e: JambException) => OPEN_STATUSES.includes(e.status);
+
+/* ---------------- users ---------------- */
+
+let seededUsers: PlatformUser[] | null = null;
+const emailOf = (name: string, domain: string) => `${name.split(' ')[0][0].toLowerCase()}.${name.split(' ').slice(-1)[0].toLowerCase()}@${domain}`;
+export function seededUserList(): PlatformUser[] {
+  if (seededUsers) return seededUsers;
+  const at = '2025-10-06T09:00:00.000Z';
+  const list: PlatformUser[] = [
+    { id: 'usr-jamb-1', name: 'Aisha Danjuma', email: 'jamb.officer@jamb-demo.example', organisation: 'JAMB', role: 'jamb-admin', status: 'active', createdAt: '2022-08-01T09:00:00.000Z', createdBy: 'System', lastActiveAt: '2026-11-14T15:20:00.000Z' },
+    { id: 'usr-jamb-2', name: 'Emmanuel Okoro', email: 'e.okoro@jamb-demo.example', organisation: 'JAMB', role: 'jamb-admin', status: 'active', createdAt: '2022-08-01T09:00:00.000Z', createdBy: 'System', lastActiveAt: '2026-11-13T10:05:00.000Z' },
+    { id: 'usr-jamb-3', name: 'Grace Uwaifo', email: 'g.uwaifo@jamb-demo.example', organisation: 'JAMB', role: 'jamb-reviewer', status: 'active', createdAt: '2023-03-14T09:00:00.000Z', createdBy: 'Emmanuel Okoro', lastActiveAt: '2026-11-14T11:42:00.000Z' },
+    { id: 'usr-jamb-4', name: 'Musa Idris', email: 'm.idris@jamb-demo.example', organisation: 'JAMB', role: 'jamb-reviewer', status: 'active', createdAt: '2024-01-22T09:00:00.000Z', createdBy: 'Aisha Danjuma', lastActiveAt: '2026-11-12T16:30:00.000Z' },
+    { id: 'usr-nysc-1', name: 'Hadiza Lawal', email: 'nysc.officer@nysc-demo.example', organisation: 'NYSC', role: 'nysc-officer', status: 'active', createdAt: '2026-02-24T09:00:00.000Z', createdBy: 'Aisha Danjuma', lastActiveAt: '2026-11-14T13:10:00.000Z' },
+    { id: 'usr-nysc-2', name: 'Kelechi Amadi', email: 'k.amadi@nysc-demo.example', organisation: 'NYSC', role: 'nysc-officer', status: 'active', createdAt: '2026-02-24T09:00:00.000Z', createdBy: 'Aisha Danjuma', lastActiveAt: '2026-11-13T12:00:00.000Z' },
+    { id: 'usr-nysc-3', name: 'Rotimi Babalola', email: 'r.babalola@nysc-demo.example', organisation: 'NYSC', role: 'nysc-officer', status: 'active', createdAt: '2026-03-10T09:00:00.000Z', createdBy: 'Aisha Danjuma', lastActiveAt: '2026-11-11T09:40:00.000Z' },
+  ];
+  for (const inst of INSTITUTIONS) {
+    officersOf(inst.code).forEach((name, k) => {
+      const demo = inst.code === UNILAG.code && k === 0;
+      list.push({
+        id: `usr-${inst.code.toLowerCase()}-${k + 1}`, name, email: demo ? 'clearance.officer@unilag-demo.example' : emailOf(name, `${inst.code.toLowerCase()}-demo.example`),
+        organisation: inst.code, role: k === 2 ? 'clearance-supervisor' : 'clearance-officer', status: 'active', createdAt: at, createdBy: 'Aisha Danjuma',
+        lastActiveAt: new Date(Date.UTC(2026, 10, 14 - ((inst.n + k) % 9), 10 + k)).toISOString(),
+      });
+    });
+  }
+  seededUsers = list;
+  return list;
+}
+export function usersOf(state: JambState = current): PlatformUser[] {
+  return [...seededUserList(), ...state.invitedUsers].map((u) => (state.users[u.id] ? { ...u, ...state.users[u.id] } as PlatformUser : u));
+}
+export const organisationName = (org: string) => (org === 'JAMB' ? 'Joint Admissions and Matriculation Board' : org === 'NYSC' ? 'National Youth Service Corps' : institutionByCode(org)?.name ?? org);
+/** Whether JAMB has disabled this person's access. */
+export const accessDisabled = (email: string | undefined, state: JambState = current) => !!email && usersOf(state).some((u) => u.email === email && u.status === 'disabled');
+
+/* ---------------- audit ---------------- */
+
+function audit(state: JambState, officer: Officer, action: string, extra: Partial<AuditEntry> = {}): JambState {
+  const entry: AuditEntry = { id: `AUD-${Date.now().toString(36)}-${code6()}`, at: now(), user: officer.name, role: officer.title, organisation: officer.organisation, action, ...extra };
+  return { ...state, audit: [entry, ...state.audit] };
+}
+/** The audit trail: platform actions, then verifications on record. */
+export function auditLog(state: JambState = current): AuditEntry[] {
+  const seeded: AuditEntry[] = [...seededNyscActivities(), ...seededUniversityActivities().slice(0, 150)].map((a) => {
+    const r = a.reg ? recordOf(a.reg, state) : undefined;
+    return { id: `AUD-${a.ref}`, at: a.at, user: a.officer, role: a.officerTitle, organisation: a.organisation, action: a.kind === 'nysc' ? 'NYSC identity verification' : 'Identity verification at clearance', reg: a.reg, student: r ? `${r.firstName} ${r.lastName}` : undefined, outcome: OUTCOME_LABEL[a.outcome], reference: a.ref };
+  });
+  return [...state.audit, ...seeded].sort((a, b) => b.at.localeCompare(a.at));
+}
+
 /* ---------------- actions ---------------- */
 
-export interface Officer { name: string; role: 'clearance-officer' | 'jamb-officer'; institution?: string }
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+const studentName = (r: StudentRecord) => `${r.firstName} ${r.lastName}`;
 
-const ref = (prefix: string) => `${prefix}-${new Date().getFullYear()}-${Array.from({ length: 6 }, () => '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 34)]).join('')}`;
-
-/**
- * Looks a registration number up within the officer's institution and the chosen admission session. A number
- * from another institution or session is "not found": the officer never learns about other institutions' records.
- */
-export function lookupForClearance(input: string, session: Session, officer: Officer): { ok: true; record: StudentRecord } | { ok: false; outcome: 'invalid' | 'not-found' } {
+/** The registration numbers a clearance officer may open: their own institution's admission records. */
+export function lookupForClearance(input: string, officer: Officer, session: Session = ACTIVE_SESSION): { ok: true; record: StudentRecord } | { ok: false; outcome: 'invalid' | 'not-found' } {
   const p = parseRegistration(input);
   if (!p.ok) return { ok: false, outcome: p.reason === 'format' ? 'invalid' : 'not-found' };
   if (p.institution.code !== officer.institution || p.session !== session) return { ok: false, outcome: 'not-found' };
-  return { ok: true, record: recordOf(registrationFor(p))! };
-}
-const registrationFor = (p: { institution: Institution; session: Session; index: number }) => baseRecord(p.institution, p.session, p.index).reg;
-
-/** What the simulated service answers for a student when no demo response is forced: the record decides. */
-export function expectedOutcome(r: StudentRecord): VerificationOutcome {
-  const base = baseRecord(institutionByCode(r.institution)!, r.session, r.index);
-  return base.verification === 'failed' ? 'no-match' : base.verification === 'exception' ? 'missing-record' : 'match';
+  return { ok: true, record: recordOf(normaliseReg(input))! };
 }
 
-/**
- * Records a verification attempt (any outcome). Only a match, a non-match or a missing record changes the
- * student's status. The live capture itself is never recorded: it stays on the verification page as evidence.
- */
-export function recordVerification(input: { entered: string; session: Session; officer: Officer; outcome: VerificationOutcome; captureMode: 'camera' | 'simulated'; record?: StudentRecord }): Result<VerificationEvent> {
-  const { officer } = input;
-  if (officer.role !== 'clearance-officer' || !officer.institution) return { ok: false, error: 'Only an institution’s clearance officer can verify students.' };
-  if (input.record && (input.record.institution !== officer.institution || input.record.session !== input.session)) return { ok: false, error: 'This student isn’t in your admission session.' };
-  if (input.record?.clearance === 'cleared') return { ok: false, error: 'This student has already been cleared.' };
-  const at = new Date().toISOString();
-  const event: VerificationEvent = {
-    ref: ref('FXV'), at, by: officer.name, institution: officer.institution, session: input.session, input: input.entered.trim(), reg: input.record?.reg,
-    outcome: input.outcome, captureMode: input.captureMode,
+/** What JAMB's identity services return for the student at clearance (predefined per record; no live service is called). */
+export function universityResponse(r: StudentRecord): Exclude<UniversityOutcome, 'not-found' | 'invalid'> {
+  const s = scenarioByReg(r.reg);
+  if (s?.university) return s.university;
+  if (priorClearanceOf(r.reg)) return 'duplicate-clearance';
+  const base = baseRecordOf(r.reg)!;
+  return base.verification === 'failed' ? 'face-mismatch' : base.verification === 'exception' ? 'nin-mismatch' : 'identity-confirmed';
+}
+
+function newException(state: JambState, r: StudentRecord, officer: Officer, category: ExceptionCategory, evidence: Evidence[], activityRef: string): [JambState, JambException] {
+  const id = `EXC-${new Date().getFullYear()}-${code6().slice(0, 5)}`;
+  const at = now();
+  const e: JambException = {
+    id, reg: r.reg, institution: r.institution, session: r.session, eventId: eventForSession(r.session).id, category, summary: summaryFor(category),
+    raisedAt: at, raisedBy: officer.name, raisedByOrganisation: officer.organisation, status: 'open', evidence, activityRef,
+    history: [ev(`${id}-1`, at, 'created', officer.name, officer.organisation, undefined, 'open', officer.role === 'nysc-officer' ? 'Referred by NYSC for review.' : 'Raised automatically at institutional clearance.')],
   };
-  const students = { ...current.students };
-  if (input.record && (input.outcome === 'match' || input.outcome === 'no-match' || input.outcome === 'missing-record')) {
-    students[input.record.reg] = {
-      ...students[input.record.reg],
-      verification: input.outcome === 'match' ? 'verified' : input.outcome === 'no-match' ? 'failed' : 'exception',
-      verifiedAt: at, verificationRef: event.ref, captureMode: input.captureMode,
-    };
-  }
-  save({ ...current, students, events: [event, ...current.events] });
-  return { ok: true, value: event };
+  return [{ ...state, createdExceptions: [e, ...state.createdExceptions] }, e];
 }
 
-/** Institutional clearance: a separate decision, only after a successful identity verification. */
+/** Records a university identity verification (any outcome) and its consequences for the student. */
+export function recordUniversityVerification(input: { entered: string; officer: Officer; captureMode: 'camera' | 'demo'; record?: StudentRecord; outcome?: 'not-found' | 'invalid' }): Result<Activity> {
+  const { officer, record } = input;
+  if (officer.role !== 'clearance-officer' || !officer.institution) return { ok: false, error: 'Only an institution’s clearance officer can verify students.' };
+  if (record && record.institution !== officer.institution) return { ok: false, error: 'This student isn’t on your institution’s admission list.' };
+  if (record?.clearance === 'cleared') return { ok: false, error: 'This student has already been cleared.' };
+  const outcome = record ? universityResponse(record) : input.outcome ?? 'not-found';
+  const at = now();
+  const year = new Date().getFullYear();
+  const activity: Activity = {
+    ref: `JIV-${officer.institution}-${year}-${code6()}`, at, kind: 'university', eventId: eventForSession(record?.session ?? ACTIVE_SESSION).id, officer: officer.name, officerTitle: officer.title,
+    organisation: officer.organisation, institution: officer.institution, session: record?.session ?? ACTIVE_SESSION, input: input.entered.trim(), reg: record?.reg, outcome,
+    checks: record ? { face: outcome === 'face-mismatch' ? 'no-match' : 'match', nin: outcome === 'face-mismatch' ? undefined : outcome === 'nin-mismatch' ? 'mismatch' : 'match' } : undefined,
+    captureMode: record ? input.captureMode : undefined,
+  };
+  let state = current;
+  if (record) {
+    const o: StudentOverride = { verifiedAt: at, verifiedBy: officer.name, verificationRef: activity.ref };
+    const prior = priorClearanceOf(record.reg);
+    if (outcome === 'identity-confirmed') Object.assign(o, { verification: 'verified', nin: 'match', blocked: null });
+    else if (outcome === 'face-mismatch') Object.assign(o, { verification: 'failed' });
+    else if (outcome === 'nin-mismatch') Object.assign(o, { verification: 'exception', nin: 'mismatch', blocked: 'nin-mismatch' });
+    else Object.assign(o, { verification: 'exception', nin: 'match', blocked: 'duplicate-clearance' });
+    state = { ...state, students: { ...state.students, [record.reg]: { ...state.students[record.reg], ...o } } };
+    if (outcome !== 'identity-confirmed') {
+      const category: ExceptionCategory = outcome === 'face-mismatch' ? 'failed-verification' : outcome === 'nin-mismatch' ? 'jamb-nin-discrepancy' : 'duplicate-clearance';
+      const evidence: Evidence[] = outcome === 'face-mismatch'
+        ? [{ label: 'Face match against JAMB registration portrait', value: 'No match', tone: 'bad' }]
+        : [{ label: 'Face match against JAMB registration portrait', value: 'Match', tone: 'good' }, { label: 'NIN verification response', value: outcome === 'nin-mismatch' ? 'Mismatch' : 'Match', tone: outcome === 'nin-mismatch' ? 'bad' : 'good' }];
+      if (prior && outcome === 'duplicate-clearance') {
+        evidence.push({ label: 'Previous clearance', value: `${institutionByCode(prior.institution)?.name}, ${prior.department}` }, { label: 'Previous clearance reference', value: prior.reference }, { label: 'Previously cleared by', value: prior.clearedBy });
+      }
+      evidence.push({ label: 'Capture', value: input.captureMode === 'camera' ? 'Live camera capture' : 'Demo face' }, { label: 'Verification reference', value: activity.ref });
+      const [next, e] = newException(state, record, officer, category, evidence, activity.ref);
+      state = next;
+      activity.exceptionId = e.id;
+    }
+  }
+  state = { ...state, activities: [activity, ...state.activities] };
+  state = audit(state, officer, 'Identity verification at clearance', { reg: record?.reg, student: record ? studentName(record) : undefined, outcome: OUTCOME_LABEL[outcome], reference: activity.ref });
+  save(state);
+  return { ok: true, value: activity };
+}
+
+/** Institutional clearance: a separate decision, only after a successful identity verification and never while blocked. */
 export function confirmClearance(reg: string, officer: Officer): Result<StudentRecord> {
   const r = recordOf(reg);
   if (!r) return { ok: false, error: 'Student record not found.' };
   if (officer.role !== 'clearance-officer' || r.institution !== officer.institution) return { ok: false, error: 'Only this institution’s clearance officer can clear the student.' };
   if (r.clearance === 'cleared') return { ok: false, error: 'This student has already been cleared.' };
+  if (r.blocked) return { ok: false, error: 'Clearance is blocked until JAMB resolves the exception.' };
   if (r.verification !== 'verified') return { ok: false, error: 'Identity must be verified successfully before clearance.' };
-  const at = new Date().toISOString();
-  save({ ...current, students: { ...current.students, [reg]: { ...current.students[reg], clearance: 'cleared', clearedAt: at, clearedBy: officer.name, clearanceRef: ref('FXC') } } });
+  const at = now();
+  const ref = `JCL-${r.institution}-${new Date().getFullYear()}-${code6()}`;
+  let state: JambState = { ...current, students: { ...current.students, [reg]: { ...current.students[reg], clearance: 'cleared', clearedAt: at, clearedBy: officer.name, clearanceRef: ref } } };
+  state = { ...state, activities: [{ ref, at, kind: 'university', eventId: eventForSession(r.session).id, officer: officer.name, officerTitle: officer.title, organisation: officer.organisation, institution: r.institution, session: r.session, input: reg, reg, outcome: 'clearance-completed' }, ...state.activities] };
+  save(audit(state, officer, 'Clearance completed', { reg, student: studentName(r), outcome: 'Cleared', reference: ref }));
   return { ok: true, value: recordOf(reg)! };
 }
 
@@ -220,12 +588,137 @@ export function confirmMatriculation(reg: string, officer: Officer, matricNo?: s
   if (officer.role !== 'clearance-officer' || r.institution !== officer.institution) return { ok: false, error: 'Only the institution can confirm matriculation.' };
   if (r.clearance !== 'cleared') return { ok: false, error: 'Only a cleared student can be matriculated.' };
   if (r.matriculation === 'matriculated') return { ok: false, error: 'Matriculation is already confirmed.' };
-  const no = matricNo?.trim() || `${r.institution}/${r.session.slice(2, 4)}/${String(r.index + 1).padStart(4, '0')}`;
-  save({ ...current, students: { ...current.students, [reg]: { ...current.students[reg], matriculation: 'matriculated', matricNo: no, matriculatedAt: new Date().toISOString(), matriculatedBy: officer.name } } });
+  const no = matricNo?.trim() || `${r.institution}/${r.session.slice(2, 4)}/${String((r.index % 9000) + 1).padStart(4, '0')}`;
+  const at = now();
+  let state: JambState = { ...current, students: { ...current.students, [reg]: { ...current.students[reg], matriculation: 'matriculated', matricNo: no, matriculatedAt: at, matriculatedBy: officer.name } } };
+  state = { ...state, activities: [{ ref: `JMT-${r.institution}-${new Date().getFullYear()}-${code6()}`, at, kind: 'university', eventId: eventForSession(r.session).id, officer: officer.name, officerTitle: officer.title, organisation: officer.organisation, institution: r.institution, session: r.session, input: reg, reg, outcome: 'matriculation-confirmed' }, ...state.activities] };
+  save(audit(state, officer, 'Matriculation confirmed', { reg, student: studentName(r), outcome: `Matriculation number ${no}` }));
   return { ok: true, value: recordOf(reg)! };
 }
 
-/** The clearance reference shown on the certificate. */
-export const clearanceReference = (r: StudentRecord) => current.students[r.reg]?.clearanceRef ?? (r.verificationRef ? r.verificationRef.replace(/^FXV/, 'FXC') : undefined);
-export const eventsFor = (reg: string, state: JambState = current) => state.events.filter((e) => e.reg === reg);
+/* ---------------- NYSC ---------------- */
+
+/** What NYSC verification establishes (the face response is predefined per candidate; no live service is called). */
+export function nyscResponse(r: StudentRecord): Exclude<NyscOutcome, 'not-found' | 'invalid'> {
+  const s = scenarioByReg(r.reg);
+  if (s?.nysc === 'face-mismatch') return 'face-mismatch';
+  return r.clearance === 'cleared' && r.matriculation === 'matriculated' ? 'confirmed' : 'matriculation-not-confirmed';
+}
+
+export function lookupForNysc(input: string): { ok: true; record: StudentRecord } | { ok: false; outcome: 'invalid' | 'not-found' } {
+  const p = parseRegistration(input);
+  if (!p.ok) return { ok: false, outcome: p.reason === 'format' ? 'invalid' : 'not-found' };
+  return { ok: true, record: recordOf(normaliseReg(input))! };
+}
+
+export function recordNyscVerification(input: { entered: string; officer: Officer; captureMode: 'camera' | 'demo'; record?: StudentRecord; outcome?: 'not-found' | 'invalid' }): Result<Activity> {
+  const { officer, record } = input;
+  if (officer.role !== 'nysc-officer') return { ok: false, error: 'Only an NYSC verification officer can verify candidates.' };
+  const outcome: NyscOutcome = record ? nyscResponse(record) : input.outcome ?? 'not-found';
+  const activity: Activity = {
+    ref: `NYV-${new Date().getFullYear()}-${code6()}`, at: now(), kind: 'nysc', eventId: NYSC_EVENT_ID, officer: officer.name, officerTitle: officer.title,
+    organisation: officer.organisation, input: input.entered.trim(), reg: record?.reg, outcome, checks: record ? { face: outcome === 'face-mismatch' ? 'no-match' : 'match' } : undefined,
+    captureMode: record ? input.captureMode : undefined,
+  };
+  const state = { ...current, activities: [activity, ...current.activities] };
+  save(audit(state, officer, 'NYSC identity verification', { reg: record?.reg, student: record ? studentName(record) : undefined, outcome: OUTCOME_LABEL[outcome], reference: activity.ref }));
+  return { ok: true, value: activity };
+}
+
+/** NYSC refers a candidate whose face didn't match to JAMB. */
+export function referToJamb(activityRef: string, officer: Officer): Result<JambException> {
+  const a = current.activities.find((x) => x.ref === activityRef);
+  const r = a?.reg ? recordOf(a.reg) : undefined;
+  if (!a || !r) return { ok: false, error: 'Verification not found.' };
+  if (a.exceptionId) return { ok: false, error: 'Already referred to JAMB.' };
+  const [state, e] = newException(current, r, officer, 'potential-fraud', [
+    { label: 'Face match against JAMB registration portrait', value: 'No match', tone: 'bad' },
+    { label: 'Matriculation record', value: r.matriculation === 'matriculated' ? `Confirmed (${r.matricNo})` : 'Not confirmed' },
+    { label: 'Capture', value: a.captureMode === 'camera' ? 'Live camera capture' : 'Demo face' }, { label: 'NYSC verification reference', value: a.ref },
+  ], a.ref);
+  const linked = { ...state, activities: state.activities.map((x) => (x.ref === activityRef ? { ...x, exceptionId: e.id } : x)), createdExceptions: state.createdExceptions.map((x) => (x.id === e.id ? { ...x, eventId: NYSC_EVENT_ID } : x)) };
+  save(audit(linked, officer, 'Referred to JAMB for review', { reg: r.reg, student: studentName(r), outcome: CATEGORY_LABEL['potential-fraud'], reference: e.id }));
+  return { ok: true, value: { ...e, eventId: NYSC_EVENT_ID } };
+}
+
+/* ---------------- JAMB: exceptions ---------------- */
+
+function patchException(id: string, officer: Officer, action: ExceptionAction, change: Partial<JambException>, comment?: string): Result<JambException> {
+  const e = exceptionById(id);
+  if (!e) return { ok: false, error: 'Exception not found.' };
+  if (officer.role !== 'jamb-officer') return { ok: false, error: 'Only JAMB can manage exceptions.' };
+  const to = change.status ?? e.status;
+  const event = ev(`${id}-${e.history.length + 1}-${code6()}`, now(), action, officer.name, 'JAMB', e.status, to, comment);
+  const next = { ...current.exceptions[id], ...change, history: [...e.history, event] };
+  let state: JambState = { ...current, exceptions: { ...current.exceptions, [id]: next } };
+  state = audit(state, officer, `Exception: ${action.replace(/-/g, ' ')}`, { reg: e.reg, outcome: change.status ? change.status : undefined, reference: id });
+  save(state);
+  return { ok: true, value: exceptionById(id)! };
+}
+export const assignException = (id: string, officer: Officer, reviewer: string) => patchException(id, officer, 'assigned', { assignedTo: reviewer, status: 'assigned' }, `Assigned to ${reviewer}.`);
+export const startReview = (id: string, officer: Officer) => patchException(id, officer, 'review-started', { status: 'in-review', assignedTo: exceptionById(id)?.assignedTo ?? officer.name });
+export const addExceptionNote = (id: string, officer: Officer, note: string) => (note.trim() ? patchException(id, officer, 'note-added', {}, note.trim()) : { ok: false as const, error: 'Write a note first.' });
+export const requestInformation = (id: string, officer: Officer, note: string) => patchException(id, officer, 'information-requested', { status: 'awaiting-information' }, note.trim() || 'Further information requested from the institution.');
+export const closeException = (id: string, officer: Officer) => patchException(id, officer, 'closed', { status: 'closed' });
+export const reopenException = (id: string, officer: Officer, note: string) => patchException(id, officer, 'reopened', { status: 'reopened', resolution: undefined }, note.trim() || 'Reopened for further review.');
+
+/** Records JAMB's resolution. Confirming identity on a JAMB/NIN discrepancy lifts the clearance block. */
+export function resolveException(id: string, officer: Officer, outcome: ExceptionResolution, note: string): Result<JambException> {
+  if (!note.trim()) return { ok: false, error: 'Add resolution notes.' };
+  const e = exceptionById(id);
+  if (!e) return { ok: false, error: 'Exception not found.' };
+  const r = patchException(id, officer, 'resolution-recorded', { status: 'resolved', resolution: { outcome, note: note.trim(), at: now(), by: officer.name } }, note.trim());
+  if (r.ok && outcome === 'identity-confirmed' && e.category === 'jamb-nin-discrepancy') {
+    const s = current.students[e.reg] ?? {};
+    if (s.blocked === 'nin-mismatch') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
+  }
+  return r.ok ? { ok: true, value: exceptionById(id)! } : r;
+}
+
+/* ---------------- JAMB: users ---------------- */
+
+export function inviteUser(officer: Officer, input: { name: string; email: string; organisation: string; role: UserRole }): Result<PlatformUser> {
+  if (officer.role !== 'jamb-officer') return { ok: false, error: 'Only JAMB can grant access.' };
+  const email = input.email.trim().toLowerCase();
+  if (!input.name.trim()) return { ok: false, error: 'Enter the person’s name.' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false, error: 'Enter a valid email address.' };
+  if (usersOf().some((u) => u.email.toLowerCase() === email)) return { ok: false, error: 'Someone with this email already has access.' };
+  if (!rolesFor(input.organisation).includes(input.role)) return { ok: false, error: 'This role isn’t available for the organisation.' };
+  const u: PlatformUser = { id: `usr-inv-${code6()}`, name: input.name.trim(), email, organisation: input.organisation, role: input.role, status: 'invited', createdAt: now(), createdBy: officer.name };
+  save(audit({ ...current, invitedUsers: [...current.invitedUsers, u] }, officer, 'User invited', { outcome: `${USER_ROLE_LABEL[u.role]}, ${organisationName(u.organisation)}`, reference: u.email }));
+  return { ok: true, value: u };
+}
+export function setUserStatus(officer: Officer, id: string, status: 'active' | 'disabled'): Result<PlatformUser> {
+  if (officer.role !== 'jamb-officer') return { ok: false, error: 'Only JAMB can change access.' };
+  const u = usersOf().find((x) => x.id === id);
+  if (!u) return { ok: false, error: 'User not found.' };
+  if (u.email === officer.email) return { ok: false, error: 'You can’t disable your own access.' };
+  save(audit({ ...current, users: { ...current.users, [id]: { ...current.users[id], status } } }, officer, status === 'disabled' ? 'Access disabled' : 'Access enabled', { outcome: `${u.name}, ${organisationName(u.organisation)}`, reference: u.email }));
+  return { ok: true, value: usersOf().find((x) => x.id === id)! };
+}
+export function setUserRole(officer: Officer, id: string, role: UserRole): Result<PlatformUser> {
+  if (officer.role !== 'jamb-officer') return { ok: false, error: 'Only JAMB can change roles.' };
+  const u = usersOf().find((x) => x.id === id);
+  if (!u) return { ok: false, error: 'User not found.' };
+  if (!rolesFor(u.organisation).includes(role)) return { ok: false, error: 'This role isn’t available for the organisation.' };
+  save(audit({ ...current, users: { ...current.users, [id]: { ...current.users[id], role } } }, officer, 'Role changed', { outcome: `${u.name}: ${USER_ROLE_LABEL[role]}`, reference: u.email }));
+  return { ok: true, value: usersOf().find((x) => x.id === id)! };
+}
+
+/* ---------------- events ---------------- */
+
+export interface EventSummary { assigned: number; cleared: number; pending: number; failed: number; exceptions: number; matriculated: number; verifications: number }
+export function eventSummary(id: string, state: JambState = current): EventSummary {
+  const e = EVENTS.find((x) => x.id === id)!;
+  if (e.session) {
+    const c = sessionTotals(e.session, state);
+    return { assigned: c.admitted, cleared: c.cleared, pending: c.pending, failed: c.failed, exceptions: c.exceptions, matriculated: c.matriculated, verifications: c.verified + c.failed + c.exceptions };
+  }
+  const acts = allActivities(state).filter((a) => a.kind === 'nysc');
+  return {
+    assigned: 0, cleared: acts.filter((a) => a.outcome === 'confirmed').length, pending: 0, failed: acts.filter((a) => a.outcome === 'face-mismatch').length,
+    exceptions: exceptionsOf(state).filter((x) => x.eventId === NYSC_EVENT_ID).length, matriculated: acts.filter((a) => a.outcome === 'matriculation-not-confirmed').length, verifications: acts.length,
+  };
+}
+export const clearanceReference = (r: StudentRecord) => r.clearanceRef;
 export { UNILAG };
