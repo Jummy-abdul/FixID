@@ -27,13 +27,13 @@ export function SessionStats({ c, compact }: { c: Counts; compact?: boolean }) {
         <StatCard label="Pending clearance" value={fmt(c.pending)} tone="amber" />
         <StatCard label="Failed verification" value={fmt(c.failed)} />
         <StatCard label="Exceptions" value={fmt(c.exceptions)} />
-        <StatCard label="Matriculated" value={fmt(c.matriculated)} tone="violet" />
+        <StatCard label="Identity verified" value={fmt(c.verified)} tone="violet" />
       </section>
       {!compact && (
         <Card className="px-5 py-4">
           <div className="grid gap-4 md:grid-cols-2">
+            <ProgressMeter label="Identity verification" value={c.verified} total={c.admitted} color={SERIES.s2} />
             <ProgressMeter label="Clearance progress" value={c.cleared} total={c.admitted} />
-            <ProgressMeter label="Matriculation confirmed" value={c.matriculated} total={c.admitted} color={SERIES.s2} />
           </div>
         </Card>
       )}

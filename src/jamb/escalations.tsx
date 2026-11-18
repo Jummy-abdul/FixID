@@ -35,7 +35,7 @@ export function IdentityComparison({ record, capture, comparisons, captureNote }
   const panels: [string, ReactNode][] = [
     ['JAMB Registration Record', <FaceImage src={registrationPortrait(record)} label={`JAMB registration portrait: ${record.firstName} ${record.lastName}`} className="aspect-[3/4] h-auto w-full" />],
     ['NIN Identity Record', <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className="aspect-[3/4] h-auto w-full" />],
-    ['Live Captured Portrait', capture ? <img src={capture} alt="Live captured portrait" className="aspect-[3/4] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Live capture not retained'} className="aspect-[3/4] h-auto w-full" />],
+    ['Captured Face', capture ? <img src={capture} alt="Captured face" className="aspect-[3/4] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className="aspect-[3/4] h-auto w-full" />],
   ];
   return (
     <section aria-label="Identity Verification Analysis">
@@ -47,14 +47,17 @@ export function IdentityComparison({ record, capture, comparisons, captureNote }
           </figure>
         ))}
       </div>
-      <ul className="mt-5 space-y-2" aria-label="Comparison outcomes">
-        {comparisons.map((c) => (
-          <li key={c.label} className={cn('flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5 text-sm ring-1 ring-inset', RESULT[c.result].cls)}>
-            <span className="font-medium">{c.label}</span>
-            <span className="inline-flex items-center gap-1.5 font-semibold">{RESULT[c.result].icon}{RESULT[c.result].label}</span>
-          </li>
-        ))}
-      </ul>
+      <table className="mt-5 w-full overflow-hidden rounded-lg text-sm ring-1 ring-slate-200" aria-label="Comparison outcomes">
+        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr><th scope="col" className="px-4 py-2">Comparison</th><th scope="col" className="px-4 py-2">Outcome</th></tr></thead>
+        <tbody>
+          {comparisons.map((c) => (
+            <tr key={c.label} className={cn('border-t border-slate-100', RESULT[c.result].cls)}>
+              <th scope="row" className="px-4 py-2.5 text-left font-medium">{c.label}</th>
+              <td className="px-4 py-2.5"><span className="inline-flex items-center gap-1.5 font-semibold">{RESULT[c.result].icon}{RESULT[c.result].label}</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }
@@ -63,18 +66,24 @@ const DEFAULT_COMMENT: Partial<Record<ExceptionCategory, string>> = {
   'jamb-nin-discrepancy': 'The live portrait matches the original JAMB registration portrait. However, the NIN portrait returned during verification does not match the captured face. Kindly investigate and confirm the student’s identity.',
   'duplicate-clearance': 'This student has presented for clearance at University of Lagos, but an existing clearance record associated with another institution has been identified. Kindly investigate and advise on the appropriate next steps.',
 };
-const ESCALATION_CATEGORIES: ExceptionCategory[] = ['jamb-nin-discrepancy', 'duplicate-clearance', 'potential-fraud', 'record-inconsistency', 'manual-review'];
+/** Reasons the officer can give, per kind of case. */
+const REASONS: Partial<Record<ExceptionCategory, string[]>> = {
+  'duplicate-clearance': ['Student wishes to decline or withdraw the existing admission', 'Student wishes to proceed with another institution', 'Existing clearance requires review', 'Other'],
+  'jamb-nin-discrepancy': ['Captured face does not match the NIN record', 'Student disputes the NIN record', 'Other'],
+};
 
 /** The university's escalation form: the student's details are prefilled; the officer adds the category, comment and evidence. */
 export function EscalationDrawer({ record, category: initial, capture, onClose, onDone }: { record: StudentRecord; category: ExceptionCategory; capture?: string; onClose: () => void; onDone?: (e: JambException) => void }) {
   const officer = useOfficer();
   const toast = useToast();
-  const [category, setCategory] = useState<ExceptionCategory>(initial);
+  const category = initial;
+  const reasons = REASONS[category] ?? ['Other'];
+  const [reason, setReason] = useState(reasons[0]);
   const [comment, setComment] = useState(DEFAULT_COMMENT[initial] ?? '');
   const prior = priorClearanceOf(record.reg);
   const options = [
-    'Identity comparison results',
-    ...(capture ? ['Live captured portrait'] : []),
+    ...(category === 'duplicate-clearance' ? [] : ['Identity comparison results']),
+    ...(capture ? ['Captured face'] : []),
     ...(prior ? ['Previous clearance record'] : []),
     'Verification reference',
   ];
@@ -82,7 +91,7 @@ export function EscalationDrawer({ record, category: initial, capture, onClose, 
   const [error, setError] = useState('');
   const inst = institutionByCode(record.institution)!;
   const submit = () => {
-    const r = escalateToJamb({ reg: record.reg, officer, category, comment, evidence, capture: capture && evidence.includes('Live captured portrait') ? capture : undefined });
+    const r = escalateToJamb({ reg: record.reg, officer, category, reason, comment, evidence, capture: capture && evidence.includes('Captured face') ? capture : undefined });
     if (!r.ok) { setError(r.error); return; }
     toast({ tone: 'success', title: 'Escalated to JAMB', description: r.value.id });
     onDone?.(r.value);
@@ -98,7 +107,8 @@ export function EscalationDrawer({ record, category: initial, capture, onClose, 
             <div key={k}><dt className="text-xs text-slate-500">{k}</dt><dd className="font-medium text-slate-900">{v}</dd></div>
           ))}
         </dl>
-        <Field label="Escalation category">{(p) => <Select {...p} value={category} onChange={(e) => { const c = e.target.value as ExceptionCategory; setCategory(c); if (DEFAULT_COMMENT[c] && (!comment || Object.values(DEFAULT_COMMENT).includes(comment))) setComment(DEFAULT_COMMENT[c]!); }}>{ESCALATION_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</Select>}</Field>
+        <p className="text-sm"><span className="text-slate-500">Case: </span><span className="font-medium text-slate-900">{CATEGORY_LABEL[category]}</span></p>
+        <Field label="Escalation reason" required>{(p) => <Select {...p} value={reason} onChange={(e) => setReason(e.target.value)}>{reasons.map((x) => <option key={x} value={x}>{x}</option>)}</Select>}</Field>
         <Field label="Description" required>{(p) => <Textarea {...p} rows={5} value={comment} onChange={(e) => setComment(e.target.value)} />}</Field>
         <fieldset>
           <legend className="text-sm font-medium text-slate-700">Supporting evidence</legend>
@@ -130,7 +140,7 @@ export function EscalationStatusPanel({ e }: { e: JambException }) {
         <EscalationStatusBadge e={e} />
       </div>
       <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
-        {([['Escalation reference', <span className="font-mono">{e.id}</span>], ['Category', CATEGORY_LABEL[e.category]], ['Submitted', dateTime(e.escalation!.submittedAt)], ['Submitted by', e.escalation!.submittedBy]] as [string, ReactNode][]).map(([k, v]) => (
+        {([['Escalation reference', <span className="font-mono">{e.id}</span>], ['Reason', e.escalation!.reason ?? CATEGORY_LABEL[e.category]], ['Submitted', dateTime(e.escalation!.submittedAt)], ['Submitted by', e.escalation!.submittedBy]] as [string, ReactNode][]).map(([k, v]) => (
           <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
         ))}
       </dl>
@@ -200,7 +210,7 @@ export function EscalationsPage() {
             { key: 'r', header: 'JAMB registration number', cell: (e) => <span className="font-mono text-xs">{e.reg}</span> },
             { key: 'i', header: 'Institution', className: '!whitespace-normal', cell: (e) => <span className="text-slate-600">{institutionByCode(e.institution)?.name}</span> },
             { key: 's', header: 'Admission session', cell: (e) => e.session },
-            { key: 'c', header: 'Category', className: '!whitespace-normal min-w-[10rem]', cell: (e) => CATEGORY_LABEL[e.category] },
+            { key: 'c', header: 'Category', className: '!whitespace-normal min-w-[10rem]', cell: (e) => <span>{CATEGORY_LABEL[e.category]}{e.escalation?.reason && <span className="block text-xs text-slate-500">{e.escalation.reason}</span>}</span> },
             { key: 'd', header: 'Date submitted', cell: (e) => <span className="tabular-nums text-slate-600">{formatDate(e.escalation!.submittedAt)}</span> },
             { key: 'st', header: 'Status', cell: (e) => <EscalationStatusBadge e={e} /> },
           ]} />
@@ -261,7 +271,7 @@ export function EscalationDetailPage() {
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900"><AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden="true" />Existing clearance record</h2>
               <dl className="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
                 {([['Previous institution', institutionByCode(prior.institution)?.name], ['Previous admission session', prior.session], ['Department', prior.department], ['Previous clearance date', dateTime(prior.clearedAt)], ['Clearance officer', prior.clearedBy], ['Previous clearance reference', <span className="font-mono">{prior.reference}</span>],
-                  ['Matriculation status', prior.matricNo ? `Matriculated (${prior.matricNo})` : 'Not matriculated'], ['Presenting institution', inst.name], ['Current admission session', r.session]] as [string, ReactNode][]).map(([k, v]) => (
+                  ['Existing clearance status', 'Cleared'], ['Presenting institution', inst.name], ['Current admission session', r.session]] as [string, ReactNode][]).map(([k, v]) => (
                   <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
                 ))}
               </dl>
@@ -284,6 +294,7 @@ export function EscalationDetailPage() {
               { label: 'Institution', value: `${inst.name} (${inst.code})` },
               { label: 'Event', value: eventById(e.eventId)?.name ?? '—' },
               { label: 'Category', value: CATEGORY_LABEL[e.category] },
+              ...(e.escalation.reason ? [{ label: 'Escalation reason', value: e.escalation.reason }] : []),
               { label: 'Supporting evidence', value: e.escalation.evidence.join(', ') || '—' },
               ...(e.activityRef ? [{ label: 'Verification reference', value: <span className="font-mono">{e.activityRef}</span> }] : []),
             ]} />

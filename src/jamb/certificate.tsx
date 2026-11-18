@@ -119,7 +119,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
             <span className="max-w-[9rem] text-center text-[11px] text-slate-500">Scan to view the verification details</span>
           </div>
         </div>
-        <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Issued {formatDate(new Date().toISOString())}. Matriculation is confirmed separately by the institution. Demo environment.</p>
+        <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Issued {formatDate(new Date().toISOString())}. Demo environment.</p>
       </div>
     </>
   );

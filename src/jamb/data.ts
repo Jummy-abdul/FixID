@@ -151,7 +151,6 @@ export const ACTIVE_ADMISSION_EVENT = eventForSession(ACTIVE_SESSION);
 export interface SessionCounts {
   admitted: number;
   cleared: number;
-  matriculated: number;
   failed: number;
   exceptions: number;
   /** Identity verified, institutional clearance not yet confirmed. */
@@ -185,14 +184,14 @@ export function allocate(total: number, weights: number[], caps: number[] = weig
 }
 
 /** Generated records across all 25 institutions (the test candidates are added on top). */
-export const GENERATED_TOTALS = { admitted: 50_000, cleared: 41_200, matriculated: 38_400, failed: 240, exceptions: 180 } as const;
+export const GENERATED_TOTALS = { admitted: 50_000, cleared: 41_200, failed: 240, exceptions: 180 } as const;
 
 /** University of Lagos, by session (oldest first). */
 const UNILAG_SESSIONS: SessionCounts[] = [
-  { admitted: 240, cleared: 236, matriculated: 233, failed: 2, exceptions: 1, verifiedAwaiting: 0 },
-  { admitted: 250, cleared: 245, matriculated: 241, failed: 2, exceptions: 2, verifiedAwaiting: 0 },
-  { admitted: 250, cleared: 241, matriculated: 230, failed: 3, exceptions: 2, verifiedAwaiting: 1 },
-  { admitted: 260, cleared: 128, matriculated: 74, failed: 4, exceptions: 3, verifiedAwaiting: 7 },
+  { admitted: 240, cleared: 236, failed: 2, exceptions: 1, verifiedAwaiting: 0 },
+  { admitted: 250, cleared: 245, failed: 2, exceptions: 2, verifiedAwaiting: 0 },
+  { admitted: 250, cleared: 241, failed: 3, exceptions: 2, verifiedAwaiting: 1 },
+  { admitted: 260, cleared: 128, failed: 4, exceptions: 3, verifiedAwaiting: 7 },
 ];
 
 function buildCounts(): Record<string, SessionCounts[]> {
@@ -200,10 +199,8 @@ function buildCounts(): Record<string, SessionCounts[]> {
   const sum = (k: keyof SessionCounts) => UNILAG_SESSIONS.reduce((s, x) => s + x[k], 0);
   const size = [2.6, 2.4, 2.5, 1.2, 2.3, 2.2, 1.9, 1.8, 2.0, 1.1, 1.5, 1.4, 1.2, 1.7, 2.1, 1.0, 0.9, 1.1, 0.6, 0.7, 0.5, 1.3, 1.0, 0.8];
   const pace = [0.84, 0.8, 0.82, 0.86, 0.81, 0.79, 0.83, 0.77, 0.8, 0.86, 0.81, 0.78, 0.74, 0.8, 0.82, 0.78, 0.8, 0.85, 0.87, 0.86, 0.88, 0.79, 0.76, 0.79];
-  const matPace = [0.94, 0.93, 0.94, 0.95, 0.92, 0.93, 0.92, 0.91, 0.93, 0.95, 0.93, 0.92, 0.91, 0.93, 0.94, 0.92, 0.93, 0.94, 0.95, 0.95, 0.96, 0.92, 0.9, 0.93];
   const A = allocate(GENERATED_TOTALS.admitted - sum('admitted'), size);
   const C = allocate(GENERATED_TOTALS.cleared - sum('cleared'), A.map((a, i) => a * pace[i]), A.map((a) => Math.floor(a * 0.95)));
-  const M = allocate(GENERATED_TOTALS.matriculated - sum('matriculated'), C.map((c, i) => c * matPace[i]), C);
   const pending = A.map((a, i) => a - C[i]);
   const F = allocate(GENERATED_TOTALS.failed - sum('failed'), pending, pending);
   const E = allocate(GENERATED_TOTALS.exceptions - sum('exceptions'), pending.map((p, i) => p - F[i]), pending.map((p, i) => p - F[i]));
@@ -211,13 +208,12 @@ function buildCounts(): Record<string, SessionCounts[]> {
   others.forEach((inst, k) => {
     const a = allocate(A[k], [24, 25, 25, 26]);
     const c = allocate(C[k], [a[0] * 1, a[1] * 0.99, a[2] * 0.95, a[3] * 0.4], [Math.floor(a[0] * 0.985), Math.floor(a[1] * 0.98), Math.floor(a[2] * 0.965), a[3]]);
-    const m = allocate(M[k], [c[0], c[1] * 0.99, c[2] * 0.96, c[3] * 0.6], [Math.floor(c[0] * 0.99), Math.floor(c[1] * 0.985), Math.floor(c[2] * 0.97), c[3]]);
     const p = a.map((x, s) => x - c[s]);
     const f = allocate(F[k], p, p);
     const e = allocate(E[k], p.map((x, s) => x - f[s]), p.map((x, s) => x - f[s]));
     out[inst.code] = a.map((admitted, s) => {
       const left = p[s] - f[s] - e[s];
-      return { admitted, cleared: c[s], matriculated: m[s], failed: f[s], exceptions: e[s], verifiedAwaiting: Math.min(left, Math.round(left * (s === 3 ? 0.03 : 0))) };
+      return { admitted, cleared: c[s], failed: f[s], exceptions: e[s], verifiedAwaiting: Math.min(left, Math.round(left * (s === 3 ? 0.03 : 0))) };
     });
   });
   return out;
@@ -231,7 +227,6 @@ export const baseCounts = (code: string, s: Session): SessionCounts => BASE_COUN
 
 export type VerificationStatus = 'not-started' | 'verified' | 'failed' | 'exception' | 'escalated';
 export type ClearanceStatus = 'pending' | 'cleared';
-export type MatriculationStatus = 'not-matriculated' | 'matriculated';
 
 export interface StudentRecord {
   reg: string;
@@ -263,10 +258,6 @@ export interface StudentRecord {
   clearedAt?: string;
   clearedBy?: string;
   clearanceRef?: string;
-  matriculation: MatriculationStatus;
-  matricNo?: string;
-  matriculatedAt?: string;
-  matriculatedBy?: string;
   /** Clearance can't proceed until JAMB resolves the exception. */
   blocked?: 'nin-mismatch' | 'duplicate-clearance';
   /** A hand-written test candidate. */
@@ -323,7 +314,7 @@ export function parseRegistration(input: string): ParsedRegistration {
 
 /**
  * The order in which a session's records take each status: a fixed shuffle, so statuses don't follow the
- * record number. Rank r: matriculated, then cleared, failed, exception, verified awaiting clearance, the rest pending.
+ * record number. Rank r: cleared, failed, exception, verified awaiting clearance, the rest pending.
  */
 const permCache = new Map<string, { rank: number[]; order: number[] }>();
 function shuffle(code: string, s: Session) {
@@ -374,7 +365,7 @@ export function baseRecord(inst: Institution, s: Session, index: number): Studen
     stateOfOrigin: pick(r, STATES), faculty: faculty.name, department, course: courseOf(department, faculty.name),
     utmeScore: 180 + Math.floor(r() * 150), registeredAt, registrationCentre: centre,
     exam: { at: examAt, centre, reference: `UTME-${year}-${pad(Math.floor(r() * 1e6), 6)}` },
-    verification: 'not-started', clearance: 'pending', matriculation: 'not-matriculated',
+    verification: 'not-started', clearance: 'pending',
   };
   const active = s === '2025/2026';
   const clearedAt = active
@@ -385,10 +376,6 @@ export function baseRecord(inst: Institution, s: Session, index: number): Studen
   const verified = { verifiedAt: clearedAt, verifiedBy: officer, verificationRef: vref };
   if (rank < c.cleared) {
     Object.assign(rec, { verification: 'verified', ...verified, nin: 'match', clearance: 'cleared', clearedAt, clearedBy: officer, clearanceRef: vref.replace(/^JIV/, 'JCL') });
-    if (rank < c.matriculated) {
-      const matAt = active ? new Date(Math.min(ACTIVE_TO, new Date(clearedAt).getTime() + (12 + Math.floor(r() * 30)) * 864e5)).toISOString() : iso(year + 1, 1 + Math.floor(r() * 2), 1 + Math.floor(r() * 27), 11);
-      Object.assign(rec, { matriculation: 'matriculated', matricNo: `${inst.code}/${String(year).slice(2)}/${pad(index + 1, 4)}`, matriculatedAt: matAt, matriculatedBy: `${inst.name} Registry` });
-    }
   } else if (rank < c.cleared + c.failed) Object.assign(rec, { verification: 'failed', ...verified });
   else if (rank < c.cleared + c.failed + c.exceptions) Object.assign(rec, { verification: 'exception', ...verified, nin: 'mismatch' });
   else if (rank < c.cleared + c.failed + c.exceptions + c.verifiedAwaiting) Object.assign(rec, { verification: 'verified', ...verified, nin: 'match' });

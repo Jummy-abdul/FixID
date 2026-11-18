@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-rou
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Download, FileText, Home, Loader2, Printer, ScanFace, Search, ShieldCheck, XCircle } from 'lucide-react';
 import { Button, ButtonLink, Card, DataTable, EmptyState, Field, FilterSelect, Input, PageHeader, Pagination, SearchInput, StatCard, usePageSlice, useToast } from '@/components/ui';
 import { dateTime } from './format';
-import { CameraCapture } from '@/components/verification/CameraCapture';
+import { SimulatedCapture } from './capture';
 import type { NavGroup } from '@/layout/navigation';
 import { usePageParam, useQueryState } from '@/hooks/useQueryState';
 import { formatDate } from '@/lib/dates';
@@ -14,7 +14,7 @@ import { StudentJourney, journeyOf } from './journey';
 import { demoFace } from './portraits';
 import { OUTCOME_LABEL, activitiesFor, priorClearanceOf, allActivities, lookupForNysc, recordNyscVerification, recordOf, referToJamb, useJambState, type Activity } from './store';
 import { ActivityList, EventStatusBadge, NotFound, OutcomeBadge, Section, eventPeriod } from './shared';
-import { ConsoleLayout, JambLogo, OrgMark, Portrait, fmt, placeholderFaceUrl, useOfficer } from './ui';
+import { ConsoleLayout, JambLogo, OrgMark, Portrait, fmt, useOfficer } from './ui';
 
 const NAV: NavGroup[] = [
   { label: null, items: [{ label: 'Home', to: '/nysc', end: true, icon: Home, description: 'Your verification overview' }] },
@@ -62,7 +62,7 @@ function NyscHome() {
         <StatCard label="Candidates verified" value={fmt(mine.filter((a) => a.reg).length)} to="/nysc/verifications" />
         <StatCard label="Successful verifications" value={fmt(count('confirmed'))} tone="emerald" to="/nysc/verifications?outcome=confirmed" />
         <StatCard label="Failed identity verification" value={fmt(count('face-mismatch'))} to="/nysc/verifications?outcome=face-mismatch" />
-        <StatCard label="Unconfirmed matriculation" value={fmt(count('matriculation-not-confirmed'))} tone="amber" to="/nysc/verifications?outcome=matriculation-not-confirmed" />
+        <StatCard label="Clearance not confirmed" value={fmt(count('clearance-not-confirmed'))} tone="amber" to="/nysc/verifications?outcome=clearance-not-confirmed" />
       </section>
       <Card className="px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold text-slate-900">{event.name}</h2><EventStatusBadge status="active" /></div>
@@ -100,11 +100,11 @@ function VerifyCandidatePage() {
     if (!r.ok) { recordNyscVerification({ entered, officer, captureMode: 'demo', outcome: r.outcome }); setIssue(r.outcome); return; }
     setReg(r.record.reg);
   };
-  const verify = () => {
-    if (!record || !capture) return;
+  const verify = (c: Capture) => {
+    if (!record) return;
     setVerifying(true);
     window.setTimeout(() => {
-      const r = recordNyscVerification({ entered: record.reg, officer, captureMode: capture.mode, record });
+      const r = recordNyscVerification({ entered: record.reg, officer, captureMode: c.mode, record });
       setVerifying(false);
       if (r.ok) setResult(r.value);
     }, 1200);
@@ -151,24 +151,15 @@ function VerifyCandidatePage() {
             <div className="flex items-center gap-3"><Portrait record={record} className="h-14 w-12" /><p className="text-sm text-slate-600"><span className="block font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span><span className="font-mono">{record.reg}</span></p></div>
             <Button size="sm" variant="ghost" disabled={verifying} onClick={() => { setStep(1); setCapture(null); }}>Change candidate</Button>
           </div>
-          {verifying ? (
-            <div className="flex flex-col items-center gap-3 py-14 text-center" role="status">
-              <Loader2 className="h-10 w-10 animate-spin text-emerald-700" aria-hidden="true" />
-              <p className="text-lg font-semibold text-slate-900">Verifying candidate…</p>
-              <p className="text-sm text-slate-500">Matching the face with the JAMB registration record and retrieving the educational history.</p>
+          <div className="mt-5 grid gap-6 md:grid-cols-[1fr_16rem]">
+            <div>
+              <h2 className="mb-3 text-center text-lg font-semibold text-slate-900">Capture the candidate’s face</h2>
+              <SimulatedCapture image={demoFace(record)} subject={`${record.firstName} ${record.lastName}`} instruction="Position the candidate’s face within the frame" captured={capture?.url ?? null}
+                onCaptured={(url) => { const c = { url, mode: 'demo' as const }; setCapture(c); verify(c); }}
+                status={verifying ? <p role="status" className="flex items-center gap-2 text-sm font-medium text-slate-700"><Loader2 className="h-4 w-4 animate-spin text-emerald-700" aria-hidden="true" />Verifying candidate…</p> : null} />
             </div>
-          ) : (
-            <div className="mt-5 grid gap-6 md:grid-cols-[1fr_16rem]">
-              <div>
-                <h2 className="mb-3 text-lg font-semibold text-slate-900">Capture the candidate’s face</h2>
-                <CameraCapture captured={capture?.url ?? null} startLabel="Start camera" capturedAlt="Captured face"
-                  onCapture={(url) => setCapture({ url, mode: 'camera' })} onRetake={() => setCapture(null)}
-                  demoFace={{ onUse: () => setCapture({ url: demoFace(record) ?? placeholderFaceUrl('Demo face'), mode: 'demo' }) }} />
-                {capture && <div className="mt-4 flex justify-center"><Button size="lg" icon={<ShieldCheck className="h-5 w-5" />} onClick={verify}>Verify identity</Button></div>}
-              </div>
-              <figure className="hidden md:block"><Portrait record={record} className="h-72 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
-            </div>
-          )}
+            <figure className="hidden md:block"><Portrait record={record} className="h-72 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+          </div>
         </Card>
       )}
       {result && record && <NyscResult activity={result} record={record} onNext={restart} onRetake={() => { setResult(null); setCapture(null); }} />}
@@ -194,14 +185,13 @@ function NyscResult({ activity: a, record: r, onNext, onRetake }: { activity: Ac
   const current = state.activities.find((x) => x.ref === a.ref) ?? a;
   const inst = institutionByCode(r.institution)!;
   const cleared = r.clearance === 'cleared';
-  const matric = r.matriculation === 'matriculated';
   const prior = priorClearanceOf(r.reg);
   const o = a.outcome;
   const head = o === 'confirmed'
-    ? { cls: 'bg-emerald-700 text-white', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Candidate Identity Confirmed', text: 'Identity, examination, clearance and matriculation records are confirmed.' }
+    ? { cls: 'bg-emerald-700 text-white', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Candidate Identity Confirmed', text: 'Identity, examination and admission clearance records are confirmed.' }
     : o === 'face-mismatch'
       ? { cls: 'bg-red-700 text-white', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Candidate Identity Could Not Be Confirmed', text: 'The person presenting does not match the JAMB registration record.' }
-      : { cls: 'bg-amber-500 text-amber-950', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Matriculation Status Not Confirmed', text: 'The candidate’s identity is confirmed, but no confirmed matriculation record exists. The candidate is not confirmed for NYSC processing.' };
+      : { cls: 'bg-amber-500 text-amber-950', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Admission Clearance Not Confirmed', text: 'The candidate’s identity is confirmed, but no completed admission clearance is on record. The candidate is not confirmed for NYSC processing.' };
   const refer = () => { const x = referToJamb(a.ref, officer); toast(x.ok ? { tone: 'success', title: 'Referred to JAMB', description: x.value.id } : { tone: 'error', title: 'Not referred', description: x.error }); };
   return (
     <Card className="overflow-hidden" aria-label="Verification result">
@@ -217,25 +207,23 @@ function NyscResult({ activity: a, record: r, onNext, onRetake }: { activity: Ac
                 <>
                   <Row label="JAMB Registration" value="Valid" good />
                   <Row label="Face Verification" value="Match" good />
-                  <Row label="Examination Clearance" value="Recorded" good />
-                  <Row label="University Clearance" value="Completed" good />
-                  <Row label="Matriculation" value="Confirmed" good />
+                  <Row label="Examination Verification" value="Recorded" good />
+                  <Row label="University Admission Clearance" value="Completed" good />
                 </>
               ) : o === 'face-mismatch' ? (
                 <>
                   <Row label="JAMB record" value="Found" good />
                   <Row label="Face verification" value="Failed" good={false} />
-                  <Row label="Matriculation record" value={matric ? 'Found' : 'Not found'} good={null} />
+                  <Row label="University admission clearance" value={cleared ? 'Completed' : 'Not completed'} good={null} />
                   <Row label="Overall verification" value="Failed" good={false} />
                 </>
               ) : (
                 <>
                   <Row label="JAMB record" value="Found" good />
                   <Row label="Face verification" value="Match" good />
-                  <Row label="Examination clearance" value="Recorded" good />
+                  <Row label="Examination verification" value="Recorded" good />
                   <Row label={prior ? 'University clearance (current record)' : 'University clearance'} value={cleared ? 'Completed' : r.blocked === 'duplicate-clearance' ? 'Blocked: duplicate under JAMB review' : 'Not completed'} good={cleared} />
                   {prior && <Row label="Previous clearance record" value={`${institutionByCode(prior.institution)?.name}, ${formatDate(prior.clearedAt)}`} good={null} />}
-                  <Row label="Matriculation" value="Not confirmed" good={false} />
                 </>
               )}
             </tbody>
@@ -248,8 +236,8 @@ function NyscResult({ activity: a, record: r, onNext, onRetake }: { activity: Ac
         <div className="border-t border-slate-100 px-6 py-5">
           <h3 className="text-sm font-semibold text-slate-900">Educational identity timeline</h3>
           <dl className="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4" aria-label="Educational identity timeline">
-            {([['JAMB registration', formatDate(r.registeredAt)], ['Examination clearance', `Cleared for UTME, ${formatDate(r.exam.at)}`], ['Institution', inst.name], ['Course and department', `${r.course}, Department of ${r.department}`],
-              ['University clearance', r.clearedAt ? dateTime(r.clearedAt) : '—'], ['Clearance officer', r.clearedBy ?? '—'], ['Matriculation number', <span className="font-mono">{r.matricNo}</span>], ['Matriculation confirmed', r.matriculatedAt ? formatDate(r.matriculatedAt) : '—']] as [string, ReactNode][]).map(([k, v]) => (
+            {([['JAMB registration', formatDate(r.registeredAt)], ['Examination verification', `Verified for UTME, ${formatDate(r.exam.at)}`], ['Institution', inst.name], ['Course and department', `${r.course}, Department of ${r.department}`],
+              ['University clearance', r.clearedAt ? dateTime(r.clearedAt) : '—'], ['Clearance officer', r.clearedBy ?? '—'], ['Clearance reference', <span className="font-mono">{r.clearanceRef}</span>]] as [string, ReactNode][]).map(([k, v]) => (
               <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
             ))}
           </dl>
@@ -283,7 +271,7 @@ function VerificationsPage() {
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end">
           <SearchInput value={q} onChange={setQ} placeholder="Candidate name, registration number or reference" className="sm:w-80" label="Search verifications" />
-          <FilterSelect label="Outcome" value={outcome} onChange={setOutcome} options={[{ value: 'all', label: 'All outcomes' }, ...(['confirmed', 'face-mismatch', 'matriculation-not-confirmed', 'not-found', 'invalid'] as const).map((o) => ({ value: o, label: OUTCOME_LABEL[o] }))]} />
+          <FilterSelect label="Outcome" value={outcome} onChange={setOutcome} options={[{ value: 'all', label: 'All outcomes' }, ...(['confirmed', 'face-mismatch', 'clearance-not-confirmed', 'not-found', 'invalid'] as const).map((o) => ({ value: o, label: OUTCOME_LABEL[o] }))]} />
         </div>
         <DataTable rows={pageRows} rowKey={(a) => a.ref} rowHref={(a) => (a.reg ? (a.outcome === 'confirmed' ? `/nysc/report/${a.ref}` : `/nysc/candidates/${a.reg}`) : '')} empty={<EmptyState title="No verifications match" />}
           columns={[
@@ -359,14 +347,14 @@ export function NyscReportPage({ backTo }: { backTo: (reg: string) => string }) 
             {row('Date of birth', formatDate(r.dateOfBirth))}
             {row('Institution', inst.name)}
             {row('Course', r.course)}
-            {row('Matriculation number', <span className="font-mono">{r.matricNo}</span>)}
+            {row('Clearance reference', <span className="font-mono">{r.clearanceRef}</span>)}
             {row('Verification reference', <span className="font-mono">{a.ref}</span>)}
             {row('Verified', `${dateTime(a.at)} by ${a.officer}`)}
           </dl>
         </div>
         <table className="mt-6 w-full text-sm" aria-label="Verification outcome">
           <thead><tr className="text-left text-[11px] uppercase tracking-wide text-slate-500"><th className="pb-1 font-semibold">Check</th><th className="pb-1 font-semibold">Outcome</th></tr></thead>
-          <tbody>{[['JAMB Registration', 'Valid'], ['Face Verification', 'Match'], ['Examination Clearance', 'Recorded'], ['University Clearance', 'Completed'], ['Matriculation', 'Confirmed']].map(([k, v]) => <tr key={k} className="border-t border-slate-100"><td className="py-1.5 text-slate-600">{k}</td><td className="py-1.5 font-medium text-emerald-700">{v}</td></tr>)}</tbody>
+          <tbody>{[['JAMB Registration', 'Valid'], ['Face Verification', 'Match'], ['Examination Verification', 'Recorded'], ['University Admission Clearance', 'Completed']].map(([k, v]) => <tr key={k} className="border-t border-slate-100"><td className="py-1.5 text-slate-600">{k}</td><td className="py-1.5 font-medium text-emerald-700">{v}</td></tr>)}</tbody>
         </table>
         <h2 className="mt-6 text-sm font-semibold text-slate-900">Identity history and audit trail</h2>
         <table className="mt-2 w-full text-xs" aria-label="Identity history">

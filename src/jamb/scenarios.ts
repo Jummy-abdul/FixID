@@ -2,7 +2,7 @@ import type { Session, StudentRecord } from './data';
 
 /**
  * The dedicated test candidates. Each has a fixed JAMB registration number, a predefined verification
- * scenario and a predefined demo face, so "Use Demo Face" always produces the documented outcome.
+ * scenario and a predefined demo face, so "Capture Face" always produces the documented outcome.
  *
  * University candidates are admitted to the University of Lagos for the 2025/2026 session (the active
  * admission clearance event). NYSC candidates were admitted in 2022/2023 and are now presenting for NYSC.
@@ -12,7 +12,7 @@ export type ScenarioId = 'U-A' | 'U-B' | 'U-C' | 'N-A' | 'N-B' | 'N-C';
 /** What the identity services answer for the candidate at university clearance. */
 export type UniversityScenario = 'identity-confirmed' | 'nin-mismatch' | 'duplicate-clearance';
 /** What NYSC verification establishes for the candidate. */
-export type NyscScenario = 'confirmed' | 'face-mismatch' | 'matriculation-not-confirmed';
+export type NyscScenario = 'confirmed' | 'face-mismatch' | 'clearance-not-confirmed';
 
 export interface PriorClearance {
   institution: string;
@@ -22,9 +22,6 @@ export interface PriorClearance {
   clearedAt: string;
   clearedBy: string;
   reference: string;
-  /** Matriculation at that institution, when confirmed. */
-  matricNo?: string;
-  matriculatedAt?: string;
 }
 
 type BaseFields = Omit<StudentRecord, 'reg' | 'index' | 'institution' | 'session' | 'faculty' | 'department' | 'course' | 'scenario'>;
@@ -51,7 +48,7 @@ const uni = (first: string, middle: string, last: string, gender: 'Female' | 'Ma
   firstName: first, middleName: middle, lastName: last, gender, dateOfBirth: dob, stateOfOrigin: state, utmeScore: score,
   registeredAt: '2025-01-21T10:14:00.000Z', registrationCentre: centre,
   exam: { at: '2025-04-29T09:00:00.000Z', centre, reference: `UTME-2025-${String(score * 1931).padStart(6, '0').slice(-6)}` },
-  verification: 'not-started', clearance: 'pending', matriculation: 'not-matriculated',
+  verification: 'not-started', clearance: 'pending',
 });
 
 export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
@@ -71,8 +68,8 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
     id: 'U-C', label: 'Candidate C', workspace: 'university', reg: '20250190103OA', institution: 'UNILAG', session: '2025/2026', department: 'Economics',
     record: uni('Oluwaseun', 'Ayomide', 'Adeyemi', 'Female', '2005-11-21T00:00:00.000Z', 'Oyo', 271, 'Bodija CBT Centre, Ibadan'),
     university: 'duplicate-clearance', demoFace: 'same-person',
-    priorClearance: { institution: 'UNIBEN', department: 'Accounting', course: 'B.Sc. Accounting', session: '2025/2026', clearedAt: '2026-01-14T10:42:00.000Z', clearedBy: 'Osagie Igbinedion', reference: 'JCL-UNIBEN-2025-418306', matricNo: 'UNIBEN/25/0418', matriculatedAt: '2026-03-02T11:00:00.000Z' },
-    expected: 'Existing Clearance Record Found (University of Benin, cleared and matriculated). Clearance is blocked; the officer escalates to JAMB.',
+    priorClearance: { institution: 'UNIBEN', department: 'Accounting', course: 'B.Sc. Accounting', session: '2025/2026', clearedAt: '2026-01-14T10:42:00.000Z', clearedBy: 'Osagie Igbinedion', reference: 'JCL-UNIBEN-2025-418306' },
+    expected: 'Existing Clearance Record Found (University of Benin, same admission session). Clearance is blocked; the officer escalates to JAMB.',
   },
   {
     id: 'N-A', label: 'Candidate A', workspace: 'nysc', reg: '20220290101EO', institution: 'UI', session: '2022/2023', department: 'Economics',
@@ -82,10 +79,9 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
       exam: { at: '2022-05-17T09:00:00.000Z', centre: 'Independence Layout CBT Centre, Enugu', reference: 'UTME-2022-538914' },
       verification: 'verified', verifiedAt: '2022-11-09T10:31:00.000Z', verifiedBy: 'Kehinde Adeleke', verificationRef: 'JIV-UI-2022-771205', nin: 'match',
       clearance: 'cleared', clearedAt: '2022-11-09T10:36:00.000Z', clearedBy: 'Kehinde Adeleke', clearanceRef: 'JCL-UI-2022-771205',
-      matriculation: 'matriculated', matricNo: 'UI/22/4817', matriculatedAt: '2023-01-26T11:00:00.000Z', matriculatedBy: 'University of Ibadan Registry',
     },
     nysc: 'confirmed', demoFace: 'same-person',
-    expected: 'Candidate Identity Confirmed: registration valid, face match, examination recorded, clearance completed, matriculation confirmed.',
+    expected: 'Candidate Identity Confirmed: registration valid, face match, examination recorded, admission clearance completed.',
   },
   {
     id: 'N-B', label: 'Candidate B', workspace: 'nysc', reg: '20220490102FB', institution: 'ABU', session: '2022/2023', department: 'Biochemistry',
@@ -95,7 +91,6 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
       exam: { at: '2022-05-12T13:00:00.000Z', centre: 'Samaru CBT Centre, Zaria', reference: 'UTME-2022-402277' },
       verification: 'verified', verifiedAt: '2022-11-22T09:12:00.000Z', verifiedBy: 'Abubakar Shehu', verificationRef: 'JIV-ABU-2022-305118', nin: 'match',
       clearance: 'cleared', clearedAt: '2022-11-22T09:18:00.000Z', clearedBy: 'Abubakar Shehu', clearanceRef: 'JCL-ABU-2022-305118',
-      matriculation: 'matriculated', matricNo: 'ABU/22/2093', matriculatedAt: '2023-02-09T11:00:00.000Z', matriculatedBy: 'Ahmadu Bello University Registry',
     },
     nysc: 'face-mismatch', demoFace: 'different-person',
     expected: 'Candidate Identity Could Not Be Confirmed: JAMB record found, face verification failed. No verification report is issued.',
@@ -106,10 +101,10 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
       firstName: 'Babatunde', middleName: 'Olumide', lastName: 'Ogunleye', gender: 'Male', dateOfBirth: '2003-09-30T00:00:00.000Z', stateOfOrigin: 'Ogun', utmeScore: 252,
       registeredAt: '2022-02-15T14:05:00.000Z', registrationCentre: 'Ikeja CBT Centre, Lagos',
       exam: { at: '2022-05-20T09:00:00.000Z', centre: 'Ikeja CBT Centre, Lagos', reference: 'UTME-2022-619340' },
-      verification: 'not-started', clearance: 'pending', matriculation: 'not-matriculated',
+      verification: 'not-started', clearance: 'pending',
     },
-    nysc: 'matriculation-not-confirmed', demoFace: 'same-person',
-    expected: 'Matriculation Status Not Confirmed: face match, but no university clearance or matriculation is on record.',
+    nysc: 'clearance-not-confirmed', demoFace: 'same-person',
+    expected: 'Admission Clearance Not Confirmed: face match, but no completed university clearance is on record.',
   },
 ];
 

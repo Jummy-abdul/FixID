@@ -93,21 +93,23 @@ function JambHome() {
   const n = nationalCounts(state);
   const exceptions = exceptionsOf(state);
   const open = exceptions.filter(isOpenException);
+  const openEscalations = open.filter((e) => e.escalation).length;
   const active = sessionTotals(ACTIVE_SESSION, state);
   const nysc = eventSummary(NYSC_EVENT_ID, state);
   const perf = INSTITUTIONS.map((i) => ({ inst: i, c: countsOf(i.code, ACTIVE_SESSION, state) })).sort((a, b) => b.c.admitted - a.c.admitted).slice(0, 10);
   const recent = allActivities(state).slice(0, 8);
   return (
     <>
-      <PageHeader title="Home" description="Identity verification, clearance and matriculation across participating institutions." />
-      <section aria-label="Key statistics" className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      <PageHeader title="Home" description="Identity verification and admission clearance across participating institutions." />
+      <section aria-label="Key statistics" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Participating institutions" value={INSTITUTIONS.length} to="/jamb/institutions" />
-        <StatCard label="Admitted students" value={fmt(n.admitted)} />
-        <StatCard label="Students cleared" value={fmt(n.cleared)} tone="emerald" />
+        <StatCard label="Students admitted by JAMB" value={fmt(n.admitted)} />
+        <StatCard label="Identity verification completed" value={fmt(n.verified)} tone="violet" />
+        <StatCard label="Students cleared" value={fmt(n.cleared)} tone="emerald" to="/jamb/reports" />
         <StatCard label="Pending clearance" value={fmt(n.pending)} tone="amber" />
-        <StatCard label="Students matriculated" value={fmt(n.matriculated)} tone="violet" to="/jamb/reports" />
         <StatCard label="Failed identity verifications" value={fmt(n.failed)} to="/jamb/activity?outcome=face-mismatch" />
-        <StatCard label="Open exceptions" value={fmt(open.length)} to="/jamb/exceptions" />
+        <StatCard label="Open identity exceptions" value={fmt(open.length)} to="/jamb/exceptions" />
+        <StatCard label="Open escalations" value={fmt(openEscalations)} to="/jamb/escalations" />
       </section>
 
       <section aria-label="Active events" className="grid gap-4 lg:grid-cols-2">
@@ -122,7 +124,7 @@ function JambHome() {
           <dl className="mt-4 grid grid-cols-3 gap-3 text-sm">
             <div><dt className="text-slate-500">Verifications</dt><dd className="text-lg font-semibold tabular-nums text-slate-900">{fmt(nysc.verifications)}</dd></div>
             <div><dt className="text-slate-500">Confirmed</dt><dd className="text-lg font-semibold tabular-nums text-slate-900">{fmt(nysc.cleared)}</dd></div>
-            <div><dt className="text-slate-500">Not confirmed</dt><dd className="text-lg font-semibold tabular-nums text-slate-900">{fmt(nysc.failed + nysc.matriculated)}</dd></div>
+            <div><dt className="text-slate-500">Not confirmed</dt><dd className="text-lg font-semibold tabular-nums text-slate-900">{fmt(nysc.failed + nysc.notConfirmed)}</dd></div>
           </dl>
         </Link>
       </section>
@@ -132,7 +134,7 @@ function JambHome() {
           <h2 className="text-base font-semibold text-slate-900">Progress, all sessions</h2>
           <div className="mt-4 space-y-5">
             <ProgressMeter label="Clearance" value={n.cleared} total={n.admitted} hint={`${fmt(n.pending)} admitted students not yet cleared`} />
-            <ProgressMeter label="Matriculation" value={n.matriculated} total={n.admitted} color={SERIES.s2} hint={`${fmt(n.clearedNotMatriculated)} cleared students awaiting matriculation confirmation`} />
+            <ProgressMeter label="Identity verification" value={n.verified} total={n.admitted} color={SERIES.s2} hint={`${fmt(n.awaitingClearance)} verified students awaiting clearance`} />
           </div>
         </Card>
         <Card className="px-5 py-5">
@@ -151,10 +153,10 @@ function JambHome() {
           <h2 className="text-base font-semibold text-slate-900">Institution performance · {ACTIVE_SESSION}</h2>
           <Link to="/jamb/reports" className="text-sm font-medium text-brand-600 hover:text-brand-700">Full report</Link>
         </div>
-        <div className="mb-3 mt-2"><Legend items={[{ label: 'Matriculated', color: SERIES.s1 }, { label: 'Cleared, not matriculated', color: SERIES.s2 }, { label: 'Not yet cleared', color: SERIES.rest }]} /></div>
+        <div className="mb-3 mt-2"><Legend items={[{ label: 'Cleared', color: SERIES.s1 }, { label: 'Verified, awaiting clearance', color: SERIES.s2 }, { label: 'Not yet cleared', color: SERIES.rest }]} /></div>
         <StackedBars ariaLabel="Institution performance" rows={perf.map(({ inst, c }) => ({
           key: inst.code, label: inst.name, onSelect: () => navigate(`/jamb/institutions/${inst.code}/events/${ACTIVE_ADMISSION_EVENT.id}`),
-          segments: [{ label: 'Matriculated', value: c.matriculated, color: SERIES.s1 }, { label: 'Cleared, not matriculated', value: c.clearedNotMatriculated, color: SERIES.s2 }, { label: 'Not yet cleared', value: c.pending, color: SERIES.rest }],
+          segments: [{ label: 'Cleared', value: c.cleared, color: SERIES.s1 }, { label: 'Verified, awaiting clearance', value: c.awaitingClearance, color: SERIES.s2 }, { label: 'Not yet cleared', value: c.pending - c.awaitingClearance, color: SERIES.rest }],
         }))} />
       </Card>
 
@@ -250,7 +252,7 @@ function EventPage() {
             <StatCard label="Pending clearance" value={fmt(s.pending)} tone="amber" />
             <StatCard label="Failed verification" value={fmt(s.failed)} />
             <StatCard label="Open exceptions" value={fmt(openExc.length)} to={`/jamb/exceptions?event=${e.id}`} />
-            <StatCard label="Matriculated" value={fmt(s.matriculated)} tone="violet" />
+            <StatCard label="Identity verified" value={fmt(s.verifications - s.failed - s.exceptions)} tone="violet" />
           </section>
           <Card className="px-5 py-4"><ProgressMeter label="Verification progress (students cleared)" value={s.cleared} total={s.assigned} /></Card>
           <Section title="Participating institutions" description="Select an institution to inspect its clearance activities.">
@@ -268,12 +270,12 @@ function EventPage() {
             <StatCard label="Verifications" value={fmt(s.verifications)} />
             <StatCard label="Identity confirmed" value={fmt(s.cleared)} tone="emerald" />
             <StatCard label="Face verification failed" value={fmt(s.failed)} />
-            <StatCard label="Matriculation not confirmed" value={fmt(s.matriculated)} tone="amber" />
+            <StatCard label="Clearance not confirmed" value={fmt(s.notConfirmed)} tone="amber" />
           </section>
           <Section title="Participating organisation">
             <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center">
               <OrgMark letters="NYSC" tone="blue" />
-              <div className="min-w-0 flex-1"><p className="font-medium text-slate-900">National Youth Service Corps</p><p className="text-sm text-slate-500">Verifies prospective corps members’ identity and matriculation history.</p></div>
+              <div className="min-w-0 flex-1"><p className="font-medium text-slate-900">National Youth Service Corps</p><p className="text-sm text-slate-500">Verifies prospective corps members’ identity and admission clearance history.</p></div>
               <ul className="text-sm text-slate-600" aria-label="NYSC officers">{NYSC_OFFICERS.map((o) => <li key={o}>{o} · {fmt(allActivities(state).filter((a) => a.kind === 'nysc' && a.officer === o).length)} verifications</li>)}</ul>
             </div>
           </Section>
@@ -296,7 +298,7 @@ function countColumns() {
     { key: 'p', header: 'Pending', cell: ({ c }: { c: Counts }) => <span className="tabular-nums">{fmt(c.pending)}</span> },
     { key: 'f', header: 'Failed', cell: ({ c }: { c: Counts }) => <span className="tabular-nums">{fmt(c.failed)}</span> },
     { key: 'x', header: 'Exceptions', cell: ({ c }: { c: Counts }) => <span className="tabular-nums">{fmt(c.exceptions)}</span> },
-    { key: 'm', header: 'Matriculated', cell: ({ c }: { c: Counts }) => <span className="tabular-nums">{fmt(c.matriculated)}</span> },
+    { key: 'v', header: 'Identity verified', cell: ({ c }: { c: Counts }) => <span className="tabular-nums">{fmt(c.verified)}</span> },
     { key: 'g', header: 'Progress', className: 'min-w-[9rem]', cell: ({ c }: { c: Counts }) => <span className="flex items-center gap-2"><span className="h-2 w-20 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full" style={{ width: `${pct(c.cleared, c.admitted)}%`, background: SERIES.s1 }} /></span><span className="tabular-nums text-slate-600">{pct(c.cleared, c.admitted)}%</span></span> },
   ];
 }
@@ -387,7 +389,7 @@ function InstitutionPage() {
         <StatCard label="Admitted (all sessions)" value={fmt(all.admitted)} />
         <StatCard label="Cleared" value={fmt(all.cleared)} tone="emerald" />
         <StatCard label="Pending clearance" value={fmt(all.pending)} tone="amber" />
-        <StatCard label="Matriculated" value={fmt(all.matriculated)} tone="violet" />
+        <StatCard label="Identity verified" value={fmt(all.verified)} tone="violet" />
         <StatCard label="Failed verifications" value={fmt(all.failed)} />
         <StatCard label="Open exceptions" value={fmt(exc.filter(isOpenException).length)} to={`/jamb/exceptions?institution=${inst.code}`} />
       </section>
@@ -410,7 +412,7 @@ function InstitutionPage() {
           ]} />
           <div className="mt-5 space-y-4">
             <ProgressMeter label="Clearance" value={all.cleared} total={all.admitted} />
-            <ProgressMeter label="Matriculation" value={all.matriculated} total={all.admitted} color={SERIES.s2} />
+            <ProgressMeter label="Identity verification" value={all.verified} total={all.admitted} color={SERIES.s2} />
           </div>
         </Card>
         <Section title="Exceptions" action={<Link to={`/jamb/exceptions?institution=${inst.code}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">View all ({fmt(exc.length)})</Link>}>
@@ -433,11 +435,10 @@ function ReportsPage() {
   const rows = useMemo(() => (inst
     ? (session ? [session] : [...SESSIONS]).map((s: Session) => ({ key: s, label: `${s} admission session`, c: countsOf(inst.code, s, state) }))
     : INSTITUTIONS.map((i: Institution) => ({ key: i.code, label: i.name, c: session ? countsOf(i.code, session, state) : institutionCounts(i.code, state) }))), [inst, session, state]);
-  const total = rows.reduce((t, r) => ({ ...t, admitted: t.admitted + r.c.admitted, cleared: t.cleared + r.c.cleared, pending: t.pending + r.c.pending, failed: t.failed + r.c.failed, exceptions: t.exceptions + r.c.exceptions, matriculated: t.matriculated + r.c.matriculated }), { admitted: 0, cleared: 0, pending: 0, failed: 0, exceptions: 0, matriculated: 0 });
-  const unmatched = rows.reduce((s, r) => s + r.c.clearedNotMatriculated, 0);
+  const total = rows.reduce((t, r) => ({ ...t, admitted: t.admitted + r.c.admitted, cleared: t.cleared + r.c.cleared, pending: t.pending + r.c.pending, failed: t.failed + r.c.failed, exceptions: t.exceptions + r.c.exceptions, verified: t.verified + r.c.verified }), { admitted: 0, cleared: 0, pending: 0, failed: 0, exceptions: 0, verified: 0 });
   return (
     <>
-      <PageHeader title="Reports" description="Clearance and matriculation by institution and admission session, from the clearance records themselves."
+      <PageHeader title="Reports" description="Identity verification and admission clearance by institution and admission session."
         actions={<Button variant="secondary" icon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>Print report</Button>} />
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end print:hidden">
@@ -445,12 +446,12 @@ function ReportsPage() {
           <FilterSelect label="Admission session" value={sess} onChange={setSess} options={[{ value: 'all', label: 'All sessions' }, ...SESSIONS.map((s) => ({ value: sessionSlug(s), label: s }))]} />
         </div>
         <dl className="grid gap-4 px-5 py-5 text-sm sm:grid-cols-3 lg:grid-cols-6" aria-label="Report summary">
-          {([['Assigned by JAMB', total.admitted], ['Cleared', total.cleared], ['Pending clearance', total.pending], ['Failed verifications', total.failed], ['Exceptions', total.exceptions], ['Confirmed matriculated', total.matriculated]] as const).map(([k, v]) => (
+          {([['Admitted by JAMB', total.admitted], ['Identity verified', total.verified], ['Cleared', total.cleared], ['Pending clearance', total.pending], ['Failed verifications', total.failed], ['Identity exceptions', total.exceptions]] as const).map(([k, v]) => (
             <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-xl font-semibold tabular-nums text-slate-900">{fmt(v)}</dd></div>
           ))}
         </dl>
         <p className="mx-5 mb-5 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-inset ring-emerald-200">
-          {fmt(total.cleared)} cleared + {fmt(total.pending)} pending = {fmt(total.admitted)} assigned. {fmt(total.matriculated)} matriculated + {fmt(unmatched)} awaiting confirmation = {fmt(total.cleared)} cleared. No student is matriculated without clearance.
+          {fmt(total.cleared)} cleared + {fmt(total.pending)} pending = {fmt(total.admitted)} admitted by JAMB. Every cleared student has a successful identity verification.
         </p>
       </Card>
       <Section title={inst ? `${inst.name}: by admission session` : `All institutions${session ? ` · ${session}` : ' · all sessions'}`}>
@@ -458,7 +459,7 @@ function ReportsPage() {
           columns={[
             { key: 'n', header: inst ? 'Session' : 'Institution', className: '!whitespace-normal min-w-[12rem]', cell: (r) => <span className="font-medium text-slate-900">{r.label}</span> },
             ...countColumns().map((col) => ({ ...col, cell: (r: { c: Counts }) => col.cell({ c: r.c }) })),
-            { key: 'mr', header: 'Matriculation rate', cell: (r) => <span className="tabular-nums">{pct(r.c.matriculated, r.c.admitted)}%</span> },
+            { key: 'cr', header: 'Clearance rate', cell: (r) => <span className="tabular-nums">{pct(r.c.cleared, r.c.admitted)}%</span> },
           ]} />
       </Section>
     </>

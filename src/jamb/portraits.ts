@@ -12,7 +12,7 @@ const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >
 
 /**
  * Portraits of the three university demonstration scenarios (fictional, AI-generated), in public/demo/faces/jamb/
- * (see its README): the JAMB registration portrait, the NIN record's portrait and the face "Use Demo Face" loads.
+ * (see its README): the JAMB registration portrait, the NIN record's portrait and the face the simulated "Capture Face" reveals.
  * Served as static files; anything missing falls back to a neutral placeholder.
  */
 type FaceKind = 'jamb' | 'nin' | 'live';
@@ -58,7 +58,7 @@ export function registrationPortrait(r: Pick<StudentRecord, 'reg' | 'gender'>): 
   return list.length ? list[hash(r.reg) % list.length] : undefined;
 }
 
-/** The predefined face "Use Demo Face" loads for the student (for a test candidate, as documented). */
+/** The predefined face the simulated capture reveals for the student (for a test candidate, as documented). */
 export function demoFace(r: Pick<StudentRecord, 'reg' | 'gender'>): string | undefined {
   const set = faceSet(r.reg);
   if (set) return facePath(set, 'live');

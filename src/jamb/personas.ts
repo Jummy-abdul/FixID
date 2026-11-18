@@ -35,7 +35,7 @@ export const JAMB_PERSONAS: ConsolePersona[] = [
   {
     accountId: 'acct_demo_nysc_officer', consoleRole: 'nysc-officer', persona: 'NYSC Clearance Officer',
     organization: 'National Youth Service Corps', role: 'NYSC Verification Officer',
-    description: 'Verify prospective corps members’ identity and confirm their educational and matriculation history.',
+    description: 'Verify prospective corps members’ identity and confirm their admission and clearance history.',
     firstName: 'Hadiza', lastName: 'Lawal', email: 'nysc.officer@nysc-demo.example',
   },
 ];

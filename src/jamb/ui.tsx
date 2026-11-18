@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, CircleDashed, Clock, LogOut, Menu, MinusCircle, ShieldOff, UserRound, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDashed, Clock, LogOut, Menu, ShieldOff, UserRound, X, XCircle } from 'lucide-react';
 import { Avatar, Badge, Button } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
 import { handleMenuKeys, usePopover } from '@/hooks/usePopover';
@@ -157,16 +157,12 @@ export function ClearanceBadge({ status, review }: { status: StudentRecord['clea
   if (status !== 'cleared' && review) return <Badge tone="warning"><Clock className="h-3 w-3" aria-hidden="true" />Pending review</Badge>;
   return status === 'cleared' ? <Badge tone="success"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />Cleared</Badge> : <Badge tone="neutral"><Clock className="h-3 w-3" aria-hidden="true" />Pending</Badge>;
 }
-export function MatriculationBadge({ status }: { status: StudentRecord['matriculation'] }) {
-  return status === 'matriculated' ? <Badge tone="brand"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />Matriculated</Badge> : <Badge tone="neutral"><MinusCircle className="h-3 w-3" aria-hidden="true" />Not yet</Badge>;
-}
 
 export const VERIFICATION_FILTER = [
   { value: 'all', label: 'Any verification status' }, { value: 'verified', label: 'Verified' }, { value: 'not-started', label: 'Not verified yet' },
   { value: 'failed', label: 'Failed' }, { value: 'exception', label: 'Exception' }, { value: 'escalated', label: 'Escalated' },
 ];
 export const CLEARANCE_FILTER = [{ value: 'all', label: 'Any clearance status' }, { value: 'cleared', label: 'Cleared' }, { value: 'pending', label: 'Pending' }];
-export const MATRIC_FILTER = [{ value: 'all', label: 'Any matriculation status' }, { value: 'matriculated', label: 'Matriculated' }, { value: 'not-matriculated', label: 'Not yet matriculated' }];
 
 /* ---------------- portraits ---------------- */
 

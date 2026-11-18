@@ -8,12 +8,11 @@ The app references them from `src/jamb/portraits.ts`; a missing file falls back 
 | --- | --- | --- |
 | `jamb/s1_jamb.jpg` | 1. Successful verification (`20250190101CN`, Chiamaka Adaeze Nwankwo) | JAMB registration portrait (profile image) |
 | `jamb/s1_nin.jpg` | 1 | NIN identity record portrait (same student) |
-| `jamb/s1_live.jpg` | 1 | Live capture loaded by *Use Demo Face* (same student) |
+| `jamb/s1_live.jpg` | 1 | Capture revealed by *Capture Face* (same student, different hairstyle) |
 | `jamb/s2_jamb.jpg` | 2. Identity discrepancy (`20250190102IA`, Ibrahim Musa Abdullahi) | JAMB registration portrait (profile image) |
 | `jamb/s2_nin.jpg` | 2 | NIN identity record portrait (a **different** fictional person) |
-| `jamb/s2_live.jpg` | 2 | Live capture loaded by *Use Demo Face* (same student as `s2_jamb`) |
-| `jamb/s3_jamb.jpg` | 3. Existing clearance elsewhere (`20250190103OA`, Oluwaseun Ayomide Adeyemi) | JAMB registration portrait, also used by *Use Demo Face* (no separate live image) |
+| `jamb/s2_live.jpg` | 2 | Capture revealed by *Capture Face* (same student as `s2_jamb`) |
+| `jamb/s3_jamb.jpg` | 3. Existing clearance elsewhere (`20250190103OA`, Oluwaseun Ayomide Adeyemi) | JAMB registration portrait (the existing clearance is found at lookup; no capture is needed) |
 
-`s3_jamb.jpg` had a caption fragment from the source sheet along its bottom edge; that strip was trimmed (191 × 160 px).
-To replace a portrait, overwrite the file with the same name (JPEG, ideally 600 × 800 px or larger, portrait
+All seven are 512 × 496 px JPEGs. To replace a portrait, overwrite the file with the same name (JPEG, ideally 600 × 800 px or larger, portrait
 orientation) and redeploy.

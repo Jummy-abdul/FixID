@@ -8,7 +8,7 @@ import { formatDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { institutionByCode, type StudentRecord } from './data';
 import { CATEGORY_LABEL, OUTCOME_LABEL, activitiesFor, exceptionsForReg, outcomeTone, priorClearanceOf, useJambState, type Activity } from './store';
-import { ClearanceBadge, MatriculationBadge, Portrait, VerificationBadge } from './ui';
+import { ClearanceBadge, Portrait, VerificationBadge } from './ui';
 
 type StageState = 'done' | 'pending' | 'failed' | 'warning' | 'not-available';
 const RING: Record<StageState, { icon: ReactNode; ring: string; label: string; tone: Tone }> = {
@@ -25,7 +25,7 @@ export interface JourneyEntry { activity: string; organisation: string; at?: str
 const tone = (a: Activity): Tone => ({ success: 'success', danger: 'danger', warning: 'warning', neutral: 'neutral' } as const)[outcomeTone(a.outcome)];
 function activityEntry(a: Activity): JourneyEntry {
   return {
-    activity: a.kind === 'nysc' ? 'NYSC identity verification' : a.outcome === 'clearance-completed' ? 'Admission clearance completed' : a.outcome === 'matriculation-confirmed' ? 'Matriculation confirmed' : 'Identity verification at clearance',
+    activity: a.kind === 'nysc' ? 'NYSC identity verification' : a.outcome === 'clearance-completed' ? 'Admission clearance completed' : a.outcome === 'escalated' ? 'Escalated to JAMB' : a.outcome === 'duplicate-clearance' ? 'Existing clearance check' : 'Identity verification at clearance',
     organisation: a.organisation, at: a.at, officer: a.officer, outcome: <Badge tone={tone(a)}>{OUTCOME_LABEL[a.outcome]}</Badge>, reference: <span className="font-mono">{a.ref}</span>,
     details: a.checks ? [
       ...(a.checks.face ? [['Face match (JAMB record)', a.checks.face === 'match' ? 'Match' : 'No match'] as [string, ReactNode]] : []),
@@ -39,7 +39,7 @@ export interface JourneyStage { n: number; title: string; state: StageState; ent
 export function journeyOf(r: StudentRecord, activities: Activity[]): JourneyStage[] {
   const inst = institutionByCode(r.institution)!;
   const prior = priorClearanceOf(r.reg);
-  const uni = activities.filter((a) => a.kind === 'university' && a.outcome !== 'clearance-completed' && a.outcome !== 'matriculation-confirmed');
+  const uni = activities.filter((a) => a.kind === 'university' && a.outcome !== 'clearance-completed');
   const nysc = activities.filter((a) => a.kind === 'nysc');
   const clearanceEntries: JourneyEntry[] = [];
   if (prior) {
@@ -63,12 +63,9 @@ export function journeyOf(r: StudentRecord, activities: Activity[]): JourneyStag
   const nyscLatest = nysc[0];
   return [
     { n: 1, title: 'JAMB Registration', state: 'done' as StageState, entries: [{ activity: 'Candidate registration and biometric enrolment', organisation: 'Joint Admissions and Matriculation Board', at: r.registeredAt, outcome: <Badge tone="success">Registered</Badge>, reference: <span className="font-mono">{r.reg}</span>, details: [['Registration centre', r.registrationCentre]] }] },
-    { n: 2, title: 'Examination Clearance', state: 'done' as StageState, entries: [{ activity: 'Cleared for examination (UTME)', organisation: 'Joint Admissions and Matriculation Board', at: r.exam.at, outcome: <Badge tone="success">Cleared for examination</Badge>, reference: <span className="font-mono">{r.exam.reference}</span>, details: [['Examination centre', r.exam.centre], ['UTME score', String(r.utmeScore)]] }] },
-    { n: 3, title: 'University Clearance', state: clearanceState, entries: clearanceEntries, empty: 'Clearance not yet started.' },
-    { n: 4, title: 'Matriculation Confirmation', state: (r.matriculation === 'matriculated' ? 'done' : r.clearance === 'cleared' ? 'pending' : 'not-available') as StageState,
-      entries: r.matriculation === 'matriculated' ? [{ activity: 'Matriculation confirmed', organisation: inst.name, at: r.matriculatedAt, officer: r.matriculatedBy, outcome: <Badge tone="brand">Matriculated</Badge>, reference: <span className="font-mono">{r.matricNo}</span>, details: [['Matriculation number', <span className="font-mono">{r.matricNo}</span>]] }] : [],
-      empty: r.clearance === 'cleared' ? 'Awaiting the institution’s matriculation confirmation.' : prior ? 'Not confirmed: no institution has confirmed matriculation for this candidate.' : 'Not confirmed: university clearance comes first.' },
-    { n: 5, title: 'NYSC Verification', state: (nyscLatest ? (nyscLatest.outcome === 'confirmed' ? 'done' : nyscLatest.outcome === 'face-mismatch' ? 'failed' : 'warning') : 'not-available') as StageState, entries: nysc.map(activityEntry).reverse(), empty: 'No NYSC verification yet.' },
+    { n: 2, title: 'JAMB Examination Verification', state: 'done' as StageState, entries: [{ activity: 'Candidate verified for the UTME', organisation: 'Joint Admissions and Matriculation Board', at: r.exam.at, outcome: <Badge tone="success">Verified</Badge>, reference: <span className="font-mono">{r.exam.reference}</span>, details: [['Examination centre', r.exam.centre], ['UTME score', String(r.utmeScore)]] }] },
+    { n: 3, title: 'University Admission Clearance', state: clearanceState, entries: clearanceEntries, empty: 'Clearance not yet started.' },
+    ...(nysc.length ? [{ n: 4, title: 'NYSC Verification', state: (nyscLatest ? (nyscLatest.outcome === 'confirmed' ? 'done' : nyscLatest.outcome === 'face-mismatch' ? 'failed' : 'warning') : 'not-available') as StageState, entries: nysc.map(activityEntry).reverse(), empty: 'No NYSC verification yet.' }] : []),
   ];
 }
 
@@ -88,12 +85,12 @@ export function StudentJourney({ record: r, actions, exceptionPath, showAudit }:
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{r.firstName} {r.middleName} {r.lastName}</h1>
                 <p className="mt-0.5 font-mono text-sm text-slate-600">{r.reg}</p>
-                <div className="mt-2 flex flex-wrap gap-2"><VerificationBadge status={r.verification} /><ClearanceBadge status={r.clearance} review={r.verification === 'escalated'} /><MatriculationBadge status={r.matriculation} /></div>
+                <div className="mt-2 flex flex-wrap gap-2"><VerificationBadge status={r.verification} /><ClearanceBadge status={r.clearance} review={r.verification === 'escalated'} /></div>
               </div>
               {actions && <div className="flex flex-wrap gap-2 print:hidden">{actions}</div>}
             </div>
             <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Student biodata">
-              {([['Institution', inst.name], ['Admission session', r.session], ['Department', r.department], ['Course', r.course], ['Date of birth', formatDate(r.dateOfBirth)], ['Gender', r.gender], ['State of origin', r.stateOfOrigin], ['Matriculation number', r.matricNo ?? '—']] as const).map(([k, v]) => (
+              {([['Institution', inst.name], ['Admission session', r.session], ['Department', r.department], ['Course', r.course], ['Date of birth', formatDate(r.dateOfBirth)], ['Gender', r.gender], ['State of origin', r.stateOfOrigin]] as const).map(([k, v]) => (
                 <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
               ))}
             </dl>

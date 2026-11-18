@@ -32,18 +32,11 @@ export const SIMULATED_CAPTURE = 'simulated:capture';
  * camera API. Only a live camera frame can be captured: there's no file upload. The capture stays in
  * memory and is handed to `onCapture`; this component never stores it.
  */
-export function CameraCapture({ captured, onCapture, onRetake, disabled, simulation, demoFace, startLabel = 'Capture Selfie', capturedAlt = 'Captured selfie' }: {
+export function CameraCapture({ captured, onCapture, onRetake, disabled, simulation }: {
   captured: string | null; onCapture: (dataUrl: string) => void; onRetake: () => void; disabled?: boolean;
   /** Offer a clearly labelled simulated capture, for demonstrations where a real camera isn't available. */
   simulation?: boolean;
-  /** Offer a predefined face for the selected test subject ("Use Demo Face"): it's handed to `onCapture` like a capture. */
-  demoFace?: { label?: string; onUse: () => void };
-  startLabel?: string;
-  capturedAlt?: string;
 }) {
-  const demoButton = demoFace && (
-    <Button variant="secondary" size="lg" disabled={disabled} onClick={() => { stop(); setState({ kind: 'idle' }); demoFace.onUse(); }}>{demoFace.label ?? 'Use Demo Face'}</Button>
-  );
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [state, setState] = useState<CameraState>({ kind: 'idle' });
@@ -121,7 +114,7 @@ export function CameraCapture({ captured, onCapture, onRetake, disabled, simulat
   if (captured) {
     return (
       <div className="space-y-3">
- <img src={captured} alt={capturedAlt} className="mx-auto aspect-[3/4] w-full max-w-xs rounded-2xl object-cover ring-1 ring-slate-200 sm:aspect-video sm:max-w-md" />
+        <img src={captured} alt="Captured selfie" className="mx-auto aspect-[3/4] w-full max-w-xs rounded-2xl object-cover ring-1 ring-slate-200 sm:aspect-video sm:max-w-md" />
         <div className="flex justify-center">
           <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={disabled} onClick={() => { onRetake(); void start(); }}>Retake</Button>
         </div>
@@ -142,7 +135,6 @@ export function CameraCapture({ captured, onCapture, onRetake, disabled, simulat
         <div className="flex flex-wrap justify-center gap-2">
           <Button size="lg" icon={<Camera className="h-5 w-5" />} disabled={state.kind !== 'live' || disabled} onClick={capture}>Capture</Button>
           {canSwitch && <Button variant="secondary" icon={<SwitchCamera className="h-4 w-4" />} onClick={() => void start(facing === 'user' ? 'environment' : 'user')}>Switch camera</Button>}
-          {demoButton}
           <Button variant="ghost" onClick={() => { stop(); setState({ kind: 'idle' }); }}>Stop camera</Button>
         </div>
       </div>
@@ -162,12 +154,9 @@ export function CameraCapture({ captured, onCapture, onRetake, disabled, simulat
           <CameraOff className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Camera unavailable: {state.message}
         </p>
       )}
-      <div className="flex flex-wrap justify-center gap-2">
-        <Button size="lg" icon={state.kind === 'idle' ? <Camera className="h-5 w-5" /> : <RefreshCw className="h-4 w-4" />} disabled={disabled} onClick={() => void start()}>
-          {state.kind === 'idle' ? startLabel : 'Try again'}
-        </Button>
-        {demoButton}
-      </div>
+      <Button size="lg" icon={state.kind === 'idle' ? <Camera className="h-5 w-5" /> : <RefreshCw className="h-4 w-4" />} disabled={disabled} onClick={() => void start()}>
+        {state.kind === 'idle' ? 'Capture Selfie' : 'Try again'}
+      </Button>
       {simulation && (
         <div>
           <Button variant="ghost" icon={<FlaskConical className="h-4 w-4" />} disabled={disabled} onClick={() => onCapture(SIMULATED_CAPTURE)}>Use simulated capture</Button>
