@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, CircleDashed, Clock, Fingerprint, FlaskConical, LogOut, MinusCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDashed, Clock, LogOut, MinusCircle, XCircle } from 'lucide-react';
 import { Badge, Button } from '@/components/ui';
 import { homeFor, useAuth } from '@/auth/AuthProvider';
 import { cn } from '@/lib/cn';
@@ -30,18 +30,31 @@ export function useOfficer(): Officer {
 export interface NavItem { label: string; to: string; end?: boolean }
 
 /**
- * A demo console: its own header (institutional identity, FixID underneath), navigation and a standing
- * note that the data and biometric checks are simulated. Chrome is hidden when printing.
+ * A JAMB Identity Verification & Clearance console: JAMB is the platform identity; a university officer's
+ * console adds the institution as context. One discreet "Demo environment" label in the footer discloses that
+ * records are illustrative and verification responses simulated. Chrome is hidden when printing.
  */
-export function ConsoleShell({ brand, tone, nav, roleLabel, children }: { brand: ReactNode; tone: 'jamb' | 'university'; nav: NavItem[]; roleLabel: string; children: ReactNode }) {
+export function ConsoleShell({ context, nav, roleLabel, children }: { context?: { title: string; subtitle: string }; nav: NavItem[]; roleLabel: string; children: ReactNode }) {
   const { account, signOut } = useAuth();
   const navigate = useNavigate();
   const name = [account?.firstName, account?.lastName].filter(Boolean).join(' ');
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className={cn('text-white print:hidden', tone === 'jamb' ? 'bg-emerald-950' : 'bg-slate-950')}>
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          {brand}
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <header className="bg-emerald-950 text-white print:hidden">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <JambLogo />
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-base font-semibold">JAMB Identity Verification &amp; Clearance</p>
+              <p className="truncate text-xs text-emerald-100/80">Joint Admissions and Matriculation Board</p>
+            </div>
+          </div>
+          {context && (
+            <div className="min-w-0 border-l border-white/20 pl-5 leading-tight" aria-label="Institution">
+              <p className="truncate text-sm font-semibold">{context.title}</p>
+              <p className="truncate text-xs text-emerald-100/80">{context.subtitle}</p>
+            </div>
+          )}
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-right leading-tight md:block">
               <span className="block font-medium">{name}</span>
@@ -50,7 +63,7 @@ export function ConsoleShell({ brand, tone, nav, roleLabel, children }: { brand:
             <Button size="sm" variant="secondary" icon={<LogOut className="h-4 w-4" />} onClick={() => { signOut(); navigate('/signin', { replace: true }); }}>Sign out</Button>
           </div>
         </div>
-        <nav aria-label="Console" className="mx-auto max-w-7xl overflow-x-auto px-4 sm:px-6 lg:px-8">
+        <nav aria-label="Console" className="mx-auto w-full max-w-7xl overflow-x-auto px-4 sm:px-6 lg:px-8">
           <ul className="flex gap-1">
             {nav.map((n) => (
               <li key={n.to}>
@@ -62,35 +75,30 @@ export function ConsoleShell({ brand, tone, nav, roleLabel, children }: { brand:
           </ul>
         </nav>
       </header>
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:max-w-none print:p-0">{children}</main>
-      <footer className="mx-auto max-w-7xl px-4 pb-8 text-xs text-slate-500 sm:px-6 lg:px-8 print:hidden">
-        <p className="flex items-start gap-1.5"><FlaskConical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
-          Proposed JAMB identity assurance demonstration. All institutions’ figures and student records are illustrative, and face matching is simulated: no JAMB service is called and no biometric data is stored.</p>
+      <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:max-w-none print:p-0">{children}</main>
+      <footer className="mx-auto w-full max-w-7xl px-4 pb-6 sm:px-6 lg:px-8 print:hidden">
+        <DemoEnvironment />
       </footer>
     </div>
   );
 }
 
-/** The JAMB logo (supplied by the user), on a white disc so it reads on the dark header. */
-export function JambLogo() {
+/** The single, discreet disclosure: illustrative records and simulated verification responses. */
+export function DemoEnvironment() {
   return (
-    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white p-0.5 shadow-sm">
-      <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-full w-full object-contain" />
-    </span>
+    <p className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+      <span className="rounded-full bg-slate-200/70 px-2 py-0.5 font-medium text-slate-500">Demo environment</span>
+      <span>Illustrative records; identity verification responses are simulated.</span>
+    </p>
   );
 }
 
-export const FixIdMark = ({ light = true }: { light?: boolean }) => (
-  <span className={cn('inline-flex items-center gap-1 text-xs', light ? 'text-white/70' : 'text-slate-500')}>
-    <span className="flex h-4 w-4 items-center justify-center rounded bg-brand-600"><Fingerprint className="h-3 w-3 text-white" aria-hidden="true" /></span>Powered by FixID
-  </span>
-);
-
-export function DemoNote({ children }: { children: ReactNode }) {
+/** The JAMB logo, on a white disc so it reads on the dark header. Replace src/jamb/assets/jamb-logo.png to update it. */
+export function JambLogo({ size = 'md' }: { size?: 'md' | 'lg' }) {
   return (
-    <p role="note" className="flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-      <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /><span>{children}</span>
-    </p>
+    <span className={cn('flex shrink-0 items-center justify-center rounded-full bg-white p-0.5 shadow-sm', size === 'lg' ? 'h-16 w-16' : 'h-12 w-12')}>
+      <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-full w-full object-contain" />
+    </span>
   );
 }
 
@@ -138,7 +146,6 @@ export function Portrait({ seed, gender, stage, label, className }: { seed: stri
       <path d={gender === 'Female' ? 'M33 58 Q60 14 87 58 Q84 34 60 30 Q36 34 33 58Z' : 'M36 50 Q60 24 84 50 Q80 36 60 33 Q40 36 36 50Z'} fill={hair} />
       <circle cx="50" cy="62" r="2.6" fill="#111827" /><circle cx="70" cy="62" r="2.6" fill="#111827" />
       <path d="M52 78 Q60 83 68 78" stroke="#3f1d0b" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <text x="60" y="12" textAnchor="middle" fontSize="7" fill="#475569">ILLUSTRATIVE</text>
     </svg>
   );
 }
@@ -148,7 +155,7 @@ export function simulatedCaptureDataUrl(seed: string, gender: StudentRecord['gen
   let h = 0;
   for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const skin = ['#8a5a3c', '#a66a43', '#6e4630', '#b47a52', '#7c5034'][h % 5];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140"><rect width="120" height="140" fill="#fef3c7"/><ellipse cx="60" cy="130" rx="44" ry="28" fill="#b45309"/>${gender === 'Female' ? '<ellipse cx="60" cy="58" rx="33" ry="38" fill="#1f1b18"/>' : ''}<ellipse cx="60" cy="62" rx="25" ry="30" fill="${skin}"/><circle cx="50" cy="62" r="2.6" fill="#111827"/><circle cx="70" cy="62" r="2.6" fill="#111827"/><path d="M52 78 Q60 83 68 78" stroke="#3f1d0b" stroke-width="2" fill="none"/><text x="60" y="12" text-anchor="middle" font-size="7" fill="#92400e">SIMULATED CAPTURE</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140"><rect width="120" height="140" fill="#fef3c7"/><ellipse cx="60" cy="130" rx="44" ry="28" fill="#b45309"/>${gender === 'Female' ? '<ellipse cx="60" cy="58" rx="33" ry="38" fill="#1f1b18"/>' : ''}<ellipse cx="60" cy="62" rx="25" ry="30" fill="${skin}"/><circle cx="50" cy="62" r="2.6" fill="#111827"/><circle cx="70" cy="62" r="2.6" fill="#111827"/><path d="M52 78 Q60 83 68 78" stroke="#3f1d0b" stroke-width="2" fill="none"/></svg>`;
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 

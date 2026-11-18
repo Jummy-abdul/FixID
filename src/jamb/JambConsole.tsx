@@ -10,7 +10,7 @@ import { StudentJourney } from './journey';
 import { OUTCOME_LABEL, countsOf, institutionCounts, nationalCounts, outcomeKind, recordOf, recordsOf, sessionTotals, useJambState, type Counts } from './store';
 import { StudentTable } from './students';
 import {
-  ConsoleShell, DemoNote, Distribution, FixIdMark, GroupedColumns, JambLogo, Legend, ProgressMeter, SERIES, STATUS, StackedBars, fmt, pct,
+  ConsoleShell, Distribution, GroupedColumns, Legend, ProgressMeter, SERIES, STATUS, StackedBars, fmt, pct,
 } from './ui';
 
 const NAV = [
@@ -20,18 +20,8 @@ const NAV = [
 
 /** The JAMB Officer's console: central oversight of identity verification, clearance and matriculation. */
 export function JambConsole() {
-  const brand = (
-    <div className="flex min-w-0 items-center gap-3">
-      <JambLogo />
-      <div className="min-w-0 leading-tight">
-        <p className="truncate font-semibold">Joint Admissions and Matriculation Board</p>
-        <p className="truncate text-xs text-emerald-100">Identity Assurance &amp; Matriculation Monitoring</p>
-        <FixIdMark />
-      </div>
-    </div>
-  );
   return (
-    <ConsoleShell brand={brand} tone="jamb" nav={NAV} roleLabel="JAMB Officer · Central Identity Assurance Administrator">
+    <ConsoleShell nav={NAV} roleLabel="JAMB Officer · Central Identity Assurance Administrator">
       <Routes>
         <Route index element={<JambOverview />} />
         <Route path="institutions" element={<InstitutionsPage />} />
@@ -63,7 +53,6 @@ function JambOverview() {
   return (
     <>
       <PageHeader title="National identity assurance overview" description="Identity verification, institutional clearance and matriculation across participating institutions, from JAMB registration to matriculation." />
-      <DemoNote>Illustrative demonstration data for a proposed solution, not real JAMB or institutional figures. Totals update when a clearance officer verifies, clears or matriculates a student in this prototype.</DemoNote>
       <section aria-label="Key statistics" className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <StatCard label="Participating institutions" value={INSTITUTIONS.length} to="/jamb/institutions" />
         <StatCard label="Students admitted" value={fmt(n.admitted)} />
@@ -118,8 +107,8 @@ function JambOverview() {
         </Card>
       </div>
       <Card>
-        <CardHeader title="Recent clearance verifications" description="Verifications performed by institutions in this prototype." />
-        {recent.length === 0 ? <EmptyState icon={<ScrollText className="h-5 w-5" />} title="No verifications yet in this demo" description="Sign in as the University Clearance Officer and verify a student: the result appears here." /> : (
+        <CardHeader title="Recent clearance verifications" description="Latest verifications performed by institutions." />
+        {recent.length === 0 ? <EmptyState icon={<ScrollText className="h-5 w-5" />} title="No recent verifications" description="Verifications performed by institutions appear here." /> : (
           <ul className="divide-y divide-slate-100" aria-label="Recent clearance verifications">
             {recent.map((e) => {
               const r = e.reg ? recordOf(e.reg, state) : undefined;
@@ -268,8 +257,7 @@ function ReconciliationPage() {
   const national = INSTITUTIONS.map((i) => ({ inst: i, c: institutionCounts(i.code, state) }));
   return (
     <>
-      <PageHeader title="Matriculation reconciliation" description="JAMB’s original admission list compared with what each institution reports: cleared and matriculated students, and the gaps between them." />
-      <DemoNote>An institution confirms matriculation itself. Completing biometric clearance never marks a student as matriculated.</DemoNote>
+      <PageHeader title="Matriculation reconciliation" description="JAMB’s original admission list compared with what each institution reports. Institutions confirm matriculation themselves: clearance alone never matriculates a student." />
       <Card>
         <div className="flex flex-col flex-wrap gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end">
           <div className="min-w-0 max-w-full [&_select]:w-full [&_select]:max-w-full"><FilterSelect label="Institution" value={inst.code} onChange={setCode} options={INSTITUTIONS.map((i) => ({ value: i.code, label: i.name }))} /></div>

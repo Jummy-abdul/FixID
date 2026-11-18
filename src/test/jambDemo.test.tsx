@@ -114,24 +114,57 @@ describe('JAMB demo accounts and screens', () => {
     expect(screen.getByRole('img', { name: 'Joint Admissions and Matriculation Board logo' })).toBeInTheDocument();
   });
 
-  it('the clearance flow verifies with a simulated capture, clears, and shows the certificate', async () => {
+  it('two steps: identify the student, then capture and verify; the result leads to clearance and the certificate', async () => {
     const s = pendingStudent();
     const user = renderApp(`/clearance/verify?session=2026-2027`, 'acct_demo_unilag_clearance');
+    expect(screen.getAllByRole('listitem').filter((li) => li.closest('[aria-label="Verification steps"]')).map((li) => li.textContent)).toEqual(['1Identify student', '2Capture face and verify']);
     await user.type(await screen.findByLabelText(/JAMB Registration Number/), s.reg);
     await user.click(screen.getByRole('button', { name: 'Find student' }));
+    // Step 1 shows the retrieved record with the registration portrait.
     expect(screen.getByLabelText('Student information')).toHaveTextContent(s.reg);
-    await user.click(screen.getByRole('button', { name: 'Continue to live capture' }));
-    await user.click(screen.getByRole('button', { name: 'Use simulated capture (demo)' }));
-    expect(screen.getByText('Simulated capture (demo): no camera image')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Use this capture' }));
-    await user.click(screen.getByRole('button', { name: 'Verify identity' }));
-    expect(await screen.findByText('SUCCESS: Face match successful', {}, { timeout: 3000 })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Confirm clearance' }));
-    expect(await screen.findByLabelText('Clearance record')).toHaveTextContent('Tolulope Adebayo');
-    await user.click(screen.getByRole('link', { name: 'View certificate' }));
+    expect(screen.getByRole('img', { name: /JAMB registration portrait/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Confirm and continue' }));
+    // Step 2: capturing goes straight to verification.
+    await user.click(screen.getByRole('button', { name: 'No camera? Use demo capture' }));
+    const result = await screen.findByLabelText('Verification result', {}, { timeout: 3000 });
+    expect(within(result).getByRole('heading', { name: 'Identity Verified' })).toBeInTheDocument();
+    expect(within(result).getByRole('img', { name: 'Captured portrait' })).toBeInTheDocument();
+    await user.click(within(result).getByRole('button', { name: 'Complete Clearance' }));
+    expect(await screen.findByRole('heading', { name: 'Clearance Successful' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Clearance record')).toHaveTextContent('Tolulope Adebayo');
+    await user.click(screen.getByRole('link', { name: 'Print clearance certificate' }));
     const cert = await screen.findByLabelText('Clearance certificate');
-    expect(cert).toHaveTextContent('Demonstration record: not an official document');
+    expect(cert).toHaveTextContent('Demonstration record, not an official document');
     expect(within(cert).getByRole('img', { name: /QR code linking/ })).toBeInTheDocument();
+    expect(within(cert).getByRole('img', { name: 'Joint Admissions and Matriculation Board logo' })).toBeInTheDocument();
+  });
+
+  it('a failed face match offers retry, recapture and the student record, never clearance', async () => {
+    const s = pendingStudent();
+    const user = renderApp(`/clearance/verify?session=2026-2027&reg=${s.reg}`, 'acct_demo_unilag_clearance');
+    await user.click(await screen.findByRole('button', { name: 'Confirm and continue' }));
+    await user.selectOptions(screen.getByLabelText('Verification response'), 'no-match');
+    await user.click(screen.getByRole('button', { name: 'No camera? Use demo capture' }));
+    expect(await screen.findByRole('heading', { name: 'Identity Could Not Be Confirmed' }, { timeout: 3000 })).toBeInTheDocument();
+    for (const name of ['Retry verification', 'Recapture portrait']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Return to student record' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Complete Clearance' })).toBeNull();
+    expect(recordOf(s.reg)?.verification).toBe('failed');
+  });
+
+  it('an invalid registration number is handled gracefully in step 1', async () => {
+    const user = renderApp('/clearance/verify', 'acct_demo_unilag_clearance');
+    await user.type(await screen.findByLabelText(/JAMB Registration Number/), '12345');
+    await user.click(screen.getByRole('button', { name: 'Find student' }));
+    expect(screen.getByText('Invalid registration number')).toBeInTheDocument();
+  });
+
+  it('the console carries JAMB branding with the institution as context, and no FixID branding or prototype banners', async () => {
+    renderApp('/clearance', 'acct_demo_unilag_clearance');
+    expect(await screen.findByText('JAMB Identity Verification & Clearance')).toBeInTheDocument();
+    expect(screen.getByLabelText('Institution')).toHaveTextContent('University of LagosUniversity Clearance Officer');
+    expect(document.body).not.toHaveTextContent(/FixID|Powered by/);
+    expect(screen.getAllByText('Demo environment')).toHaveLength(1);
   });
 
   it('the QR code’s page shows the clearance details carried by the code', async () => {

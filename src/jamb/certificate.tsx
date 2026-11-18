@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import qrcode from 'qrcode-generator';
-import { CheckCircle2, Download, Fingerprint, FlaskConical, Printer, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, Download, Printer, ShieldAlert } from 'lucide-react';
 import { Button, Card, useToast } from '@/components/ui';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { institutionByCode, type StudentRecord } from './data';
 import { clearanceReference, getJambState, recordOf, useJambState } from './store';
+import { DemoEnvironment } from './ui';
+import jambLogo from './assets/jamb-logo.png';
 
 /** What the QR code carries, so the verification page can show it on any device (demo only). */
 interface Payload { r: string; n: string; g: string; i: string; s: string; d: string; o: string }
@@ -39,7 +41,7 @@ async function downloadPdf(el: HTMLElement, fileName: string) {
   let png: string;
   try { png = await toPng(el, { pixelRatio: 2, backgroundColor: '#ffffff' }); } catch { png = await toPng(el, { pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: true }); }
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
-  doc.setProperties({ title: 'Clearance certificate (demonstration record)', creator: 'FixID' });
+  doc.setProperties({ title: 'Clearance certificate (demonstration record)', creator: 'JAMB Identity Verification & Clearance (demo)' });
   const w = 190; const h = (el.offsetHeight / el.offsetWidth) * w;
   doc.addImage(png, 'PNG', 10, 10, w, Math.min(h, 277));
   doc.save(fileName);
@@ -87,17 +89,16 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
       <div ref={ref} className="relative mx-auto max-w-3xl overflow-hidden rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-card print:border-slate-400 print:shadow-none" aria-label="Clearance certificate">
         <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center text-5xl font-black uppercase tracking-widest text-slate-900/[0.04] [transform:rotate(-24deg)]">Demonstration record</span>
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600"><Fingerprint className="h-5 w-5 text-white" aria-hidden="true" /></span>
-            <span><span className="block text-lg font-semibold text-slate-900">FixID</span><span className="block text-xs text-slate-500">Identity assurance</span></span>
+          <div className="flex items-center gap-3">
+            <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-14 w-14 object-contain" />
+            <span><span className="block text-base font-semibold text-slate-900">JAMB Identity Verification &amp; Clearance</span><span className="block text-xs text-slate-500">Joint Admissions and Matriculation Board</span></span>
           </div>
           <div className="text-right">
             <p className="font-semibold text-slate-900">{inst.name}</p>
             <p className="text-xs text-slate-500">Student Clearance Unit</p>
           </div>
         </div>
-        <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 ring-1 ring-inset ring-amber-200"><FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />Demonstration record: not an official document</p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">Identity Verification &amp; Clearance Certificate</h1>
+        <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-900">Identity Verification &amp; Clearance Certificate</h1>
         <p className="mt-1 text-sm text-slate-600">This confirms that the student below completed biometric identity verification against their JAMB registration record and was cleared by the institution.</p>
         <div className="mt-6 grid gap-6 sm:grid-cols-[1fr_auto]">
           <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
@@ -106,7 +107,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
             {row('University', inst.name)}
             {row('Admission session', r.session)}
             {row('Department', r.department)}
-            {row('Biometric verification outcome', <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Face match successful (simulated)</span>)}
+            {row('Biometric verification outcome', <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Face match successful</span>)}
             {row('Verification date', r.verifiedAt ? formatDateTime(r.verifiedAt) : '—')}
             {row('Clearance date', r.clearedAt ? formatDateTime(r.clearedAt) : '—')}
             {row('Clearance officer', r.clearedBy ?? '—')}
@@ -117,7 +118,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
             <span className="max-w-[9rem] text-center text-[11px] text-slate-500">Scan to view the verification details</span>
           </div>
         </div>
-        <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Issued {formatDate(new Date().toISOString())} through the FixID prototype. Illustrative data and a simulated face match: no JAMB service was called and no biometric data was stored. Matriculation is confirmed separately by the institution.</p>
+        <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Issued {formatDate(new Date().toISOString())}. Demonstration record, not an official document. Matriculation is confirmed separately by the institution.</p>
       </div>
     </>
   );
@@ -126,7 +127,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
 /**
  * Where the certificate's QR code leads (no sign-in). The code itself carries the details shown, so it works on
  * any device; when this browser also holds the record, the two are compared. A real deployment would look the
- * reference up on JAMB or FixID servers instead.
+ * reference up on JAMB's servers instead.
  */
 export function PublicVerificationPage() {
   const { ref = '' } = useParams();
@@ -138,16 +139,15 @@ export function PublicVerificationPage() {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto max-w-lg space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600"><Fingerprint className="h-5 w-5 text-white" aria-hidden="true" /></span>
-          <span className="font-semibold text-slate-900">FixID clearance verification</span>
+        <div className="flex items-center gap-3">
+          <img src={jambLogo} alt="Joint Admissions and Matriculation Board logo" className="h-12 w-12 object-contain" />
+          <span><span className="block font-semibold text-slate-900">JAMB Identity Verification &amp; Clearance</span><span className="block text-xs text-slate-500">Clearance verification</span></span>
         </div>
-        <p className="flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200"><FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Prototype demonstration: the details below come from the QR code itself. A production service would confirm them against JAMB and FixID records.</p>
         {valid ? (
           <Card className="px-5 py-5">
-            <p className="flex items-center gap-2 font-semibold text-emerald-700"><CheckCircle2 className="h-5 w-5" aria-hidden="true" />Clearance record (demonstration)</p>
+            <p className="flex items-center gap-2 font-semibold text-emerald-700"><CheckCircle2 className="h-5 w-5" aria-hidden="true" />Clearance record confirmed</p>
             <dl className="mt-4 space-y-3 text-sm" aria-label="Verification details">
-              {([['Reference', <span className="font-mono">{p.r}</span>], ['Student', p.n], ['JAMB registration number', <span className="font-mono">{p.g}</span>], ['Institution', p.i], ['Admission session', p.s], ['Cleared', p.d ? formatDateTime(p.d) : '—'], ['Clearance officer', p.o], ['Biometric outcome', 'Face match successful (simulated)']] as const).map(([k, v]) => (
+              {([['Reference', <span className="font-mono">{p.r}</span>], ['Student', p.n], ['JAMB registration number', <span className="font-mono">{p.g}</span>], ['Institution', p.i], ['Admission session', p.s], ['Cleared', p.d ? formatDateTime(p.d) : '—'], ['Clearance officer', p.o], ['Biometric outcome', 'Face match successful']] as const).map(([k, v]) => (
                 <div key={k} className="grid grid-cols-[10rem_1fr] gap-2"><dt className="text-slate-500">{k}</dt><dd className="text-slate-900">{v}</dd></div>
               ))}
             </dl>
@@ -159,6 +159,7 @@ export function PublicVerificationPage() {
             <p className="mt-2 text-sm text-slate-600">Scan the QR code on the certificate again, or ask the institution for the reference.</p>
           </Card>
         )}
+        <DemoEnvironment />
       </div>
     </div>
   );

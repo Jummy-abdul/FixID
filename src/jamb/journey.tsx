@@ -45,7 +45,7 @@ export function StudentJourney({ record: r, actions }: { record: StudentRecord; 
   const lastVerification = [r.verifiedAt, r.exam?.at, r.registeredAt].filter(Boolean).sort().at(-1)!;
 
   const summary = overall === 'verified'
-    ? `Identity verification successful. The live portrait captured at clearance was matched against the original JAMB registration identity record (simulated face match).${r.exam ? ' The examination-day check recorded by JAMB was also verified against the registration record.' : ' No examination-day verification evidence is held in this record, so that checkpoint isn’t counted.'}`
+    ? `Identity verification successful. The live portrait captured at clearance was matched against the original JAMB registration identity record.${r.exam ? ' The examination-day check recorded by JAMB was also verified against the registration record.' : ' No examination-day verification evidence is held in this record, so that checkpoint isn’t counted.'}`
     : overall === 'failed'
       ? 'Identity could not be confirmed: the live portrait captured at clearance did not match the JAMB registration identity record. Clearance cannot proceed.'
       : overall === 'exception'
@@ -75,7 +75,7 @@ export function StudentJourney({ record: r, actions }: { record: StudentRecord; 
           <div><dt className="text-slate-500">Last verification</dt><dd className="mt-0.5 text-slate-900">{formatDateTime(lastVerification)}</dd></div>
           <div><dt className="text-slate-500">Overall identity assurance</dt><dd className="mt-1"><CheckBadge c={overall} /></dd></div>
         </dl>
-        <p className="mt-3 text-xs text-slate-600">Identity checkpoints: {identity.filter((c) => c === 'verified').length} of 3 verified. Matriculation is the institution’s confirmation, not an identity check. Portraits below are illustrative drawings and face matches are simulated.</p>
+        <p className="mt-3 text-xs text-slate-600">Identity checkpoints: {identity.filter((c) => c === 'verified').length} of 3 verified. Matriculation is the institution’s confirmation, not an identity check.</p>
       </section>
 
       <Card className="px-5 py-5">
@@ -83,16 +83,16 @@ export function StudentJourney({ record: r, actions }: { record: StudentRecord; 
         <ol className="mt-4 space-y-0" aria-label="Identity journey">
           <Stage n={1} title="JAMB registration" status={cp.registration}
             portrait={<Portrait seed={r.reg} gender={r.gender} stage="registration" label="Original JAMB registration portrait" />}
-            rows={[['JAMB registration number', <span className="font-mono">{r.reg}</span>], ['Registration date', formatDate(r.registeredAt)], ['UTME score', String(r.utmeScore)], ['State of origin', r.stateOfOrigin], ['Registration verification', 'Biometric enrolment completed (demo record)']]} />
+            rows={[['JAMB registration number', <span className="font-mono">{r.reg}</span>], ['Registration date', formatDate(r.registeredAt)], ['UTME score', String(r.utmeScore)], ['State of origin', r.stateOfOrigin], ['Registration verification', 'Biometric enrolment completed']]} />
           <Stage n={2} title="Examination verification" status={cp.exam}
             portrait={r.exam ? <Portrait seed={r.reg} gender={r.gender} stage="exam" label="Examination verification portrait" /> : undefined}
             rows={r.exam ? [['Examination date', formatDate(r.exam.at)], ['Centre', r.exam.centre], ['Outcome', 'Verified against registration record'], ['Verification reference', <span className="font-mono">{r.exam.reference}</span>]] : [['Evidence', 'No examination-day verification is held in this demo record.']]} />
           <Stage n={3} title="University clearance" status={cp.clearance}
             portrait={capture
-              ? <figure><img src={capture} alt="Live portrait captured at clearance" className="h-36 w-full rounded-lg object-cover" /><figcaption className="mt-1 text-[11px] text-slate-500">Captured in this visit; not stored.</figcaption></figure>
-              : r.verification !== 'not-started' ? <figure><Portrait seed={r.reg} gender={r.gender} stage="clearance" label="Live clearance capture" /><figcaption className="mt-1 text-[11px] text-slate-500">Capture not retained in this prototype.</figcaption></figure> : undefined}
+              ? <figure><img src={capture} alt="Live portrait captured at clearance" className="h-36 w-full rounded-lg object-cover" /><figcaption className="mt-1 text-[11px] text-slate-500">Captured during clearance.</figcaption></figure>
+              : r.verification !== 'not-started' ? <figure><Portrait seed={r.reg} gender={r.gender} stage="clearance" label="Live clearance capture" /><figcaption className="mt-1 text-[11px] text-slate-500">Capture not retained.</figcaption></figure> : undefined}
             rows={r.verification === 'not-started' ? [['Status', 'Awaiting identity verification at clearance.']] : [
-              ['Face match outcome', r.verification === 'verified' ? 'Match: identity confirmed (simulated)' : r.verification === 'failed' ? 'No match: identity not confirmed (simulated)' : 'Exception: missing identity record'],
+              ['Face match outcome', r.verification === 'verified' ? 'Match: identity confirmed' : r.verification === 'failed' ? 'No match: identity not confirmed' : 'Exception: missing identity record'],
               ['Verification date', r.verifiedAt ? formatDateTime(r.verifiedAt) : '—'],
               ['Verification reference', <span className="font-mono">{r.verificationRef ?? '—'}</span>],
               ['Clearance', r.clearance === 'cleared' ? `Cleared ${r.clearedAt ? formatDateTime(r.clearedAt) : ''} by ${r.clearedBy ?? '—'}` : 'Not cleared'],
@@ -106,11 +106,11 @@ export function StudentJourney({ record: r, actions }: { record: StudentRecord; 
 
       {events.length > 0 && (
         <Card className="px-5 py-5">
-          <h2 className="text-base font-semibold text-slate-900">Verification attempts in this prototype</h2>
+          <h2 className="text-base font-semibold text-slate-900">Verification attempts</h2>
           <ul className="mt-3 divide-y divide-slate-100 text-sm" aria-label="Verification attempts">
             {events.map((e) => (
               <li key={e.ref} className="flex flex-wrap justify-between gap-2 py-2">
-                <span><span className="font-medium text-slate-900">{OUTCOME_LABEL[e.outcome]}</span> <span className="text-slate-500">· {e.captureMode === 'camera' ? 'camera capture' : 'simulated capture'} · {e.by}</span></span>
+                <span><span className="font-medium text-slate-900">{OUTCOME_LABEL[e.outcome]}</span> <span className="text-slate-500">· {e.captureMode === 'camera' ? 'camera capture' : 'demo capture'} · {e.by}</span></span>
                 <span className="text-slate-500"><span className="font-mono text-xs">{e.ref}</span> · {formatDateTime(e.at)}</span>
               </li>
             ))}
