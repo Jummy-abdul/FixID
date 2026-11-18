@@ -76,17 +76,11 @@ if (typeof window !== 'undefined') {
 export const getJambState = () => current;
 /** Re-reads storage (tests, and after a reset elsewhere). */
 export function reloadJambState() { current = load(); emit(); }
-export function resetJambDemo() { liveCaptures.clear(); save(empty()); }
+export function resetJambDemo() { save(empty()); }
 export function useJambState(): JambState {
   return useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l); }, () => current, () => current);
 }
 
-/**
- * Live captures are kept in this tab's memory only, for the rest of the visit: they're never written to
- * storage. After a reload the record shows that a capture was taken, not the image.
- */
-const liveCaptures = new Map<string, string>();
-export const liveCaptureOf = (reg: string) => liveCaptures.get(reg);
 
 /* ---------------- records and counts ---------------- */
 
@@ -181,8 +175,11 @@ export function expectedOutcome(r: StudentRecord): VerificationOutcome {
   return base.verification === 'failed' ? 'no-match' : base.verification === 'exception' ? 'missing-record' : 'match';
 }
 
-/** Records a verification attempt (any outcome). Only a match, a non-match or a missing record changes the student's status. */
-export function recordVerification(input: { entered: string; session: Session; officer: Officer; outcome: VerificationOutcome; captureMode: 'camera' | 'simulated'; capture?: string; record?: StudentRecord }): Result<VerificationEvent> {
+/**
+ * Records a verification attempt (any outcome). Only a match, a non-match or a missing record changes the
+ * student's status. The live capture itself is never recorded: it stays on the verification page as evidence.
+ */
+export function recordVerification(input: { entered: string; session: Session; officer: Officer; outcome: VerificationOutcome; captureMode: 'camera' | 'simulated'; record?: StudentRecord }): Result<VerificationEvent> {
   const { officer } = input;
   if (officer.role !== 'clearance-officer' || !officer.institution) return { ok: false, error: 'Only an institution’s clearance officer can verify students.' };
   if (input.record && (input.record.institution !== officer.institution || input.record.session !== input.session)) return { ok: false, error: 'This student isn’t in your admission session.' };
@@ -199,7 +196,6 @@ export function recordVerification(input: { entered: string; session: Session; o
       verification: input.outcome === 'match' ? 'verified' : input.outcome === 'no-match' ? 'failed' : 'exception',
       verifiedAt: at, verificationRef: event.ref, captureMode: input.captureMode,
     };
-    if (input.capture) liveCaptures.set(input.record.reg, input.capture);
   }
   save({ ...current, students, events: [event, ...current.events] });
   return { ok: true, value: event };

@@ -212,7 +212,7 @@ function VerifyStudentPage() {
     setVerifying(true); setResult(null);
     window.setTimeout(() => {
       const outcome = demo === 'record' ? expectedOutcome(record) : demo;
-      const r = recordVerification({ entered: record.reg, session, officer, outcome, captureMode: c.mode, capture: c.url, record });
+      const r = recordVerification({ entered: record.reg, session, officer, outcome, captureMode: c.mode, record });
       setVerifying(false);
       if (r.ok) setResult(r.value);
     }, 900);
@@ -329,6 +329,7 @@ function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture,
 }) {
   const officer = useOfficer();
   const [error, setError] = useState('');
+  const [evidence, setEvidence] = useState(false);
   const cleared = record.clearance === 'cleared';
   const listPath = `/clearance/sessions/${sessionSlug(session)}`;
   const complete = () => { const r = confirmClearance(record.reg, officer); if (!r.ok) setError('Clearance couldn’t be completed. Verify the student again.'); };
@@ -345,7 +346,7 @@ function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture,
   const rows: [string, ReactNode][] = cleared
     ? [['Clearance reference', <span className="font-mono">{clearanceReference(record)}</span>], ['Date and time', record.clearedAt ? formatDateTime(record.clearedAt) : '—'], ['Student', `${record.firstName} ${record.middleName} ${record.lastName}`],
       ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Department', record.department], ['Admission session', record.session],
-      ['Identity verification', 'Verified: face match successful'], ['Clearance status', <Badge tone="success">Cleared</Badge>], ['Clearance officer', record.clearedBy]]
+      ['Identity verification', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Identity verified · Face match successful</span>], ['Clearance status', <Badge tone="success">Cleared</Badge>], ['Clearance officer', record.clearedBy]]
     : [['Student', `${record.firstName} ${record.middleName} ${record.lastName}`], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>],
       ['Verification result', OUTCOME_LABEL[e.outcome]], ['Verification reference', <span className="font-mono">{e.ref}</span>]];
   return (
@@ -355,14 +356,30 @@ function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture,
         <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
       </div>
       <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
-        <div className="flex gap-4">
-          <figure className="w-28"><Portrait seed={record.reg} gender={record.gender} stage="registration" label="JAMB registration portrait" className="h-36" /><figcaption className="mt-1 text-center text-xs text-slate-500">Registration</figcaption></figure>
-          <figure className="w-28"><img src={capture.url} alt="Captured portrait" className="h-36 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-xs text-slate-500">{capture.mode === 'camera' ? 'Captured' : 'Captured (demo)'}</figcaption></figure>
-        </div>
+        {cleared ? (
+          // After clearance the registration portrait is the student's only portrait: the capture was evidence for the match.
+          <figure className="w-36"><Portrait seed={record.reg} gender={record.gender} stage="registration" label="JAMB registration portrait" className="h-44" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+        ) : (
+          <div className="flex gap-4">
+            <figure className="w-28"><Portrait seed={record.reg} gender={record.gender} stage="registration" label="JAMB registration portrait" className="h-36" /><figcaption className="mt-1 text-center text-xs text-slate-500">Registration</figcaption></figure>
+            <figure className="w-28"><img src={capture.url} alt="Captured portrait" className="h-36 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-xs text-slate-500">{capture.mode === 'camera' ? 'Captured' : 'Captured (demo)'}</figcaption></figure>
+          </div>
+        )}
         <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label={cleared ? 'Clearance record' : 'Verification details'}>
           {rows.map(([k, v]) => <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>)}
         </dl>
       </div>
+      {cleared && evidence && (
+        <section aria-label="Verification details" className="mx-6 mb-5 grid gap-5 rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200 sm:grid-cols-[auto_1fr]">
+          <figure className="w-24"><img src={capture.url} alt="Captured portrait used for the face match" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Live capture</figcaption></figure>
+          <dl className="grid content-start gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', formatDateTime(e.at)], ['Result', OUTCOME_LABEL[e.outcome]], ['Capture', e.captureMode === 'camera' ? 'Camera' : 'Demo capture']] as const).map(([k, v]) => (
+              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-slate-900">{v}</dd></div>
+            ))}
+            <p className="text-xs text-slate-500 sm:col-span-2">The live capture was used only for this face match. It isn’t stored and is discarded when you leave this page.</p>
+          </dl>
+        </section>
+      )}
       {error && <p role="alert" className="px-6 pb-2 text-sm text-red-700">{error}</p>}
       <div className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
         {cleared ? (
@@ -371,6 +388,7 @@ function ResultPanel({ event: e, record, capture, session, onRetry, onRecapture,
             <ButtonLink to={`/clearance/students/${record.reg}`} variant="secondary">View clearance details</ButtonLink>
             <ButtonLink to={listPath} variant="secondary">Return to student list</ButtonLink>
             <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify another student</Button>
+            <Button variant="ghost" className="sm:ml-auto" aria-expanded={evidence} onClick={() => setEvidence((v) => !v)}>{evidence ? 'Hide verification details' : 'View verification details'}</Button>
           </>
         ) : e.outcome === 'match' ? (
           <>

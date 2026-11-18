@@ -132,6 +132,14 @@ describe('JAMB demo accounts and screens', () => {
     await user.click(within(result).getByRole('button', { name: 'Complete Clearance' }));
     expect(await screen.findByRole('heading', { name: 'Clearance Successful' })).toBeInTheDocument();
     expect(screen.getByLabelText('Clearance record')).toHaveTextContent('Tolulope Adebayo');
+    expect(screen.getByLabelText('Clearance record')).toHaveTextContent('Identity verified · Face match successful');
+    // The registration portrait is the only portrait; the live capture is evidence, shown only on request.
+    expect(screen.getByRole('img', { name: /JAMB registration portrait/ })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Captured portrait/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'View verification details' }));
+    expect(within(screen.getByRole('region', { name: 'Verification details' })).getByRole('img', { name: /Captured portrait used for the face match/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hide verification details' }));
+    expect(screen.queryByRole('img', { name: /Captured portrait/ })).toBeNull();
     await user.click(screen.getByRole('link', { name: 'Print clearance certificate' }));
     const cert = await screen.findByLabelText('Clearance certificate');
     expect(cert).toHaveTextContent('Demonstration record, not an official document');

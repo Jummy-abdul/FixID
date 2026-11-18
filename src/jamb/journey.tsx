@@ -4,7 +4,7 @@ import { Badge, Card } from '@/components/ui';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { institutionByCode, type StudentRecord } from './data';
-import { OUTCOME_LABEL, eventsFor, liveCaptureOf, useJambState } from './store';
+import { OUTCOME_LABEL, eventsFor, useJambState } from './store';
 import { ClearanceBadge, MatriculationBadge, Portrait, VerificationBadge } from './ui';
 
 type Checkpoint = 'verified' | 'pending' | 'failed' | 'exception' | 'not-available';
@@ -40,7 +40,6 @@ export function StudentJourney({ record: r, actions }: { record: StudentRecord; 
   const verifiedCount = Object.values(cp).filter((c) => c === 'verified').length;
   const failedCount = Object.values(cp).filter((c) => c === 'failed').length;
   const overall: Checkpoint = cp.clearance === 'failed' ? 'failed' : cp.clearance === 'exception' ? 'exception' : cp.clearance === 'verified' ? 'verified' : 'pending';
-  const capture = liveCaptureOf(r.reg);
   const events = eventsFor(r.reg, state);
   const lastVerification = [r.verifiedAt, r.exam?.at, r.registeredAt].filter(Boolean).sort().at(-1)!;
 
@@ -88,11 +87,9 @@ export function StudentJourney({ record: r, actions }: { record: StudentRecord; 
             portrait={r.exam ? <Portrait seed={r.reg} gender={r.gender} stage="exam" label="Examination verification portrait" /> : undefined}
             rows={r.exam ? [['Examination date', formatDate(r.exam.at)], ['Centre', r.exam.centre], ['Outcome', 'Verified against registration record'], ['Verification reference', <span className="font-mono">{r.exam.reference}</span>]] : [['Evidence', 'No examination-day verification is held in this demo record.']]} />
           <Stage n={3} title="University clearance" status={cp.clearance}
-            portrait={capture
-              ? <figure><img src={capture} alt="Live portrait captured at clearance" className="h-36 w-full rounded-lg object-cover" /><figcaption className="mt-1 text-[11px] text-slate-500">Captured during clearance.</figcaption></figure>
-              : r.verification !== 'not-started' ? <figure><Portrait seed={r.reg} gender={r.gender} stage="clearance" label="Live clearance capture" /><figcaption className="mt-1 text-[11px] text-slate-500">Capture not retained.</figcaption></figure> : undefined}
             rows={r.verification === 'not-started' ? [['Status', 'Awaiting identity verification at clearance.']] : [
               ['Face match outcome', r.verification === 'verified' ? 'Match: identity confirmed' : r.verification === 'failed' ? 'No match: identity not confirmed' : 'Exception: missing identity record'],
+              ['Live capture', 'Used for the face match only; not retained'],
               ['Verification date', r.verifiedAt ? formatDateTime(r.verifiedAt) : '—'],
               ['Verification reference', <span className="font-mono">{r.verificationRef ?? '—'}</span>],
               ['Clearance', r.clearance === 'cleared' ? `Cleared ${r.clearedAt ? formatDateTime(r.clearedAt) : ''} by ${r.clearedBy ?? '—'}` : 'Not cleared'],
