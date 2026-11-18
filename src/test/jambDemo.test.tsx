@@ -6,6 +6,7 @@ import { AppProviders } from '@/AppProviders';
 import { AUTH_STORAGE_KEY, builtInAccounts } from '@/auth/authCore';
 import { BASE_COUNTS, EVENTS, GENERATED_TOTALS, INSTITUTIONS, SESSIONS, UNILAG, baseRecords, institutionByCode, parseRegistration } from '@/jamb/data';
 import { SCENARIO_CANDIDATES } from '@/jamb/scenarios';
+import { journeyOf } from '@/jamb/journey';
 import {
   accessDisabled, activitiesFor, confirmClearance, confirmMatriculation, countsOf, exceptionsForReg, getJambState, inviteUser, lookupForClearance, nationalCounts, officerFor,
   recordNyscVerification, recordOf, recordUniversityVerification, referToJamb, reloadJambState, resolveException, setUserStatus, usersOf,
@@ -109,6 +110,22 @@ describe('university clearance scenarios', () => {
     expect(confirmClearance(C, uni).ok).toBe(false);
     expect(exceptionsForReg(C)[0]).toMatchObject({ category: 'duplicate-clearance' });
     expect(exceptionsForReg(C)[0].evidence.map((e) => e.value)).toContain('JCL-UNIBEN-2025-418306');
+  });
+});
+
+describe('Candidate C identity timeline', () => {
+  it('separates the previous University of Benin clearance from the current record and unconfirmed matriculation', () => {
+    verifyUni(C);
+    const stages = journeyOf(recordOf(C)!, activitiesFor(C));
+    const clearance = stages.find((s) => s.n === 3)!;
+    expect(clearance.entries.map((e) => [e.activity, e.organisation])).toEqual(expect.arrayContaining([
+      ['Previous clearance record (another institution)', 'University of Benin'],
+      ['Clearance for the current admission record', 'University of Lagos'],
+    ]));
+    expect(clearance.entries.at(-1)!.activity).toBe('Clearance for the current admission record');
+    const matric = stages.find((s) => s.n === 4)!;
+    expect(matric.entries).toHaveLength(0);
+    expect(matric.empty).toMatch(/Not confirmed/);
   });
 });
 

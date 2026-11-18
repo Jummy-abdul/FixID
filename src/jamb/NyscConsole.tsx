@@ -12,7 +12,7 @@ import { NYSC_EVENT_ID, eventById, institutionByCode, type StudentRecord } from 
 import { downloadPdf } from './certificate';
 import { StudentJourney, journeyOf } from './journey';
 import { demoFace } from './portraits';
-import { OUTCOME_LABEL, activitiesFor, allActivities, lookupForNysc, recordNyscVerification, recordOf, referToJamb, useJambState, type Activity } from './store';
+import { OUTCOME_LABEL, activitiesFor, priorClearanceOf, allActivities, lookupForNysc, recordNyscVerification, recordOf, referToJamb, useJambState, type Activity } from './store';
 import { ActivityList, EventStatusBadge, NotFound, OutcomeBadge, Section, eventPeriod } from './shared';
 import { ConsoleLayout, JambLogo, OrgMark, Portrait, fmt, placeholderFaceUrl, useOfficer } from './ui';
 
@@ -195,6 +195,7 @@ function NyscResult({ activity: a, record: r, onNext, onRetake }: { activity: Ac
   const inst = institutionByCode(r.institution)!;
   const cleared = r.clearance === 'cleared';
   const matric = r.matriculation === 'matriculated';
+  const prior = priorClearanceOf(r.reg);
   const o = a.outcome;
   const head = o === 'confirmed'
     ? { cls: 'bg-emerald-700 text-white', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Candidate Identity Confirmed', text: 'Identity, examination, clearance and matriculation records are confirmed.' }
@@ -232,7 +233,8 @@ function NyscResult({ activity: a, record: r, onNext, onRetake }: { activity: Ac
                   <Row label="JAMB record" value="Found" good />
                   <Row label="Face verification" value="Match" good />
                   <Row label="Examination clearance" value="Recorded" good />
-                  <Row label="University clearance" value={cleared ? 'Completed' : 'Not completed'} good={cleared} />
+                  <Row label={prior ? 'University clearance (current record)' : 'University clearance'} value={cleared ? 'Completed' : r.blocked === 'duplicate-clearance' ? 'Blocked: duplicate under JAMB review' : 'Not completed'} good={cleared} />
+                  {prior && <Row label="Previous clearance record" value={`${institutionByCode(prior.institution)?.name}, ${formatDate(prior.clearedAt)}`} good={null} />}
                   <Row label="Matriculation" value="Not confirmed" good={false} />
                 </>
               )}

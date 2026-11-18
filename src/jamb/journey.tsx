@@ -44,11 +44,21 @@ export function journeyOf(r: StudentRecord, activities: Activity[]): JourneyStag
   const clearanceEntries: JourneyEntry[] = [];
   if (prior) {
     const pi = institutionByCode(prior.institution)!;
-    clearanceEntries.push({ activity: 'Admission clearance completed', organisation: pi.name, at: prior.clearedAt, officer: prior.clearedBy, outcome: <Badge tone="success">Cleared</Badge>, reference: <span className="font-mono">{prior.reference}</span>, details: [['Department', prior.department], ['Course', prior.course]] });
+    clearanceEntries.push({ activity: 'Previous clearance record (another institution)', organisation: pi.name, at: prior.clearedAt, officer: prior.clearedBy, outcome: <Badge tone="neutral">Previous record: cleared</Badge>, reference: <span className="font-mono">{prior.reference}</span>, details: [['Admission session', prior.session], ['Department', prior.department], ['Course', prior.course]] });
   }
   clearanceEntries.push(...uni.map(activityEntry));
   if (r.clearance === 'cleared') clearanceEntries.push({ activity: 'Admission clearance completed', organisation: inst.name, at: r.clearedAt, officer: r.clearedBy, outcome: <Badge tone="success">Cleared</Badge>, reference: <span className="font-mono">{r.clearanceRef}</span>, details: [['Department', r.department], ['Course', r.course]] });
   clearanceEntries.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));
+  // With a previous clearance elsewhere, state where the current admission record stands, separately.
+  const duplicateCase = activities.find((a) => a.outcome === 'duplicate-clearance' && a.exceptionId);
+  if (prior && r.clearance !== 'cleared') {
+    clearanceEntries.push({
+      activity: 'Clearance for the current admission record', organisation: inst.name,
+      outcome: r.blocked === 'duplicate-clearance' ? <Badge tone="warning">Blocked: duplicate clearance under JAMB review</Badge> : <Badge tone="neutral">Not cleared</Badge>,
+      reference: duplicateCase ? <span className="font-mono">{duplicateCase.exceptionId}</span> : undefined,
+      details: [['Admission session', r.session], ['Department', r.department], ['Course', r.course]],
+    });
+  }
   const clearanceState: StageState = r.clearance === 'cleared' ? 'done' : r.verification === 'failed' ? 'failed' : r.verification === 'exception' || r.blocked ? 'warning' : 'pending';
   const nyscLatest = nysc[0];
   return [
@@ -57,7 +67,7 @@ export function journeyOf(r: StudentRecord, activities: Activity[]): JourneyStag
     { n: 3, title: 'University Clearance', state: clearanceState, entries: clearanceEntries, empty: 'Clearance not yet started.' },
     { n: 4, title: 'Matriculation Confirmation', state: (r.matriculation === 'matriculated' ? 'done' : r.clearance === 'cleared' ? 'pending' : 'not-available') as StageState,
       entries: r.matriculation === 'matriculated' ? [{ activity: 'Matriculation confirmed', organisation: inst.name, at: r.matriculatedAt, officer: r.matriculatedBy, outcome: <Badge tone="brand">Matriculated</Badge>, reference: <span className="font-mono">{r.matricNo}</span>, details: [['Matriculation number', <span className="font-mono">{r.matricNo}</span>]] }] : [],
-      empty: r.clearance === 'cleared' ? 'Awaiting the institution’s matriculation confirmation.' : 'Not confirmed: university clearance comes first.' },
+      empty: r.clearance === 'cleared' ? 'Awaiting the institution’s matriculation confirmation.' : prior ? 'Not confirmed: no institution has confirmed matriculation for this candidate.' : 'Not confirmed: university clearance comes first.' },
     { n: 5, title: 'NYSC Verification', state: (nyscLatest ? (nyscLatest.outcome === 'confirmed' ? 'done' : nyscLatest.outcome === 'face-mismatch' ? 'failed' : 'warning') : 'not-available') as StageState, entries: nysc.map(activityEntry).reverse(), empty: 'No NYSC verification yet.' },
   ];
 }
