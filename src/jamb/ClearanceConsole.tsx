@@ -445,6 +445,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
         {cleared && evidence && capture && (
           <section aria-label="Verification details" className="mx-6 mb-5 grid gap-5 rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200 sm:grid-cols-[auto_1fr]">
             <div className="flex gap-3">
+              <figure className="w-24"><Portrait record={record} className="h-28 w-full" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">JAMB record</figcaption></figure>
               {ninPortrait(record) && <figure className="w-24"><FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className="h-28 w-full" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">NIN record</figcaption></figure>}
               <figure className="w-24"><img src={capture.url} alt="Captured face used for the verification" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Captured face</figcaption></figure>
             </div>
