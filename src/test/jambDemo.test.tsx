@@ -95,6 +95,10 @@ describe('university clearance scenarios', () => {
     expect(exc).toMatchObject({ category: 'jamb-nin-discrepancy', status: 'open', raisedBy: 'Tolulope Adebayo' });
     expect(resolveException(exc.id, jamb, 'identity-confirmed', 'Candidate attended JAMB with valid NIN.').ok).toBe(true);
     expect(recordOf(B)!.blocked).toBeUndefined();
+    // Verifying again after JAMB's decision doesn't recreate the block (the NIN response is still reported).
+    const again = verifyUni(B);
+    expect(again.ok && again.value).toMatchObject({ outcome: 'identity-confirmed', checks: { nin: 'mismatch' } });
+    expect(exceptionsForReg(B)).toHaveLength(1);
     expect(confirmClearance(B, uni).ok).toBe(true);
   });
 

@@ -108,7 +108,7 @@ export function CertificatePage({ backTo }: { backTo: (reg: string) => string })
             {row('Admission session', r.session)}
             {row('Department', r.department)}
             {row('Course', r.course)}
-            {row('Verification outcome', <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Identity verified (JAMB and NIN match)</span>)}
+            {row('Verification outcome', <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{r.nin === 'mismatch' ? 'Identity verified (NIN discrepancy resolved by JAMB)' : 'Identity verified (JAMB and NIN match)'}</span>)}
             {row('Verification date', r.verifiedAt ? dateTime(r.verifiedAt) : '—')}
             {row('Clearance date', r.clearedAt ? dateTime(r.clearedAt) : '—')}
             {row('Clearance officer', r.clearedBy ?? '—')}

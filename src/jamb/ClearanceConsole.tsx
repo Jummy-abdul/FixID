@@ -341,7 +341,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
         {cleared ? (
           <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label="Clearance record">
             {([['Student', `${record.firstName} ${record.middleName} ${record.lastName}`], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department],
-              ['Admission session', record.session], ['Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Identity verified · JAMB and NIN match</span>],
+              ['Admission session', record.session], ['Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{record.nin === 'mismatch' ? 'Identity verified · NIN discrepancy resolved by JAMB' : 'Identity verified · JAMB and NIN match'}</span>],
               ['Clearance reference', <span className="font-mono">{record.clearanceRef}</span>], ['Clearance date and time', record.clearedAt ? dateTime(record.clearedAt) : '—'], ['Clearance officer', record.clearedBy], ['Clearance status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
               <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
             ))}
@@ -351,7 +351,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
             <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
             <dl className="max-w-md divide-y divide-slate-100 text-sm" aria-label="Identity checks">
               <Check label="JAMB identity" value={e.checks?.face === 'match' ? 'Match' : 'No match'} good={e.checks?.face === 'match'} />
-              {e.checks?.nin && <Check label="NIN verification" value={e.checks.nin === 'match' ? 'Match' : 'Mismatch'} good={e.checks.nin === 'match'} />}
+              {e.checks?.nin && <Check label="NIN verification" value={e.checks.nin === 'match' ? 'Match' : o === 'identity-confirmed' ? 'Mismatch · resolved by JAMB' : 'Mismatch'} good={e.checks.nin === 'match' || o === 'identity-confirmed'} />}
               <Check label={o === 'identity-confirmed' ? 'Identity status' : 'Overall identity status'} value={o === 'identity-confirmed' || o === 'duplicate-clearance' ? 'Confirmed' : 'Not confirmed'} good={o === 'identity-confirmed' || o === 'duplicate-clearance'} />
               {o === 'identity-confirmed' ? <Check label="Eligibility to proceed" value="Yes" good /> : <Check label="Clearance status" value="Blocked" good={false} />}
             </dl>
@@ -373,7 +373,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
         <section aria-label="Verification details" className="mx-6 mb-5 grid gap-5 rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200 sm:grid-cols-[auto_1fr]">
           <figure className="w-24"><img src={capture.url} alt="Captured face used for the verification" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Live capture</figcaption></figure>
           <dl className="grid content-start gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB identity', 'Match'], ['NIN verification', 'Match']] as [string, ReactNode][]).map(([k, v]) => (
+            {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB identity', 'Match'], ['NIN verification', e.checks?.nin === 'mismatch' ? 'Mismatch · resolved by JAMB' : 'Match']] as [string, ReactNode][]).map(([k, v]) => (
               <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-slate-900">{v}</dd></div>
             ))}
             <p className="text-xs text-slate-500 sm:col-span-2">The capture was used only for this verification and is not stored.</p>

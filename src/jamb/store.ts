@@ -504,10 +504,18 @@ export function lookupForClearance(input: string, officer: Officer, session: Ses
 /** What JAMB's identity services return for the student at clearance (predefined per record; no live service is called). */
 export function universityResponse(r: StudentRecord): Exclude<UniversityOutcome, 'not-found' | 'invalid'> {
   const s = scenarioByReg(r.reg);
+  // JAMB has adjudicated the NIN discrepancy and confirmed the identity: it no longer blocks verification.
+  if (ninResolvedByJamb(r.reg)) return 'identity-confirmed';
   if (s?.university) return s.university;
   if (priorClearanceOf(r.reg)) return 'duplicate-clearance';
   const base = baseRecordOf(r.reg)!;
   return base.verification === 'failed' ? 'face-mismatch' : base.verification === 'exception' ? 'nin-mismatch' : 'identity-confirmed';
+}
+
+/** Whether JAMB resolved the student's latest JAMB/NIN discrepancy as identity confirmed. */
+export function ninResolvedByJamb(reg: string, state: JambState = current): boolean {
+  const e = exceptionsOf(state).find((x) => x.reg === reg && x.category === 'jamb-nin-discrepancy');
+  return e?.resolution?.outcome === 'identity-confirmed';
 }
 
 function newException(state: JambState, r: StudentRecord, officer: Officer, category: ExceptionCategory, evidence: Evidence[], activityRef: string): [JambState, JambException] {
@@ -533,14 +541,14 @@ export function recordUniversityVerification(input: { entered: string; officer: 
   const activity: Activity = {
     ref: `JIV-${officer.institution}-${year}-${code6()}`, at, kind: 'university', eventId: eventForSession(record?.session ?? ACTIVE_SESSION).id, officer: officer.name, officerTitle: officer.title,
     organisation: officer.organisation, institution: officer.institution, session: record?.session ?? ACTIVE_SESSION, input: input.entered.trim(), reg: record?.reg, outcome,
-    checks: record ? { face: outcome === 'face-mismatch' ? 'no-match' : 'match', nin: outcome === 'face-mismatch' ? undefined : outcome === 'nin-mismatch' ? 'mismatch' : 'match' } : undefined,
+    checks: record ? { face: outcome === 'face-mismatch' ? 'no-match' : 'match', nin: outcome === 'face-mismatch' ? undefined : outcome === 'nin-mismatch' || ninResolvedByJamb(record.reg) ? 'mismatch' : 'match' } : undefined,
     captureMode: record ? input.captureMode : undefined,
   };
   let state = current;
   if (record) {
     const o: StudentOverride = { verifiedAt: at, verifiedBy: officer.name, verificationRef: activity.ref };
     const prior = priorClearanceOf(record.reg);
-    if (outcome === 'identity-confirmed') Object.assign(o, { verification: 'verified', nin: 'match', blocked: null });
+    if (outcome === 'identity-confirmed') Object.assign(o, { verification: 'verified', nin: activity.checks?.nin ?? 'match', blocked: null });
     else if (outcome === 'face-mismatch') Object.assign(o, { verification: 'failed' });
     else if (outcome === 'nin-mismatch') Object.assign(o, { verification: 'exception', nin: 'mismatch', blocked: 'nin-mismatch' });
     else Object.assign(o, { verification: 'exception', nin: 'match', blocked: 'duplicate-clearance' });
