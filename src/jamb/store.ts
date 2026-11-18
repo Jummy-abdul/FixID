@@ -31,13 +31,13 @@ export interface Officer {
 
 export type UniversityOutcome = 'identity-confirmed' | 'nin-mismatch' | 'duplicate-clearance' | 'face-mismatch' | 'not-found' | 'invalid';
 export type NyscOutcome = 'confirmed' | 'face-mismatch' | 'matriculation-not-confirmed' | 'not-found' | 'invalid';
-export type ActivityOutcome = UniversityOutcome | NyscOutcome | 'clearance-completed' | 'matriculation-confirmed';
+export type ActivityOutcome = UniversityOutcome | NyscOutcome | 'clearance-completed' | 'matriculation-confirmed' | 'escalated';
 
 export const OUTCOME_LABEL: Record<ActivityOutcome, string> = {
   'identity-confirmed': 'Identity verified', 'nin-mismatch': 'JAMB/NIN discrepancy', 'duplicate-clearance': 'Duplicate clearance blocked',
   'face-mismatch': 'Face verification failed', 'not-found': 'Record not found', invalid: 'Invalid registration number',
   confirmed: 'Identity confirmed', 'matriculation-not-confirmed': 'Matriculation not confirmed',
-  'clearance-completed': 'Clearance completed', 'matriculation-confirmed': 'Matriculation confirmed',
+  'clearance-completed': 'Clearance completed', 'matriculation-confirmed': 'Matriculation confirmed', escalated: 'Escalated to JAMB',
 };
 export const outcomeTone = (o: ActivityOutcome): 'success' | 'danger' | 'warning' | 'neutral' =>
   o === 'identity-confirmed' || o === 'confirmed' || o === 'clearance-completed' || o === 'matriculation-confirmed' ? 'success'
@@ -64,14 +64,35 @@ export interface Activity {
 
 export type ExceptionCategory = 'jamb-nin-discrepancy' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
 export const CATEGORY_LABEL: Record<ExceptionCategory, string> = {
-  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Duplicate clearance',
+  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
   'record-inconsistency': 'Student record inconsistency', 'failed-verification': 'Failed identity verification', 'manual-review': 'Manual review required',
 };
-export type ExceptionResolution = 'identity-confirmed' | 'identity-not-confirmed' | 'record-corrected' | 'clearance-revoked' | 'no-further-action';
+export type ExceptionResolution = 'identity-confirmed' | 'identity-not-confirmed' | 'record-corrected' | 'clearance-revoked' | 'no-further-action'
+  | 'existing-record-confirmed' | 'release-authorised' | 'previous-clearance-revoked' | 'escalation-rejected';
 export const RESOLUTION_LABEL: Record<ExceptionResolution, string> = {
   'identity-confirmed': 'Identity confirmed: clearance may proceed', 'identity-not-confirmed': 'Identity not confirmed: clearance remains blocked',
   'record-corrected': 'Record corrected by JAMB', 'clearance-revoked': 'Earlier clearance upheld: duplicate blocked', 'no-further-action': 'No further action required',
+  'existing-record-confirmed': 'Existing record confirmed: clearance here is not permitted', 'release-authorised': 'Release authorised by JAMB: clearance may proceed',
+  'previous-clearance-revoked': 'Previous clearance revoked by JAMB: clearance may proceed', 'escalation-rejected': 'Escalation rejected',
 };
+
+/** A comparison between two identity sources (predefined per record: no biometric service is called). */
+export interface Comparison { label: string; result: 'match' | 'mismatch' | 'pending' }
+/** What an institution submitted when it escalated a case to JAMB. */
+export interface Escalation {
+  comment: string;
+  submittedBy: string;
+  submittedByTitle: string;
+  institution: string;
+  submittedAt: string;
+  /** Supporting evidence the officer attached. */
+  evidence: string[];
+  comparisons?: Comparison[];
+  /** The live capture, only when the officer attached it as evidence. */
+  capture?: string;
+}
+export type EscalationStatus = 'open' | 'in-review' | 'awaiting-information' | 'resolved' | 'rejected';
+export const ESCALATION_STATUS_LABEL: Record<EscalationStatus, string> = { open: 'Open', 'in-review': 'Under review', 'awaiting-information': 'Awaiting information', resolved: 'Resolved', rejected: 'Rejected' };
 
 export interface Evidence { label: string; value: string; tone?: 'good' | 'bad' | 'neutral' }
 export interface JambException {
@@ -91,6 +112,8 @@ export interface JambException {
   activityRef?: string;
   history: ExceptionEvent[];
   resolution?: { outcome: ExceptionResolution; note: string; at: string; by: string };
+  /** Present when an institution escalated the case to JAMB. */
+  escalation?: Escalation;
 }
 
 export type UserRole = 'jamb-admin' | 'jamb-reviewer' | 'clearance-officer' | 'clearance-supervisor' | 'nysc-officer';
@@ -236,7 +259,7 @@ function bump(c: Counts, r: Pick<StudentRecord, 'verification' | 'clearance' | '
   else if (r.clearance === 'cleared') c.clearedNotMatriculated += k;
   if (r.clearance !== 'cleared') {
     if (r.verification === 'failed') c.failed += k;
-    else if (r.verification === 'exception') c.exceptions += k;
+    else if (r.verification === 'exception' || r.verification === 'escalated') c.exceptions += k;
     else if (r.verification === 'verified') c.awaitingClearance += k;
     else c.notStarted += k;
   }
@@ -367,6 +390,17 @@ export function activitiesFor(reg: string, state: JambState = current): Activity
 /* ---------------- exceptions register ---------------- */
 
 const JAMB_REVIEWERS = ['Grace Uwaifo', 'Musa Idris', 'Aisha Danjuma'];
+const ESCALATING = ['UI', 'ABU', 'OAU', 'UNIBEN', 'UNIPORT', 'LASU', 'UNN'];
+
+/** The identity comparisons shown for an outcome (predefined; no biometric service is called). */
+export function comparisonsFor(outcome: UniversityOutcome): Comparison[] {
+  const discrepancy = outcome === 'nin-mismatch';
+  return [
+    { label: 'JAMB registration record vs live capture', result: outcome === 'face-mismatch' ? 'mismatch' : 'match' },
+    { label: 'NIN identity record vs live capture', result: discrepancy ? 'mismatch' : outcome === 'face-mismatch' ? 'pending' : 'match' },
+    { label: 'JAMB registration record vs NIN identity record', result: discrepancy ? 'mismatch' : 'match' },
+  ];
+}
 let seededExceptions: JambException[] | null = null;
 function ev(id: string, at: string, action: ExceptionAction, actor: string, org: string, from?: ExceptionStatus, to?: ExceptionStatus, comment?: string): ExceptionEvent {
   return { id, at, action, actorId: actor, actorName: actor, actorOrganizationId: org, fromStatus: from, toStatus: to, comment };
@@ -404,8 +438,17 @@ export function seededExceptionList(): JambException[] {
           if (status === 'closed') history.push(ev(`${id}-6`, plus(raised, 168), 'closed', reviewer, 'JAMB', 'resolved', 'closed'));
           resolution = { outcome, note, at: plus(raised, 144), by: reviewer };
         }
+        // A few active-session cases reached JAMB as escalations from the institution.
+        const escalated = active && kind === 'exception' && ESCALATING.includes(inst.code) && !out.some((x) => x.institution === inst.code && x.escalation);
         out.push({
-          id, reg: rec.reg, institution: inst.code, session: s, eventId: eventForSession(s).id, category,
+          id: escalated ? id.replace(/^EXC-\d{4}/, `ESC-${new Date(raised).getUTCFullYear()}`) : id, reg: rec.reg, institution: inst.code, session: s, eventId: eventForSession(s).id, category,
+          escalation: escalated ? {
+            comment: category === 'jamb-nin-discrepancy' ? 'The live portrait matches the original JAMB registration portrait. However, the NIN portrait returned during verification does not match the captured face. Kindly investigate and confirm the student’s identity.'
+              : 'The student’s name and date of birth on our admission list differ from the JAMB record. Kindly confirm the correct record.',
+            submittedBy: rec.verifiedBy!, submittedByTitle: 'Institutional Clearance Officer', institution: inst.code, submittedAt: raised,
+            evidence: ['Identity comparison results', 'Verification reference'],
+            comparisons: comparisonsFor(category === 'jamb-nin-discrepancy' ? 'nin-mismatch' : 'identity-confirmed'),
+          } : undefined,
           summary: summaryFor(category), raisedAt: raised, raisedBy: rec.verifiedBy!, raisedByOrganisation: inst.name, status,
           assignedTo: status === 'open' ? undefined : reviewer, activityRef: rec.verificationRef, history, resolution,
           evidence: kind === 'failed'
@@ -505,7 +548,7 @@ export function lookupForClearance(input: string, officer: Officer, session: Ses
 export function universityResponse(r: StudentRecord): Exclude<UniversityOutcome, 'not-found' | 'invalid'> {
   const s = scenarioByReg(r.reg);
   // JAMB has adjudicated the NIN discrepancy and confirmed the identity: it no longer blocks verification.
-  if (ninResolvedByJamb(r.reg)) return 'identity-confirmed';
+  if (ninResolvedByJamb(r.reg) || duplicateReleasedByJamb(r.reg)) return 'identity-confirmed';
   if (s?.university) return s.university;
   if (priorClearanceOf(r.reg)) return 'duplicate-clearance';
   const base = baseRecordOf(r.reg)!;
@@ -516,6 +559,12 @@ export function universityResponse(r: StudentRecord): Exclude<UniversityOutcome,
 export function ninResolvedByJamb(reg: string, state: JambState = current): boolean {
   const e = exceptionsOf(state).find((x) => x.reg === reg && x.category === 'jamb-nin-discrepancy');
   return e?.resolution?.outcome === 'identity-confirmed';
+}
+
+/** Whether JAMB released the student to clear here despite a previous clearance elsewhere. */
+export function duplicateReleasedByJamb(reg: string, state: JambState = current): boolean {
+  const e = exceptionsOf(state).find((x) => x.reg === reg && x.category === 'duplicate-clearance');
+  return e?.resolution?.outcome === 'release-authorised' || e?.resolution?.outcome === 'previous-clearance-revoked';
 }
 
 function newException(state: JambState, r: StudentRecord, officer: Officer, category: ExceptionCategory, evidence: Evidence[], activityRef: string): [JambState, JambException] {
@@ -547,20 +596,15 @@ export function recordUniversityVerification(input: { entered: string; officer: 
   let state = current;
   if (record) {
     const o: StudentOverride = { verifiedAt: at, verifiedBy: officer.name, verificationRef: activity.ref };
-    const prior = priorClearanceOf(record.reg);
     if (outcome === 'identity-confirmed') Object.assign(o, { verification: 'verified', nin: activity.checks?.nin ?? 'match', blocked: null });
     else if (outcome === 'face-mismatch') Object.assign(o, { verification: 'failed' });
     else if (outcome === 'nin-mismatch') Object.assign(o, { verification: 'exception', nin: 'mismatch', blocked: 'nin-mismatch' });
     else Object.assign(o, { verification: 'exception', nin: 'match', blocked: 'duplicate-clearance' });
     state = { ...state, students: { ...state.students, [record.reg]: { ...state.students[record.reg], ...o } } };
-    if (outcome !== 'identity-confirmed') {
-      const category: ExceptionCategory = outcome === 'face-mismatch' ? 'failed-verification' : outcome === 'nin-mismatch' ? 'jamb-nin-discrepancy' : 'duplicate-clearance';
-      const evidence: Evidence[] = outcome === 'face-mismatch'
-        ? [{ label: 'Face match against JAMB registration portrait', value: 'No match', tone: 'bad' }]
-        : [{ label: 'Face match against JAMB registration portrait', value: 'Match', tone: 'good' }, { label: 'NIN verification response', value: outcome === 'nin-mismatch' ? 'Mismatch' : 'Match', tone: outcome === 'nin-mismatch' ? 'bad' : 'good' }];
-      if (prior && outcome === 'duplicate-clearance') {
-        evidence.push({ label: 'Previous clearance', value: `${institutionByCode(prior.institution)?.name}, ${prior.department}` }, { label: 'Previous clearance reference', value: prior.reference }, { label: 'Previously cleared by', value: prior.clearedBy });
-      }
+    // A failed face match is raised automatically. Discrepancies and existing clearances wait for the officer to escalate.
+    if (outcome === 'face-mismatch') {
+      const category: ExceptionCategory = 'failed-verification';
+      const evidence: Evidence[] = [{ label: 'Face match against JAMB registration portrait', value: 'No match', tone: 'bad' }];
       evidence.push({ label: 'Capture', value: input.captureMode === 'camera' ? 'Live camera capture' : 'Demo face' }, { label: 'Verification reference', value: activity.ref });
       const [next, e] = newException(state, record, officer, category, evidence, activity.ref);
       state = next;
@@ -676,9 +720,88 @@ export function resolveException(id: string, officer: Officer, outcome: Exceptio
   const e = exceptionById(id);
   if (!e) return { ok: false, error: 'Exception not found.' };
   const r = patchException(id, officer, 'resolution-recorded', { status: 'resolved', resolution: { outcome, note: note.trim(), at: now(), by: officer.name } }, note.trim());
+  const s = current.students[e.reg] ?? {};
   if (r.ok && outcome === 'identity-confirmed' && e.category === 'jamb-nin-discrepancy') {
-    const s = current.students[e.reg] ?? {};
     if (s.blocked === 'nin-mismatch') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
+  } else if (r.ok && (outcome === 'release-authorised' || outcome === 'previous-clearance-revoked') && e.category === 'duplicate-clearance') {
+    if (s.blocked === 'duplicate-clearance') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
+  } else if (r.ok && s.verification === 'escalated') {
+    // Decided without lifting the block: the student stays blocked, no longer awaiting JAMB.
+    save({ ...current, students: { ...current.students, [e.reg]: { ...s, verification: 'exception' } } });
+  }
+  return r.ok ? { ok: true, value: exceptionById(id)! } : r;
+}
+
+/* ---------------- escalations ---------------- */
+
+export const escalationsOf = (state: JambState = current) => exceptionsOf(state).filter((e) => e.escalation);
+export const escalationFor = (reg: string, state: JambState = current) => escalationsOf(state).find((e) => e.reg === reg);
+export function escalationStatus(e: JambException): EscalationStatus {
+  if (e.resolution?.outcome === 'escalation-rejected') return 'rejected';
+  if (e.status === 'resolved' || e.status === 'closed') return 'resolved';
+  if (e.status === 'in-review') return 'in-review';
+  if (e.status === 'awaiting-information') return 'awaiting-information';
+  return 'open';
+}
+/** JAMB's latest response on an escalation (a comment, an information request or the decision). */
+export function jambResponse(e: JambException): ExceptionEvent | undefined {
+  return [...e.history].reverse().find((h) => h.actorOrganizationId === 'JAMB' && (h.comment || h.action === 'review-started'));
+}
+
+/** The university escalates a discrepancy or an existing clearance to JAMB. Clearance stays pending JAMB's review. */
+export function escalateToJamb(input: { reg: string; officer: Officer; category: ExceptionCategory; comment: string; evidence: string[]; capture?: string }): Result<JambException> {
+  const { officer } = input;
+  const r = recordOf(input.reg);
+  if (!r) return { ok: false, error: 'Student record not found.' };
+  if (officer.role !== 'clearance-officer' || r.institution !== officer.institution) return { ok: false, error: 'Only this institution’s clearance officer can escalate the student.' };
+  if (r.clearance === 'cleared') return { ok: false, error: 'This student has already been cleared.' };
+  if (!input.comment.trim()) return { ok: false, error: 'Describe the issue for JAMB.' };
+  const open = escalationsOf().find((e) => e.reg === r.reg && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(e)));
+  if (open) return { ok: false, error: `This student is already escalated (${open.id}).` };
+  const at = now();
+  const id = `ESC-${new Date().getFullYear()}-${code6().slice(0, 5)}`;
+  const outcome: UniversityOutcome = r.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : r.nin === 'mismatch' ? 'nin-mismatch' : r.verification === 'failed' ? 'face-mismatch' : 'identity-confirmed';
+  const prior = priorClearanceOf(r.reg);
+  const comparisons = comparisonsFor(outcome);
+  const evidence: Evidence[] = comparisons.map((c) => ({ label: c.label, value: c.result === 'match' ? 'Match' : c.result === 'mismatch' ? 'Mismatch' : 'Pending', tone: c.result === 'match' ? 'good' : c.result === 'mismatch' ? 'bad' : 'neutral' }));
+  if (prior && input.category === 'duplicate-clearance') {
+    evidence.push({ label: 'Previous institution', value: institutionByCode(prior.institution)?.name ?? prior.institution }, { label: 'Previous clearance', value: `${prior.reference}, ${prior.clearedBy}` },
+      { label: 'Previous matriculation', value: prior.matricNo ? `Confirmed (${prior.matricNo})` : 'Not confirmed' });
+  }
+  if (r.verificationRef) evidence.push({ label: 'Verification reference', value: r.verificationRef });
+  const e: JambException = {
+    id, reg: r.reg, institution: r.institution, session: r.session, eventId: eventForSession(r.session).id, category: input.category, summary: summaryFor(input.category),
+    raisedAt: at, raisedBy: officer.name, raisedByOrganisation: officer.organisation, status: 'open', evidence, activityRef: r.verificationRef,
+    history: [ev(`${id}-1`, at, 'created', officer.name, officer.organisation, undefined, 'open', input.comment.trim())],
+    escalation: { comment: input.comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: r.institution, submittedAt: at, evidence: input.evidence, comparisons, capture: input.capture },
+  };
+  let state: JambState = { ...current, createdExceptions: [e, ...current.createdExceptions], students: { ...current.students, [r.reg]: { ...current.students[r.reg], verification: 'escalated' } } };
+  state = { ...state, activities: [{ ref: id, at, kind: 'university', eventId: e.eventId, officer: officer.name, officerTitle: officer.title, organisation: officer.organisation, institution: r.institution, session: r.session, input: r.reg, reg: r.reg, outcome: 'escalated', exceptionId: id }, ...state.activities] };
+  save(audit(state, officer, 'Escalated to JAMB', { reg: r.reg, student: studentName(r), outcome: CATEGORY_LABEL[input.category], reference: id }));
+  return { ok: true, value: exceptionById(id)! };
+}
+
+/** The institution answers JAMB's request for information. */
+export function respondToEscalation(id: string, officer: Officer, text: string): Result<JambException> {
+  const e = exceptionById(id);
+  if (!e?.escalation) return { ok: false, error: 'Escalation not found.' };
+  if (officer.role !== 'clearance-officer' || e.institution !== officer.institution) return { ok: false, error: 'Only the escalating institution can respond.' };
+  if (!text.trim()) return { ok: false, error: 'Write a response first.' };
+  const to: ExceptionStatus = e.status === 'awaiting-information' ? 'in-review' : e.status;
+  const event = ev(`${id}-${e.history.length + 1}-${code6()}`, now(), 'note-added', officer.name, officer.organisation, e.status, to, text.trim());
+  const state: JambState = { ...current, exceptions: { ...current.exceptions, [id]: { ...current.exceptions[id], status: to, history: [...e.history, event] } } };
+  save(audit(state, officer, 'Escalation response sent', { reg: e.reg, reference: id }));
+  return { ok: true, value: exceptionById(id)! };
+}
+
+/** JAMB rejects an escalation, with a reason. The student stays blocked; the institution can escalate again. */
+export function rejectEscalation(id: string, officer: Officer, reason: string): Result<JambException> {
+  if (!reason.trim()) return { ok: false, error: 'Give a reason for rejecting the escalation.' };
+  const e = exceptionById(id);
+  const r = patchException(id, officer, 'closed', { status: 'closed', resolution: { outcome: 'escalation-rejected', note: reason.trim(), at: now(), by: officer.name } }, reason.trim());
+  if (r.ok && e) {
+    const s = current.students[e.reg] ?? {};
+    if (s.verification === 'escalated') save({ ...current, students: { ...current.students, [e.reg]: { ...s, verification: 'exception' } } });
   }
   return r.ok ? { ok: true, value: exceptionById(id)! } : r;
 }

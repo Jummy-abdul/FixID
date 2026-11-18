@@ -8,7 +8,7 @@ import { BASE_COUNTS, EVENTS, GENERATED_TOTALS, INSTITUTIONS, SESSIONS, UNILAG, 
 import { SCENARIO_CANDIDATES } from '@/jamb/scenarios';
 import { journeyOf } from '@/jamb/journey';
 import {
-  accessDisabled, activitiesFor, confirmClearance, confirmMatriculation, countsOf, exceptionsForReg, getJambState, inviteUser, lookupForClearance, nationalCounts, officerFor,
+  accessDisabled, activitiesFor, escalateToJamb, escalationFor, escalationStatus, jambResponse, rejectEscalation, requestInformation, respondToEscalation, confirmClearance, confirmMatriculation, countsOf, exceptionsForReg, getJambState, inviteUser, lookupForClearance, nationalCounts, officerFor,
   recordNyscVerification, recordOf, recordUniversityVerification, referToJamb, reloadJambState, resolveException, setUserStatus, usersOf,
 } from '@/jamb/store';
 import { createInitialState } from '@/store/state';
@@ -87,13 +87,24 @@ describe('university clearance scenarios', () => {
     expect(activitiesFor(A).map((a) => a.outcome)).toEqual(expect.arrayContaining(['identity-confirmed', 'clearance-completed']));
   });
 
-  it('B: JAMB match but NIN mismatch blocks clearance and raises an exception; JAMB can lift it', () => {
+  it('B: JAMB match but NIN mismatch blocks clearance; the officer escalates; JAMB can lift it', () => {
     const v = verifyUni(B);
     expect(v.ok && v.value).toMatchObject({ outcome: 'nin-mismatch', checks: { face: 'match', nin: 'mismatch' } });
     expect(recordOf(B)).toMatchObject({ blocked: 'nin-mismatch', verification: 'exception' });
     expect(confirmClearance(B, uni).ok).toBe(false);
+    // Nothing reaches JAMB until the officer escalates.
+    expect(exceptionsForReg(B)).toHaveLength(0);
+    const esc = escalateToJamb({ reg: B, officer: uni, category: 'jamb-nin-discrepancy', comment: 'Live portrait matches JAMB but not NIN.', evidence: ['Identity comparison results'] });
+    expect(esc.ok && esc.value).toMatchObject({ id: expect.stringMatching(/^ESC-\d{4}-\d{5}$/), status: 'open', raisedBy: 'Tolulope Adebayo', escalation: { institution: 'UNILAG', comparisons: [{ result: 'match' }, { result: 'mismatch' }, { result: 'mismatch' }] } });
+    expect(recordOf(B)!.verification).toBe('escalated');
+    expect(escalateToJamb({ reg: B, officer: uni, category: 'jamb-nin-discrepancy', comment: 'again', evidence: [] }).ok).toBe(false);
     const [exc] = exceptionsForReg(B);
-    expect(exc).toMatchObject({ category: 'jamb-nin-discrepancy', status: 'open', raisedBy: 'Tolulope Adebayo' });
+    // JAMB's response reaches the university.
+    expect(requestInformation(exc.id, jamb, 'Send the NIN slip.').ok).toBe(true);
+    expect(escalationStatus(escalationFor(B)!)).toBe('awaiting-information');
+    expect(jambResponse(escalationFor(B)!)?.comment).toBe('Send the NIN slip.');
+    expect(respondToEscalation(exc.id, uni, 'NIN slip attached.').ok).toBe(true);
+    expect(escalationStatus(escalationFor(B)!)).toBe('in-review');
     expect(resolveException(exc.id, jamb, 'identity-confirmed', 'Candidate attended JAMB with valid NIN.').ok).toBe(true);
     expect(recordOf(B)!.blocked).toBeUndefined();
     // Verifying again after JAMB's decision doesn't recreate the block (the NIN response is still reported).
@@ -103,13 +114,27 @@ describe('university clearance scenarios', () => {
     expect(confirmClearance(B, uni).ok).toBe(true);
   });
 
-  it('C: a previous clearance at another institution blocks the duplicate', () => {
+  it('C: an existing clearance at another institution blocks clearance; only JAMB can release it', () => {
     const v = verifyUni(C);
     expect(v.ok && v.value.outcome).toBe('duplicate-clearance');
     expect(recordOf(C)!.blocked).toBe('duplicate-clearance');
     expect(confirmClearance(C, uni).ok).toBe(false);
-    expect(exceptionsForReg(C)[0]).toMatchObject({ category: 'duplicate-clearance' });
-    expect(exceptionsForReg(C)[0].evidence.map((e) => e.value)).toContain('JCL-UNIBEN-2025-418306');
+    const esc = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Existing clearance found.', evidence: ['Previous clearance record'] });
+    expect(esc.ok).toBe(true);
+    const [exc] = exceptionsForReg(C);
+    expect(exc).toMatchObject({ category: 'duplicate-clearance' });
+    expect(exc.evidence.map((e) => e.value)).toEqual(expect.arrayContaining(['University of Benin', 'Confirmed (UNIBEN/25/0418)']));
+    // The university can't decide; JAMB rejects, then (escalated again) releases.
+    expect(resolveException(exc.id, uni, 'release-authorised', 'x').ok).toBe(false);
+    expect(rejectEscalation(exc.id, jamb, 'Attach the admission letter and escalate again.').ok).toBe(true);
+    expect(escalationStatus(exceptionsForReg(C)[0])).toBe('rejected');
+    expect(recordOf(C)!.blocked).toBe('duplicate-clearance');
+    const again = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Admission letter attached.', evidence: [] });
+    expect(again.ok).toBe(true);
+    expect(resolveException(again.ok ? again.value.id : '', jamb, 'release-authorised', 'Previous admission withdrawn by the candidate.').ok).toBe(true);
+    expect(recordOf(C)!.blocked).toBeUndefined();
+    expect(verifyUni(C).ok && recordOf(C)!.verification).toBe('verified');
+    expect(confirmClearance(C, uni).ok).toBe(true);
   });
 });
 
@@ -179,7 +204,7 @@ describe('workspaces', () => {
   it('JAMB uses the FixID sidebar with JAMB navigation and branding only', async () => {
     renderApp('/jamb', 'acct_demo_jamb_officer');
     const nav = await screen.findByRole('navigation', { name: 'Primary' });
-    for (const label of ['Home', 'Verification Events', 'Verification Activity', 'Exceptions', 'Student Records', 'Institutions', 'Reports', 'Users & Access', 'Audit Logs', 'Settings']) {
+    for (const label of ['Home', 'Verification Events', 'Verification Activity', 'Exceptions & Escalations', 'Student Records', 'Institutions', 'Reports', 'Users & Access', 'Audit Logs', 'Settings']) {
       expect(within(nav).getByRole('link', { name: label })).toBeInTheDocument();
     }
     for (const g of ['Verification', 'Institutions', 'Users & Access', 'Administration']) expect(within(nav).getAllByText(g).length).toBeGreaterThan(0);
@@ -201,10 +226,10 @@ describe('workspaces', () => {
     await user.click(await screen.findByRole('button', { name: 'Confirm and continue' }));
     await user.click(screen.getByRole('button', { name: 'Use Demo Face' }));
     await user.click(screen.getByRole('button', { name: 'Verify identity' }));
-    expect(await screen.findByRole('heading', { name: 'Identity Successfully Verified' }, { timeout: 3000 })).toBeInTheDocument();
-    const checks = screen.getByLabelText('Identity checks');
-    expect(within(checks).getByText('JAMB identity')).toBeInTheDocument();
-    expect(within(checks).getByText('NIN verification')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Identity Verified' }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText(/captured face matches the registered identity record/)).toBeInTheDocument();
+    // A simple result: no comparison analysis for a successful verification.
+    expect(screen.queryByLabelText('Identity Verification Analysis')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Complete Clearance' }));
     expect(await screen.findByRole('heading', { name: 'Clearance Successful' })).toBeInTheDocument();
     for (const name of ['Print Clearance Certificate', 'View Clearance Details', 'Return to Student List']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
@@ -214,14 +239,23 @@ describe('workspaces', () => {
     await waitFor(() => expect(recordOf(A)!.clearance).toBe('cleared'));
   });
 
-  it('university scenario B shows the discrepancy and no clearance action', async () => {
+  it('university scenario B shows the three-image analysis and escalates to JAMB', async () => {
     const user = renderApp(`/clearance/verify?reg=${B}`, 'acct_demo_unilag_clearance');
     await user.click(await screen.findByRole('button', { name: 'Confirm and continue' }));
     await user.click(screen.getByRole('button', { name: 'Use Demo Face' }));
-    await user.click(screen.getByRole('button', { name: 'Verify identity' }));
-    expect(await screen.findByRole('heading', { name: 'Identity Discrepancy Detected' }, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByText('The candidate’s identity could not be fully confirmed. Please contact JAMB for further review.')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Verify identity' }));
+    expect(await screen.findByRole('heading', { name: 'Identity Verification Analysis' }, { timeout: 3000 })).toBeInTheDocument();
+    const analysis = screen.getByLabelText('Identity Verification Analysis');
+    for (const label of ['JAMB Registration Record', 'NIN Identity Record', 'Live Captured Portrait']) expect(within(analysis).getByText(label)).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Comparison outcomes')).getAllByText('Mismatch')).toHaveLength(2);
+    expect(screen.getByText(/Identity discrepancy detected\. The captured portrait matches the original JAMB registration record but differs from the NIN identity record\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Complete Clearance' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Escalate to JAMB' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Escalate to JAMB' });
+    expect((within(drawer).getByLabelText(/Description/) as HTMLTextAreaElement).value).toContain('NIN portrait returned during verification does not match');
+    await user.click(within(drawer).getByRole('button', { name: 'Submit escalation' }));
+    expect(await screen.findByRole('heading', { name: 'Escalated to JAMB' })).toBeInTheDocument();
+    expect(recordOf(B)!.verification).toBe('escalated');
   });
 
   it('NYSC officer confirms Candidate A and gets a printable report', async () => {

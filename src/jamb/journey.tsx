@@ -88,7 +88,7 @@ export function StudentJourney({ record: r, actions, exceptionPath, showAudit }:
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{r.firstName} {r.middleName} {r.lastName}</h1>
                 <p className="mt-0.5 font-mono text-sm text-slate-600">{r.reg}</p>
-                <div className="mt-2 flex flex-wrap gap-2"><VerificationBadge status={r.verification} /><ClearanceBadge status={r.clearance} /><MatriculationBadge status={r.matriculation} /></div>
+                <div className="mt-2 flex flex-wrap gap-2"><VerificationBadge status={r.verification} /><ClearanceBadge status={r.clearance} review={r.verification === 'escalated'} /><MatriculationBadge status={r.matriculation} /></div>
               </div>
               {actions && <div className="flex flex-wrap gap-2 print:hidden">{actions}</div>}
             </div>
@@ -136,7 +136,7 @@ export function StudentJourney({ record: r, actions, exceptionPath, showAudit }:
           <ul className="mt-3 divide-y divide-slate-100 text-sm" aria-label="Exceptions">
             {exceptions.map((e) => (
               <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <span>{exceptionPath ? <Link to={exceptionPath(e.id)} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> : <span className="font-mono text-xs">{e.id}</span>} <span className="text-slate-700">· {CATEGORY_LABEL[e.category]}</span> <span className="text-slate-500">· raised by {e.raisedBy}, {e.raisedByOrganisation}</span></span>
+                <span>{exceptionPath ? <Link to={e.escalation ? exceptionPath(e.id).replace('/exceptions/', '/escalations/') : exceptionPath(e.id)} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> : <span className="font-mono text-xs">{e.id}</span>} <span className="text-slate-700">· {CATEGORY_LABEL[e.category]}</span> <span className="text-slate-500">· raised by {e.raisedBy}, {e.raisedByOrganisation}</span></span>
                 <span className="flex items-center gap-2"><ExceptionStatusBadge status={e.status} /><span className="text-slate-500">{dateTime(e.raisedAt)}</span></span>
               </li>
             ))}

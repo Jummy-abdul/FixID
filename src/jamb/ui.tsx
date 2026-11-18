@@ -150,9 +150,11 @@ export function VerificationBadge({ status }: { status: StudentRecord['verificat
   if (status === 'verified') return <Badge tone="success"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />Verified</Badge>;
   if (status === 'failed') return <Badge tone="danger"><XCircle className="h-3 w-3" aria-hidden="true" />Failed</Badge>;
   if (status === 'exception') return <Badge tone="warning"><AlertTriangle className="h-3 w-3" aria-hidden="true" />Exception</Badge>;
+  if (status === 'escalated') return <Badge tone="violet"><AlertTriangle className="h-3 w-3" aria-hidden="true" />Escalated</Badge>;
   return <Badge tone="neutral"><CircleDashed className="h-3 w-3" aria-hidden="true" />Not verified yet</Badge>;
 }
-export function ClearanceBadge({ status }: { status: StudentRecord['clearance'] }) {
+export function ClearanceBadge({ status, review }: { status: StudentRecord['clearance']; review?: boolean }) {
+  if (status !== 'cleared' && review) return <Badge tone="warning"><Clock className="h-3 w-3" aria-hidden="true" />Pending review</Badge>;
   return status === 'cleared' ? <Badge tone="success"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />Cleared</Badge> : <Badge tone="neutral"><Clock className="h-3 w-3" aria-hidden="true" />Pending</Badge>;
 }
 export function MatriculationBadge({ status }: { status: StudentRecord['matriculation'] }) {
@@ -161,7 +163,7 @@ export function MatriculationBadge({ status }: { status: StudentRecord['matricul
 
 export const VERIFICATION_FILTER = [
   { value: 'all', label: 'Any verification status' }, { value: 'verified', label: 'Verified' }, { value: 'not-started', label: 'Not verified yet' },
-  { value: 'failed', label: 'Failed' }, { value: 'exception', label: 'Exception' },
+  { value: 'failed', label: 'Failed' }, { value: 'exception', label: 'Exception' }, { value: 'escalated', label: 'Escalated' },
 ];
 export const CLEARANCE_FILTER = [{ value: 'all', label: 'Any clearance status' }, { value: 'cleared', label: 'Cleared' }, { value: 'pending', label: 'Pending' }];
 export const MATRIC_FILTER = [{ value: 'all', label: 'Any matriculation status' }, { value: 'matriculated', label: 'Matriculated' }, { value: 'not-matriculated', label: 'Not yet matriculated' }];
@@ -170,9 +172,13 @@ export const MATRIC_FILTER = [{ value: 'all', label: 'Any matriculation status' 
 
 /** A student's original JAMB registration portrait (a photograph when supplied, otherwise "portrait on file"). */
 export function Portrait({ record, label = 'JAMB registration portrait', className }: { record: Pick<StudentRecord, 'reg' | 'gender' | 'firstName' | 'lastName'>; label?: string; className?: string }) {
-  const url = registrationPortrait(record);
-  if (url) return <img src={url} alt={`${label}: ${record.firstName} ${record.lastName}`} className={cn('rounded-lg object-cover ring-1 ring-slate-200', className ?? 'h-40 w-full')} />;
-  return <PortraitPlaceholder label={`${label}: ${record.firstName} ${record.lastName}`} className={className} />;
+  return <FaceImage src={registrationPortrait(record)} label={`${label}: ${record.firstName} ${record.lastName}`} className={className} />;
+}
+/** An identity image that falls back to the neutral placeholder when it isn't available. */
+export function FaceImage({ src, label, className }: { src?: string; label: string; className?: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) return <img src={src} alt={label} onError={() => setFailed(src)} className={cn('rounded-lg object-cover ring-1 ring-slate-200', className ?? 'h-40 w-full')} />;
+  return <PortraitPlaceholder label={label} className={className} />;
 }
 export function PortraitPlaceholder({ label, className }: { label: string; className?: string }) {
   return (

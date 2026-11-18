@@ -13,6 +13,7 @@ import {
   type Institution, type Session,
 } from './data';
 import { CertificatePage } from './certificate';
+import { EscalationDetailPage, EscalationsPage } from './escalations';
 import { ActivityPage, AuditPage, ExceptionDetailPage, ExceptionsPage, JambStudentPage, SettingsPage, StudentSearchPage, UsersPage } from './jambAdmin';
 import {
   NYSC_OFFICERS, allActivities, countsOf, eventSummary, exceptionsOf, institutionActivities, institutionCounts, isOpenException, nationalCounts, sessionTotals, useJambState, type Counts,
@@ -32,7 +33,7 @@ export const JAMB_NAV: NavGroup[] = [
     items: [
       { label: 'Verification Events', to: '/jamb/events', icon: CalendarCheck, description: 'Events published to institutions and NYSC' },
       { label: 'Verification Activity', to: '/jamb/activity', icon: History, description: 'Every verification performed' },
-      { label: 'Exceptions', to: '/jamb/exceptions', icon: ShieldAlert, description: 'Cases needing JAMB review' },
+      { label: 'Exceptions & Escalations', to: '/jamb/escalations', icon: ShieldAlert, description: 'Identity exceptions and institutions’ escalations', alsoActiveOn: ['/jamb/exceptions'] },
       { label: 'Student Records', to: '/jamb/students', icon: Search, description: 'Search student identity records' },
     ],
   },
@@ -63,6 +64,8 @@ export function JambConsole() {
         <Route path="events/:eventId" element={<EventPage />} />
         <Route path="events/:eventId/institutions/:code" element={<InstitutionEventPage via="events" />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="escalations" element={<EscalationsPage />} />
+        <Route path="escalations/:id" element={<EscalationDetailPage />} />
         <Route path="exceptions" element={<ExceptionsPage />} />
         <Route path="exceptions/:id" element={<ExceptionDetailPage />} />
         <Route path="students" element={<StudentSearchPage />} />
@@ -176,7 +179,7 @@ export function ExceptionMiniList({ ids }: { ids: string[] }) {
     <ul className="divide-y divide-slate-100" aria-label="Exceptions">
       {list.map((e) => (
         <li key={e.id}>
-          <Link to={`/jamb/exceptions/${e.id}`} className="flex flex-col gap-1 px-5 py-3 text-sm hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
+          <Link to={e.escalation ? `/jamb/escalations/${e.id}` : `/jamb/exceptions/${e.id}`} className="flex flex-col gap-1 px-5 py-3 text-sm hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
             <span className="min-w-0"><span className="font-medium text-slate-900">{CATEGORY_LABEL[e.category]}</span><span className="text-slate-500"> · {institutionByCode(e.institution)?.shortName} · {e.session}</span></span>
             <span className="flex shrink-0 items-center gap-2"><ExceptionStatusBadge status={e.status} /><span className="whitespace-nowrap text-xs text-slate-500">{dateTime(e.raisedAt)}</span></span>
           </Link>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, CalendarCheck, CheckCircle2, ClipboardList, Home, Loader2, Printer, ScanFace, Search, ShieldAlert, ShieldCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Send, CalendarCheck, CheckCircle2, ClipboardList, Home, Loader2, Printer, ScanFace, Search, ShieldAlert, ShieldCheck, XCircle } from 'lucide-react';
 import {
   Badge, Button, ButtonLink, Card, DataTable, EmptyState, Field, FilterSelect, Input, Modal, PageHeader, Pagination, SearchInput, StatCard, Tabs, usePageSlice, useToast,
 } from '@/components/ui';
@@ -13,11 +13,14 @@ import { cn } from '@/lib/cn';
 import { ACTIVE_ADMISSION_EVENT, ACTIVE_SESSION, EVENTS, SESSIONS, UNILAG, eventById, institutionByCode, sessionSlug, type StudentRecord } from './data';
 import { CertificatePage } from './certificate';
 import { StudentJourney } from './journey';
-import { demoFace } from './portraits';
+import { demoFace, loadImage } from './portraits';
+import { SCENARIO_CANDIDATES } from './scenarios';
+import { EscalationDrawer, EscalationStatusPanel, IdentityComparison } from './escalations';
 import {
   confirmClearance, confirmMatriculation, countsOf, exceptionsOf, institutionActivities, lookupForClearance, priorClearanceOf, recordOf, recordUniversityVerification,
   recordsOf, useJambState, type Activity,
 } from './store';
+import { comparisonsFor, escalationFor, escalationStatus, type JambException } from './store';
 import { ActivityList, EventStatusBadge, NotFound, Section, SessionStats, eventPeriod } from './shared';
 import { StudentTable } from './students';
 import { ConsoleLayout, OrgMark, Portrait, ProgressMeter, fmt, placeholderFaceUrl, useOfficer } from './ui';
@@ -63,8 +66,9 @@ function useMyRecords() {
   const officer = useOfficer();
   return useMemo(() => SESSIONS.flatMap((s) => recordsOf(UNILAG, s, state)).filter((r) => r.verifiedBy === officer.name || r.clearedBy === officer.name), [state, officer.name]);
 }
-const recordStatus = (r: StudentRecord): { key: 'cleared' | 'failed' | 'blocked' | 'exception' | 'verified'; label: string; tone: 'success' | 'danger' | 'warning' | 'info' } =>
+const recordStatus = (r: StudentRecord): { key: 'cleared' | 'failed' | 'blocked' | 'exception' | 'verified' | 'escalated'; label: string; tone: 'success' | 'danger' | 'warning' | 'info' | 'violet' } =>
   r.clearance === 'cleared' ? { key: 'cleared', label: 'Cleared', tone: 'success' }
+    : r.verification === 'escalated' ? { key: 'escalated', label: 'Escalated to JAMB', tone: 'violet' }
     : r.verification === 'failed' ? { key: 'failed', label: 'Failed verification', tone: 'danger' }
       : r.blocked === 'duplicate-clearance' ? { key: 'blocked', label: 'Duplicate blocked', tone: 'warning' }
         : r.verification === 'exception' ? { key: 'exception', label: 'Referred to JAMB', tone: 'warning' }
@@ -180,6 +184,7 @@ function VerifyStudentPage() {
   const [capture, setCapture] = useState<Capture | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState<Activity | null>(null);
+  const [guide, setGuide] = useState(false);
   const record = reg ? recordOf(reg, state) : undefined;
 
   const restart = () => { setStep(1); setReg(null); setCapture(null); setResult(null); setEntered(''); setIssue(null); navigate('/clearance/verify', { replace: true }); };
@@ -191,6 +196,7 @@ function VerifyStudentPage() {
     if (!r.ok) { recordUniversityVerification({ entered: value, officer, captureMode: 'demo', outcome: r.outcome }); setIssue(r.outcome); return; }
     setReg(r.record.reg);
   };
+  const restartTo = (value: string) => { setStep(1); setCapture(null); setResult(null); setEntered(value); lookup(value); };
   const auto = useRef(false);
   useEffect(() => { if (!auto.current && params.get('reg')) { auto.current = true; lookup(params.get('reg')!); } });
 
@@ -218,6 +224,7 @@ function VerifyStudentPage() {
               </Field>
               <Button type="submit" size="lg" className="w-full" icon={<Search className="h-4 w-4" />}>Continue</Button>
             </form>
+            <button type="button" onClick={() => setGuide(true)} className="mt-4 text-xs text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline">Demo reference</button>
           </Card>
           <div aria-live="polite">
             {issue && (
@@ -252,7 +259,7 @@ function VerifyStudentPage() {
                 <h2 className="mb-3 text-lg font-semibold text-slate-900">Capture the student’s face</h2>
                 <CameraCapture captured={capture?.url ?? null} startLabel="Start camera" capturedAlt="Captured face"
                   onCapture={(url) => setCapture({ url, mode: 'camera' })} onRetake={() => setCapture(null)}
-                  demoFace={{ onUse: () => setCapture({ url: demoFace(record) ?? placeholderFaceUrl(`${record.firstName} ${record.lastName}`), mode: 'demo' }) }} />
+                  demoFace={{ onUse: () => { void loadImage(demoFace(record), placeholderFaceUrl(`${record.firstName} ${record.lastName}`)).then((url) => setCapture({ url, mode: 'demo' })); } }} />
                 {capture && <div className="mt-4 flex justify-center"><Button size="lg" icon={<ShieldCheck className="h-5 w-5" />} onClick={verify}>Verify identity</Button></div>}
               </div>
               <figure className="hidden md:block"><Portrait record={record} className="h-72 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
@@ -261,6 +268,21 @@ function VerifyStudentPage() {
         </Card>
       )}
 
+      {guide && (
+        <Modal open onClose={() => setGuide(false)} title="Demo reference" description="Registration numbers for the three demonstration scenarios." footer={<Button variant="secondary" onClick={() => setGuide(false)}>Close</Button>}>
+          <ul className="space-y-2" aria-label="Demo scenarios">
+            {SCENARIO_CANDIDATES.filter((c) => c.workspace === 'university').map((c, i) => (
+              <li key={c.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 ring-1 ring-slate-200">
+                <span className="min-w-0 text-sm">
+                  <span className="block font-medium text-slate-900">{['Successful verification', 'Identity discrepancy', 'Existing clearance elsewhere'][i]}</span>
+                  <span className="block text-slate-600">{c.record.firstName} {c.record.lastName} · <span className="font-mono">{c.reg}</span></span>
+                </span>
+                <Button size="sm" variant="secondary" onClick={() => { setGuide(false); restartTo(c.reg); }}>Use</Button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
       {result && record && <ResultPanel event={result} record={record} capture={capture} onNext={restart} />}
     </>
   );
@@ -268,28 +290,37 @@ function VerifyStudentPage() {
 
 function StudentCard({ record, onContinue }: { record: StudentRecord; onContinue: () => void }) {
   const state = useJambState();
-  const exc = exceptionsOf(state).find((e) => e.reg === record.reg && ['open', 'assigned', 'in-review', 'awaiting-information', 'reopened'].includes(e.status));
+  const [escalating, setEscalating] = useState(false);
+  const esc = escalationFor(record.reg, state);
+  const live = esc && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(esc));
   return (
-    <Card className="px-5 py-5" aria-label="Student record">
-      <div className="flex flex-col gap-5 sm:flex-row">
-        <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
-          <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2" aria-label="Student information">
-            {([['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department], ['Course', record.course], ['Admission session', record.session]] as const).map(([k, v]) => (
-              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
-            ))}
-          </dl>
-          {record.clearance === 'cleared' ? (
-            <Notice tone="success" title="Already cleared" className="mt-4">Cleared on {record.clearedAt ? dateTime(record.clearedAt) : '—'} by {record.clearedBy}. <Link to={`/clearance/certificate/${record.reg}`} className="font-semibold underline">View clearance certificate</Link></Notice>
-          ) : record.blocked ? (
-            <Notice tone="warning" title="Clearance blocked" className="mt-4">{record.blocked === 'duplicate-clearance' ? 'A previous clearance exists for this admission record.' : 'The identity discrepancy is with JAMB for review.'}{exc && <> Exception <span className="font-mono">{exc.id}</span> is {exc.status.replace('-', ' ')}.</>}</Notice>
-          ) : (
-            <Button className="mt-5" size="lg" icon={<ArrowRight className="h-4 w-4" />} onClick={onContinue}>Confirm and continue</Button>
-          )}
+    <div className="space-y-4">
+      <Card className="px-5 py-5" aria-label="Student record">
+        <div className="flex flex-col gap-5 sm:flex-row">
+          <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
+            <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2" aria-label="Student information">
+              {([['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department], ['Course', record.course], ['Admission session', record.session]] as const).map(([k, v]) => (
+                <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
+              ))}
+            </dl>
+            {record.clearance === 'cleared' ? (
+              <Notice tone="success" title="Already cleared" className="mt-4">Cleared on {record.clearedAt ? dateTime(record.clearedAt) : '—'} by {record.clearedBy}. <Link to={`/clearance/certificate/${record.reg}`} className="font-semibold underline">View clearance certificate</Link></Notice>
+            ) : record.blocked ? (
+              <Notice tone="warning" title={live ? 'Clearance pending JAMB review' : 'Clearance blocked'} className="mt-4">
+                {record.blocked === 'duplicate-clearance' ? 'An existing clearance record at another institution was found.' : 'The student’s identity records don’t agree.'}
+                {!live && <> <button type="button" onClick={() => setEscalating(true)} className="font-semibold underline">Escalate to JAMB</button></>}
+              </Notice>
+            ) : (
+              <Button className="mt-5" size="lg" icon={<ArrowRight className="h-4 w-4" />} onClick={onContinue}>Confirm and continue</Button>
+            )}
+          </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+      {esc && record.clearance !== 'cleared' && <EscalationStatusPanel e={esc} />}
+      {escalating && <EscalationDrawer record={record} category={record.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : 'jamb-nin-discrepancy'} onClose={() => setEscalating(false)} />}
+    </div>
   );
 }
 
@@ -303,117 +334,119 @@ function Notice({ tone, title, children, className }: { tone: 'success' | 'warni
   );
 }
 
-function Check({ label, value, good }: { label: string; value: string; good: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2">
-      <dt className="text-slate-600">{label}</dt>
-      <dd className={cn('flex items-center gap-1.5 font-semibold', good ? 'text-emerald-700' : 'text-red-700')}>{good ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <XCircle className="h-4 w-4" aria-hidden="true" />}{value}</dd>
-    </div>
-  );
-}
-
-/** The outcome is the focus: a clear result, the identity checks, and the next action. */
+/** The outcome is the focus: a confident success, the comparison evidence for a discrepancy, or the existing clearance. */
 function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; record: StudentRecord; capture: Capture | null; onNext: () => void }) {
   const officer = useOfficer();
+  const state = useJambState();
   const [error, setError] = useState('');
   const [evidence, setEvidence] = useState(false);
-  const [prior, setPrior] = useState(false);
+  const [escalating, setEscalating] = useState(false);
+  const [submitted, setSubmitted] = useState<JambException | null>(null);
   const cleared = record.clearance === 'cleared';
   const listPath = `/clearance/events/${ACTIVE_ADMISSION_EVENT.id}`;
   const previous = priorClearanceOf(record.reg);
+  const esc = submitted ? escalationFor(record.reg, state) ?? submitted : undefined;
   const complete = () => { const r = confirmClearance(record.reg, officer); if (!r.ok) setError(r.error); };
   const o = e.outcome;
-  const head = cleared
-    ? { tone: 'success', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Clearance Successful', text: `${record.firstName} ${record.lastName} has been cleared by ${UNILAG.name}.` }
-    : o === 'identity-confirmed' ? { tone: 'success', icon: <CheckCircle2 className="h-8 w-8" aria-hidden="true" />, title: 'Identity Successfully Verified', text: 'The student’s identity is confirmed. You can complete clearance.' }
-      : o === 'nin-mismatch' ? { tone: 'danger', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Discrepancy Detected', text: 'The candidate’s identity could not be fully confirmed. Please contact JAMB for further review.' }
-        : o === 'duplicate-clearance' ? { tone: 'warning', icon: <ShieldAlert className="h-8 w-8" aria-hidden="true" />, title: 'Previous Clearance Record Found', text: 'This admission record has already been cleared by another institution. Clearance is blocked.' }
-          : { tone: 'danger', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Could Not Be Confirmed', text: 'The captured face does not match the student’s JAMB registration record.' };
+  const kind = cleared ? 'cleared' : o === 'identity-confirmed' ? 'verified' : o === 'nin-mismatch' ? 'discrepancy' : o === 'duplicate-clearance' ? 'existing' : 'failed';
+  const head = {
+    cleared: { tone: 'success', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Clearance Successful', text: `${record.firstName} ${record.lastName} has been cleared by ${UNILAG.name}.` },
+    verified: { tone: 'success', icon: <CheckCircle2 className="h-8 w-8" aria-hidden="true" />, title: 'Identity Verified', text: 'The student’s captured face matches the registered identity record. The student can proceed with institutional clearance.' },
+    discrepancy: { tone: 'warning', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Verification Analysis', text: 'The student’s identity records don’t agree. Clearance can’t proceed until JAMB reviews the case.' },
+    existing: { tone: 'warning', icon: <ShieldAlert className="h-8 w-8" aria-hidden="true" />, title: 'Existing Clearance Record Found', text: 'This student already has an existing clearance record associated with another institution. Further investigation is required before proceeding.' },
+    failed: { tone: 'danger', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Could Not Be Confirmed', text: 'The captured face does not match the student’s JAMB registration record.' },
+  }[kind];
   const banner = { success: 'bg-emerald-700 text-white', danger: 'bg-red-700 text-white', warning: 'bg-amber-500 text-amber-950' }[head.tone as 'success' | 'danger' | 'warning'];
+  const row = (k: string, v: ReactNode) => <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>;
   return (
-    <Card className="overflow-hidden" aria-label="Verification result">
-      <div className={cn('flex items-center gap-4 px-6 py-5', banner)}>
-        {head.icon}
-        <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
-      </div>
-      <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
-        <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
-        {cleared ? (
-          <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label="Clearance record">
-            {([['Student', `${record.firstName} ${record.middleName} ${record.lastName}`], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', UNILAG.name], ['Department', record.department],
-              ['Admission session', record.session], ['Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{record.nin === 'mismatch' ? 'Identity verified · NIN discrepancy resolved by JAMB' : 'Identity verified · JAMB and NIN match'}</span>],
-              ['Clearance reference', <span className="font-mono">{record.clearanceRef}</span>], ['Clearance date and time', record.clearedAt ? dateTime(record.clearedAt) : '—'], ['Clearance officer', record.clearedBy], ['Clearance status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
-              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
-            ))}
-          </dl>
-        ) : (
-          <div className="space-y-4">
+    <div className="space-y-4">
+      <Card className="overflow-hidden" aria-label="Verification result">
+        <div className={cn('flex items-center gap-4 px-6 py-5', banner)}>
+          {head.icon}
+          <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
+        </div>
+        {kind === 'discrepancy' ? (
+          <div className="space-y-5 px-6 py-6">
             <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
-            <dl className="max-w-md divide-y divide-slate-100 text-sm" aria-label="Identity checks">
-              <Check label="JAMB identity" value={e.checks?.face === 'match' ? 'Match' : 'No match'} good={e.checks?.face === 'match'} />
-              {e.checks?.nin && <Check label="NIN verification" value={e.checks.nin === 'match' ? 'Match' : o === 'identity-confirmed' ? 'Mismatch · resolved by JAMB' : 'Mismatch'} good={e.checks.nin === 'match' || o === 'identity-confirmed'} />}
-              <Check label={o === 'identity-confirmed' ? 'Identity status' : 'Overall identity status'} value={o === 'identity-confirmed' || o === 'duplicate-clearance' ? 'Confirmed' : 'Not confirmed'} good={o === 'identity-confirmed' || o === 'duplicate-clearance'} />
-              {o === 'identity-confirmed' ? <Check label="Eligibility to proceed" value="Yes" good /> : <Check label="Clearance status" value="Blocked" good={false} />}
-            </dl>
-            {o === 'duplicate-clearance' && previous && (
-              <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-inset ring-amber-200" aria-label="Previous clearance record">
-                <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                  {([['Previous institution', institutionByCode(previous.institution)?.name], ['Previous department', previous.department], ['Previous course', previous.course], ['Admission session', previous.session],
-                    ['Clearance date and time', dateTime(previous.clearedAt)], ['Clearance officer', previous.clearedBy], ['Clearance reference', <span className="font-mono">{previous.reference}</span>], ['Clearance status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
-                    <div key={k}><dt className="text-amber-900/70">{k}</dt><dd className="font-medium text-slate-900">{v}</dd></div>
-                  ))}
-                </dl>
+            <IdentityComparison record={record} capture={capture?.url} comparisons={comparisonsFor('nin-mismatch')} />
+            <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 ring-1 ring-inset ring-amber-200">Identity discrepancy detected. The captured portrait matches the original JAMB registration record but differs from the NIN identity record. Further investigation is required.</p>
+            <div className="flex flex-wrap gap-2 text-sm"><span className="text-slate-500">Verification:</span>{esc ? <Badge tone="violet">Escalated</Badge> : <Badge tone="warning">Escalation required</Badge>}<span className="ml-3 text-slate-500">Clearance:</span>{esc ? <Badge tone="warning">Pending review</Badge> : <Badge tone="danger">Blocked</Badge>}</div>
+          </div>
+        ) : (
+          <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
+            <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+            {kind === 'cleared' ? (
+              <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label="Clearance record">
+                {row('Student', `${record.firstName} ${record.middleName} ${record.lastName}`)}
+                {row('JAMB Registration Number', <span className="font-mono">{record.reg}</span>)}
+                {row('Institution', UNILAG.name)}
+                {row('Department', record.department)}
+                {row('Admission session', record.session)}
+                {row('Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{record.nin === 'mismatch' ? 'Identity verified · NIN discrepancy resolved by JAMB' : 'Identity verified'}</span>)}
+                {row('Clearance reference', <span className="font-mono">{record.clearanceRef}</span>)}
+                {row('Clearance date and time', record.clearedAt ? dateTime(record.clearedAt) : '—')}
+                {row('Clearance officer', record.clearedBy)}
+                {row('Clearance status', <Badge tone="success">Cleared</Badge>)}
+              </dl>
+            ) : kind === 'existing' && previous ? (
+              <dl className="grid content-start gap-x-6 gap-y-3 rounded-xl bg-amber-50 p-4 text-sm ring-1 ring-inset ring-amber-200 sm:grid-cols-2" aria-label="Existing clearance record">
+                {row('Student name', `${record.firstName} ${record.middleName} ${record.lastName}`)}
+                {row('JAMB Registration Number', <span className="font-mono">{record.reg}</span>)}
+                {row('Previous institution', institutionByCode(previous.institution)?.name)}
+                {row('Previous admission session', previous.session)}
+                {row('Previous clearance date', dateTime(previous.clearedAt))}
+                {row('Previous clearance reference', <span className="font-mono">{previous.reference}</span>)}
+                {row('Matriculation status', previous.matricNo ? `Matriculated (${previous.matricNo})` : 'Not matriculated')}
+                {row('Clearance at University of Lagos', esc ? <Badge tone="warning">Pending review</Badge> : <Badge tone="danger">Blocked</Badge>)}
+              </dl>
+            ) : (
+              <div className="space-y-2 text-sm">
+                <p className="text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span></p>
+                <p className="text-slate-600">{record.department} · {record.course} · {record.session}</p>
+                {kind === 'failed' && e.exceptionId && <p className="text-slate-600">Referred to JAMB: exception <span className="font-mono font-medium text-slate-900">{e.exceptionId}</span>.</p>}
               </div>
             )}
-            {e.exceptionId && <p className="text-sm text-slate-600">Referred to JAMB: exception <span className="font-mono font-medium text-slate-900">{e.exceptionId}</span>.</p>}
           </div>
         )}
-      </div>
-      {cleared && evidence && capture && (
-        <section aria-label="Verification details" className="mx-6 mb-5 grid gap-5 rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200 sm:grid-cols-[auto_1fr]">
-          <figure className="w-24"><img src={capture.url} alt="Captured face used for the verification" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Live capture</figcaption></figure>
-          <dl className="grid content-start gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB identity', 'Match'], ['NIN verification', e.checks?.nin === 'mismatch' ? 'Mismatch · resolved by JAMB' : 'Match']] as [string, ReactNode][]).map(([k, v]) => (
-              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-slate-900">{v}</dd></div>
-            ))}
-            <p className="text-xs text-slate-500 sm:col-span-2">The capture was used only for this verification and is not stored.</p>
-          </dl>
-        </section>
-      )}
-      {error && <p role="alert" className="px-6 pb-2 text-sm text-red-700">{error}</p>}
-      <div className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
-        {cleared ? (
-          <>
-            <ButtonLink to={`/clearance/certificate/${record.reg}`} variant="primary" icon={<Printer className="h-4 w-4" />}>Print Clearance Certificate</ButtonLink>
-            <ButtonLink to={`/clearance/students/${record.reg}`} variant="secondary">View Clearance Details</ButtonLink>
-            <ButtonLink to={listPath} variant="secondary">Return to Student List</ButtonLink>
-            <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify Another Student</Button>
-            {capture && <Button variant="ghost" className="sm:ml-auto" aria-expanded={evidence} onClick={() => setEvidence((v) => !v)}>{evidence ? 'Hide verification details' : 'View verification details'}</Button>}
-          </>
-        ) : o === 'identity-confirmed' ? (
-          <>
-            <Button size="lg" icon={<ShieldCheck className="h-4 w-4" />} onClick={complete}>Complete Clearance</Button>
-            <ButtonLink to={listPath} variant="secondary" size="lg">Return to Student List</ButtonLink>
-          </>
-        ) : (
-          <>
-            {o === 'duplicate-clearance' && <Button variant="primary" onClick={() => setPrior(true)}>View Previous Clearance Record</Button>}
-            <ButtonLink to={listPath} variant="secondary">Return to Student List</ButtonLink>
-            <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify Another Student</Button>
-          </>
+        {cleared && evidence && capture && (
+          <section aria-label="Verification details" className="mx-6 mb-5 grid gap-5 rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200 sm:grid-cols-[auto_1fr]">
+            <figure className="w-24"><img src={capture.url} alt="Captured face used for the verification" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Live capture</figcaption></figure>
+            <dl className="grid content-start gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB identity', 'Match'], ['NIN verification', e.checks?.nin === 'mismatch' ? 'Mismatch · resolved by JAMB' : 'Match']] as [string, ReactNode][]).map(([k, v]) => (
+                <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-slate-900">{v}</dd></div>
+              ))}
+              <p className="text-xs text-slate-500 sm:col-span-2">The capture was used only for this verification and is not stored.</p>
+            </dl>
+          </section>
         )}
-      </div>
-      {prior && previous && (
-        <Modal open onClose={() => setPrior(false)} title="Previous clearance record" description={`${record.firstName} ${record.middleName} ${record.lastName} · ${record.reg}`} footer={<Button variant="secondary" onClick={() => setPrior(false)}>Close</Button>}>
-          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-            {([['Institution', institutionByCode(previous.institution)?.name], ['Department', previous.department], ['Course', previous.course], ['Admission session', previous.session], ['JAMB Registration Number', <span className="font-mono">{record.reg}</span>],
-              ['Cleared', dateTime(previous.clearedAt)], ['Clearance officer', previous.clearedBy], ['Clearance reference', <span className="font-mono">{previous.reference}</span>], ['Status', <Badge tone="success">Cleared</Badge>]] as [string, ReactNode][]).map(([k, v]) => (
-              <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
-            ))}
-          </dl>
-        </Modal>
-      )}
-    </Card>
+        {error && <p role="alert" className="px-6 pb-2 text-sm text-red-700">{error}</p>}
+        <div className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
+          {kind === 'cleared' ? (
+            <>
+              <ButtonLink to={`/clearance/certificate/${record.reg}`} variant="primary" icon={<Printer className="h-4 w-4" />}>Print Clearance Certificate</ButtonLink>
+              <ButtonLink to={`/clearance/students/${record.reg}`} variant="secondary">View Clearance Details</ButtonLink>
+              <ButtonLink to={listPath} variant="secondary">Return to Student List</ButtonLink>
+              <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify Another Student</Button>
+              {capture && <Button variant="ghost" className="sm:ml-auto" aria-expanded={evidence} onClick={() => setEvidence((v) => !v)}>{evidence ? 'Hide verification details' : 'View verification details'}</Button>}
+            </>
+          ) : kind === 'verified' ? (
+            <>
+              <Button size="lg" icon={<ShieldCheck className="h-4 w-4" />} onClick={complete}>Complete Clearance</Button>
+              <ButtonLink to={listPath} variant="secondary" size="lg">Return to Student List</ButtonLink>
+            </>
+          ) : (
+            <>
+              {(kind === 'discrepancy' || kind === 'existing') && !esc && <Button icon={<Send className="h-4 w-4" />} onClick={() => setEscalating(true)}>Escalate to JAMB</Button>}
+              {esc && <ButtonLink to={`/clearance/students/${record.reg}`} variant="primary">View escalation</ButtonLink>}
+              <ButtonLink to={listPath} variant="secondary">Return to Student List</ButtonLink>
+              <Button variant="secondary" icon={<ScanFace className="h-4 w-4" />} onClick={onNext}>Verify Another Student</Button>
+            </>
+          )}
+        </div>
+      </Card>
+      {esc && <EscalationStatusPanel e={esc} />}
+      {escalating && <EscalationDrawer record={record} category={kind === 'existing' ? 'duplicate-clearance' : 'jamb-nin-discrepancy'} capture={capture?.url} onClose={() => setEscalating(false)} onDone={setSubmitted} />}
+    </div>
   );
 }
 
@@ -438,6 +471,7 @@ function RecordsPage() {
         { value: 'all', label: 'All', count: mine.length }, { value: 'cleared' as 'all', label: 'Cleared', count: count('cleared') },
         { value: 'failed' as 'all', label: 'Failed verification', count: count('failed') }, { value: 'blocked' as 'all', label: 'Duplicate blocked', count: count('blocked') },
         { value: 'exception' as 'all', label: 'Referred to JAMB', count: count('exception') },
+        { value: 'escalated' as 'all', label: 'Escalated', count: count('escalated') },
       ]} />
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end">
@@ -466,8 +500,11 @@ function ClearanceStudentPage() {
   const toast = useToast();
   const [matric, setMatric] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [escalating, setEscalating] = useState(false);
   const r = ownRecord(reg, state);
   if (!r) return <NotFound what="Student" back="/clearance/records" />;
+  const esc = escalationFor(r.reg, state);
+  const escLive = esc && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(esc));
   const clear = () => { const x = confirmClearance(r.reg, officer); toast(x.ok ? { tone: 'success', title: 'Clearance completed', description: x.value.clearanceRef } : { tone: 'error', title: 'Not cleared', description: x.error }); };
   const confirmMatric = () => {
     const x = confirmMatriculation(r.reg, officer, matric ?? undefined);
@@ -478,6 +515,7 @@ function ClearanceStudentPage() {
   const active = r.session === ACTIVE_SESSION;
   const actions = (
     <>
+      {r.clearance !== 'cleared' && r.blocked && !escLive && <Button icon={<Send className="h-4 w-4" />} onClick={() => setEscalating(true)}>Escalate to JAMB</Button>}
       {active && r.clearance !== 'cleared' && !r.blocked && r.verification !== 'verified' && <ButtonLink to={`/clearance/verify?reg=${r.reg}`} variant="primary" icon={<ScanFace className="h-4 w-4" />}>Verify Student</ButtonLink>}
       {active && r.clearance !== 'cleared' && !r.blocked && r.verification === 'verified' && <Button icon={<ShieldCheck className="h-4 w-4" />} onClick={clear}>Complete Clearance</Button>}
       {r.clearance === 'cleared' && <ButtonLink to={`/clearance/certificate/${r.reg}`} icon={<Printer className="h-4 w-4" />}>Clearance Certificate</ButtonLink>}
@@ -487,7 +525,9 @@ function ClearanceStudentPage() {
   return (
     <>
       <PageHeader title="" breadcrumbs={[{ label: 'My Clearance Records', to: '/clearance/records' }, { label: `${r.firstName} ${r.lastName}` }]} />
+      {esc && r.clearance !== 'cleared' && <EscalationStatusPanel e={esc} />}
       <StudentJourney record={r} actions={actions} />
+      {escalating && <EscalationDrawer record={r} category={r.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : 'jamb-nin-discrepancy'} onClose={() => setEscalating(false)} />}
       {matric !== null && (
         <Modal open onClose={() => setMatric(null)} title="Confirm matriculation" description={`${r.firstName} ${r.lastName} · ${UNILAG.name}`}
           footer={<><Button variant="secondary" onClick={() => setMatric(null)}>Cancel</Button><Button onClick={confirmMatric}>Confirm matriculation</Button></>}>

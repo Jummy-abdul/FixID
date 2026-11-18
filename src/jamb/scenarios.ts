@@ -22,6 +22,9 @@ export interface PriorClearance {
   clearedAt: string;
   clearedBy: string;
   reference: string;
+  /** Matriculation at that institution, when confirmed. */
+  matricNo?: string;
+  matriculatedAt?: string;
 }
 
 type BaseFields = Omit<StudentRecord, 'reg' | 'index' | 'institution' | 'session' | 'faculty' | 'department' | 'course' | 'scenario'>;
@@ -56,20 +59,20 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
     id: 'U-A', label: 'Candidate A', workspace: 'university', reg: '20250190101CN', institution: 'UNILAG', session: '2025/2026', department: 'Computer Science',
     record: uni('Chiamaka', 'Adaeze', 'Nwankwo', 'Female', '2006-03-14T00:00:00.000Z', 'Anambra', 287, 'Yaba CBT Centre, Lagos'),
     university: 'identity-confirmed', demoFace: 'same-person',
-    expected: 'Identity Successfully Verified (JAMB: Match, NIN: Match). Complete Clearance is available.',
+    expected: 'Identity Verified: JAMB, NIN and live portraits are the same person. Complete Clearance is available.',
   },
   {
     id: 'U-B', label: 'Candidate B', workspace: 'university', reg: '20250190102IA', institution: 'UNILAG', session: '2025/2026', department: 'Mechanical Engineering',
     record: uni('Ibrahim', 'Musa', 'Abdullahi', 'Male', '2006-08-02T00:00:00.000Z', 'Kano', 264, 'Nassarawa CBT Centre, Kano'),
     university: 'nin-mismatch', demoFace: 'same-person',
-    expected: 'Identity Discrepancy Detected (JAMB: Match, NIN: Mismatch). Clearance is blocked and an exception is raised for JAMB.',
+    expected: 'Identity Verification Analysis: live capture matches JAMB but not NIN. Clearance is blocked; the officer escalates to JAMB.',
   },
   {
     id: 'U-C', label: 'Candidate C', workspace: 'university', reg: '20250190103OA', institution: 'UNILAG', session: '2025/2026', department: 'Economics',
     record: uni('Oluwaseun', 'Ayomide', 'Adeyemi', 'Female', '2005-11-21T00:00:00.000Z', 'Oyo', 271, 'Bodija CBT Centre, Ibadan'),
     university: 'duplicate-clearance', demoFace: 'same-person',
-    priorClearance: { institution: 'UNIBEN', department: 'Accounting', course: 'B.Sc. Accounting', session: '2025/2026', clearedAt: '2026-01-14T10:42:00.000Z', clearedBy: 'Osagie Igbinedion', reference: 'JCL-UNIBEN-2025-418306' },
-    expected: 'Previous Clearance Record Found (University of Benin, 14 Jan 2026). The duplicate clearance is blocked.',
+    priorClearance: { institution: 'UNIBEN', department: 'Accounting', course: 'B.Sc. Accounting', session: '2025/2026', clearedAt: '2026-01-14T10:42:00.000Z', clearedBy: 'Osagie Igbinedion', reference: 'JCL-UNIBEN-2025-418306', matricNo: 'UNIBEN/25/0418', matriculatedAt: '2026-03-02T11:00:00.000Z' },
+    expected: 'Existing Clearance Record Found (University of Benin, cleared and matriculated). Clearance is blocked; the officer escalates to JAMB.',
   },
   {
     id: 'N-A', label: 'Candidate A', workspace: 'nysc', reg: '20220290101EO', institution: 'UI', session: '2022/2023', department: 'Economics',

@@ -52,7 +52,7 @@ export function StudentTable({ inst, session, studentPath, showFaculty = true, s
           { key: 'reg', header: 'JAMB registration number', cell: (r) => <span className="font-mono text-xs text-slate-700">{r.reg}</span> },
           { key: 'department', header: 'Department', className: '!whitespace-normal', cell: (r) => <span className="text-slate-600">{r.department}<span className="block text-xs text-slate-400">{r.faculty}</span></span> },
           { key: 'verification', header: 'Identity verification', cell: (r) => <VerificationBadge status={r.verification} /> },
-          { key: 'clearance', header: 'Clearance', cell: (r) => <ClearanceBadge status={r.clearance} /> },
+          { key: 'clearance', header: 'Clearance', cell: (r) => <ClearanceBadge status={r.clearance} review={r.verification === 'escalated'} /> },
           ...(showMatriculation ? [{ key: 'matric', header: 'Matriculation', cell: (r: StudentRecord) => <MatriculationBadge status={r.matriculation} /> }] : []),
           { key: 'last', header: 'Last verification', cell: (r) => <span className="tabular-nums text-slate-600">{formatDate(lastVerification(r))}</span> },
         ]} />

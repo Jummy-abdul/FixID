@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ExceptionSectionTabs } from './escalations';
 import { Ban, CheckCircle2, Mail, RotateCcw, ScrollText, Search, ShieldAlert, UserCog, UserPlus } from 'lucide-react';
 import {
   Badge, Button, ButtonLink, Card, ConfirmDialog, DataTable, DescriptionList, Drawer, EmptyState, Field, FilterSelect, Input, Modal, OverflowMenu, PageHeader, Pagination,
@@ -88,7 +89,8 @@ export function ExceptionsPage() {
   const clear = () => setParams((p) => { const n = new URLSearchParams(p); ['q', 'category', 'institution', 'event', 'status', 'page'].forEach((k) => n.delete(k)); return n; }, { replace: true });
   return (
     <>
-      <PageHeader title="Exceptions" description="Cases raised by institutional clearance and NYSC verification for JAMB review." />
+      <PageHeader title="Identity Exceptions & Escalations" description="Every identity exception raised by clearance and NYSC verification, including institutions’ escalations." />
+      <ExceptionSectionTabs current="exceptions" />
       <div><Tabs value={view as 'open' | 'all' | 'resolved'} onChange={(v) => setView(v)} tabs={[
         { value: 'open', label: 'Open', count: all.filter(isOpenException).length },
         { value: 'resolved', label: 'Resolved or closed', count: all.filter((e) => !isOpenException(e)).length },
@@ -102,10 +104,10 @@ export function ExceptionsPage() {
           <FilterSelect label="Event" value={event} onChange={setEvent} options={[{ value: 'all', label: 'All events' }, ...EVENTS.map((e) => ({ value: e.id, label: e.name }))]} />
           <FilterSelect label="Status" value={status} onChange={setStatus} options={[{ value: 'all', label: 'Any status' }, ...(['open', 'assigned', 'in-review', 'awaiting-information', 'reopened', 'resolved', 'closed'] as ExceptionStatus[]).map((s) => ({ value: s, label: EXCEPTION_STATUS_LABEL[s] }))]} />
         </div>
-        <DataTable rows={pageRows} rowKey={(e) => e.id} rowHref={(e) => `/jamb/exceptions/${e.id}`}
+        <DataTable rows={pageRows} rowKey={(e) => e.id} rowHref={(e) => (e.escalation ? `/jamb/escalations/${e.id}` : `/jamb/exceptions/${e.id}`)}
           empty={<EmptyState icon={<ShieldAlert className="h-5 w-5" />} title="No exceptions match" action={<Button variant="secondary" onClick={clear}>Clear filters</Button>} />}
           columns={[
-            { key: 'id', header: 'Reference', cell: (e) => <Link to={`/jamb/exceptions/${e.id}`} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> },
+            { key: 'id', header: 'Reference', cell: (e) => <Link to={e.escalation ? `/jamb/escalations/${e.id}` : `/jamb/exceptions/${e.id}`} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> },
             { key: 's', header: 'Student', className: '!whitespace-normal min-w-[10rem]', cell: (e) => { const r = recordOf(e.reg, state); return <span><span className="block font-medium text-slate-900">{r?.firstName} {r?.lastName}</span><span className="font-mono text-xs text-slate-500">{e.reg}</span></span>; } },
             { key: 'i', header: 'Institution', className: '!whitespace-normal', cell: (e) => <span className="text-slate-600">{institutionByCode(e.institution)?.shortName}<span className="block text-xs text-slate-400">{e.session}</span></span> },
             { key: 'c', header: 'Category', className: '!whitespace-normal min-w-[10rem]', cell: (e) => CATEGORY_LABEL[e.category] },
@@ -134,6 +136,7 @@ export function ExceptionDetailPage() {
   const [error, setError] = useState('');
   const e = exceptionById(id, state);
   if (!e) return <NotFound what="Exception" back="/jamb/exceptions" />;
+  if (e.escalation) return <Navigate to={`/jamb/escalations/${e.id}`} replace />;
   const r = recordOf(e.reg, state);
   const inst = institutionByCode(e.institution)!;
   const open = isOpenException(e);

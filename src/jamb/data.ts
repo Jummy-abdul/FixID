@@ -229,7 +229,7 @@ export const baseCounts = (code: string, s: Session): SessionCounts => BASE_COUN
 
 /* ---------------- student records ---------------- */
 
-export type VerificationStatus = 'not-started' | 'verified' | 'failed' | 'exception';
+export type VerificationStatus = 'not-started' | 'verified' | 'failed' | 'exception' | 'escalated';
 export type ClearanceStatus = 'pending' | 'cleared';
 export type MatriculationStatus = 'not-matriculated' | 'matriculated';
 
