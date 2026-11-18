@@ -11,12 +11,22 @@ const pool = (gender: 'female' | 'male') => Object.entries(files).filter(([p]) =
 const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 
 /**
- * The three university demonstration scenarios use face sets in public/demo/faces/ (see its README):
- * <set>-jamb.png (JAMB registration), <set>-nin.png (NIN identity record) and <set>-live.png (live capture for
- * "Use Demo Face"). Served as static files, so a missing image falls back to a neutral placeholder.
+ * Portraits of the three university demonstration scenarios (fictional, AI-generated), in public/demo/faces/jamb/
+ * (see its README): the JAMB registration portrait, the NIN record's portrait and the face "Use Demo Face" loads.
+ * Served as static files; anything missing falls back to a neutral placeholder.
  */
-export const FACE_SETS: Record<string, string> = { 'U-A': 'success-student', 'U-B': 'discrepancy-student', 'U-C': 'duplicate-clearance-student' };
-export const facePath = (set: string, kind: 'jamb' | 'nin' | 'live') => `/demo/faces/${set}-${kind}.png`;
+type FaceKind = 'jamb' | 'nin' | 'live';
+export const FACE_SETS: Record<string, string> = { 'U-A': 's1', 'U-B': 's2', 'U-C': 's3' };
+const FACE_FILES: Record<string, Partial<Record<FaceKind, string>>> = {
+  s1: { jamb: 's1_jamb.jpg', nin: 's1_nin.jpg', live: 's1_live.jpg' },
+  s2: { jamb: 's2_jamb.jpg', nin: 's2_nin.jpg', live: 's2_live.jpg' },
+  // Scenario 3 has only the registered portrait; the person presenting is the same student.
+  s3: { jamb: 's3_jamb.jpg', live: 's3_jamb.jpg' },
+};
+export const facePath = (set: string, kind: FaceKind): string | undefined => {
+  const file = FACE_FILES[set]?.[kind];
+  return file ? `/demo/faces/jamb/${file}` : undefined;
+};
 const faceSet = (reg: string) => { const s = scenarioByReg(reg); return s ? FACE_SETS[s.id] : undefined; };
 
 /** The NIN identity record's portrait, for the demonstration scenarios. */
