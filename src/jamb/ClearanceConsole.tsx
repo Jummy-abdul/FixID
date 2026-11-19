@@ -12,14 +12,14 @@ import { cn } from '@/lib/cn';
 import { ACTIVE_ADMISSION_EVENT, ACTIVE_SESSION, EVENTS, SESSIONS, UNILAG, eventById, institutionByCode, sessionSlug, type StudentRecord } from './data';
 import { CertificatePage } from './certificate';
 import { StudentJourney } from './journey';
-import { demoFace, ninPortrait } from './portraits';
+import { demoFace, ninPortrait, jambPortraitLabel } from './portraits';
 import { SCENARIO_CANDIDATES } from './scenarios';
 import { EscalationDrawer, EscalationStatusBadge, EscalationStatusPanel, IdentityComparison } from './escalations';
 import {
   confirmClearance, countsOf, exceptionsOf, institutionActivities, lookupForClearance, priorClearanceOf, recordOf, recordUniversityVerification,
   recordsOf, useJambState, type Activity,
 } from './store';
-import { CATEGORY_LABEL, comparisonsFor, escalationFor, escalationStatus, escalationsOf, jambResponse, recordExistingClearance, type JambException } from './store';
+import { CATEGORY_LABEL, comparisonsFor, escalationFor, resolvedDiscrepancy, escalationStatus, escalationsOf, jambResponse, recordExistingClearance, type JambException } from './store';
 import { SimulatedCapture } from './capture';
 import { ActivityList, EventStatusBadge, NotFound, Section, SessionStats, eventPeriod } from './shared';
 import { StudentTable } from './students';
@@ -251,14 +251,14 @@ function VerifyStudentPage() {
             </div>
             <Button size="sm" variant="ghost" disabled={verifying} onClick={() => { setStep(1); setCapture(null); }}>Change student</Button>
           </div>
-          <div className="mt-5 grid gap-6 md:grid-cols-[1fr_16rem]">
+          <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center">
             <div>
-              <h2 className="mb-3 text-center text-lg font-semibold text-slate-900">Capture the student’s face</h2>
+              <h2 className="mb-2 text-center text-sm font-semibold text-slate-900">Capture the student’s face</h2>
               <SimulatedCapture image={demoFace(record)} subject={`${record.firstName} ${record.lastName}`} captured={capture?.url ?? null}
                 onCaptured={(url) => { const c = { url, mode: 'demo' as const }; setCapture(c); verify(c); }}
                 status={verifying ? <p role="status" className="flex items-center gap-2 text-sm font-medium text-slate-700"><Loader2 className="h-4 w-4 animate-spin text-emerald-700" aria-hidden="true" />Verifying identity…</p> : null} />
             </div>
-            <figure className="hidden md:block"><Portrait record={record} className="h-72 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+            <figure className="hidden w-36 sm:block"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
           </div>
         </Card>
       )}
@@ -299,7 +299,7 @@ function StudentCard({ record, onContinue }: { record: StudentRecord; onContinue
             <div><h2 className="text-xl font-semibold">Existing Clearance Record Found</h2><p className="text-sm opacity-90">This student already has an existing clearance record associated with another institution within the same admission session. Further review is required.</p></div>
           </div>
           <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
-            <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+            <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
             <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
               {row('Student name', `${record.firstName} ${record.middleName} ${record.lastName}`)}
               {row('JAMB Registration Number', <span className="font-mono">{record.reg}</span>)}
@@ -325,7 +325,7 @@ function StudentCard({ record, onContinue }: { record: StudentRecord; onContinue
     <div className="space-y-4">
       <Card className="px-5 py-5" aria-label="Student record">
         <div className="flex flex-col gap-5 sm:flex-row">
-          <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+          <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
             <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2" aria-label="Student information">
@@ -337,7 +337,7 @@ function StudentCard({ record, onContinue }: { record: StudentRecord; onContinue
               <Notice tone="success" title="Already cleared" className="mt-4">Cleared on {record.clearedAt ? dateTime(record.clearedAt) : '—'} by {record.clearedBy}. <Link to={`/clearance/certificate/${record.reg}`} className="font-semibold underline">View clearance certificate</Link></Notice>
             ) : record.blocked ? (
               <Notice tone="warning" title={live ? 'Clearance pending JAMB review' : 'Clearance blocked'} className="mt-4">
-                {record.blocked === 'duplicate-clearance' ? 'An existing clearance record at another institution was found.' : 'The student’s identity records don’t agree.'}
+                {record.blocked === 'duplicate-clearance' ? 'An existing clearance record at another institution was found.' : record.blocked === 'exam-mismatch' ? 'The live capture doesn’t match the JAMB examination verification record.' : 'The student’s identity records don’t agree.'}
                 {!live && <> <button type="button" onClick={() => setEscalating(true)} className="font-semibold underline">Escalate to JAMB</button></>}
               </Notice>
             ) : (
@@ -347,7 +347,7 @@ function StudentCard({ record, onContinue }: { record: StudentRecord; onContinue
         </div>
       </Card>
       {esc && record.clearance !== 'cleared' && <EscalationStatusPanel e={esc} />}
-      {escalating && <EscalationDrawer record={record} category={record.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : 'jamb-nin-discrepancy'} onClose={() => setEscalating(false)} />}
+      {escalating && <EscalationDrawer record={record} category={record.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : record.blocked === 'exam-mismatch' ? 'exam-impersonation' : 'jamb-nin-discrepancy'} onClose={() => setEscalating(false)} />}
     </div>
   );
 }
@@ -376,11 +376,13 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
   const esc = submitted ? escalationFor(record.reg, state) ?? submitted : undefined;
   const complete = () => { const r = confirmClearance(record.reg, officer); if (!r.ok) setError(r.error); };
   const o = e.outcome;
-  const kind = cleared ? 'cleared' : o === 'identity-confirmed' ? 'verified' : o === 'nin-mismatch' ? 'discrepancy' : o === 'duplicate-clearance' ? 'existing' : 'failed';
+  const kind = cleared ? 'cleared' : o === 'identity-confirmed' ? 'verified' : o === 'nin-mismatch' || o === 'exam-mismatch' ? 'discrepancy' : o === 'duplicate-clearance' ? 'existing' : 'failed';
   const head = {
     cleared: { tone: 'success', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Clearance Successful', text: `${record.firstName} ${record.lastName} has been cleared by ${UNILAG.name}.` },
     verified: { tone: 'success', icon: <CheckCircle2 className="h-8 w-8" aria-hidden="true" />, title: 'Identity Verified', text: 'The captured face matches the student’s JAMB and NIN identity records.' },
-    discrepancy: { tone: 'warning', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Verification Analysis', text: 'The student’s identity records don’t agree. Clearance can’t proceed until JAMB reviews the case.' },
+    discrepancy: { tone: 'warning', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Discrepancy Detected', text: o === 'exam-mismatch'
+      ? 'The live captured face matches the NIN identity record but does not match the face associated with the JAMB examination verification record. This discrepancy requires investigation.'
+      : 'The captured portrait matches the JAMB registration record but differs from the NIN identity record. Further investigation is required.' },
     existing: { tone: 'warning', icon: <ShieldAlert className="h-8 w-8" aria-hidden="true" />, title: 'Existing Clearance Record Found', text: 'This student already has an existing clearance record associated with another institution within the same admission session. Further review is required.' },
     failed: { tone: 'danger', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Could Not Be Confirmed', text: 'The captured face does not match the student’s JAMB registration record.' },
   }[kind];
@@ -390,19 +392,21 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
     <div className="space-y-4">
       <Card className="overflow-hidden" aria-label="Verification result">
         <div className={cn('flex items-center gap-4 px-6 py-5', banner)}>
-          {head.icon}
+          <span className="shrink-0">{head.icon}</span>
           <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
         </div>
         {kind === 'discrepancy' ? (
-          <div className="space-y-5 px-6 py-6">
-            <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
-            <IdentityComparison record={record} capture={capture?.url} comparisons={comparisonsFor('nin-mismatch')} />
-            <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 ring-1 ring-inset ring-amber-200">Identity discrepancy detected. The captured portrait matches the JAMB registration record but differs from the NIN identity record. Further investigation is required.</p>
-            <div className="flex flex-wrap gap-2 text-sm"><span className="text-slate-500">Verification:</span>{esc ? <Badge tone="violet">Escalated</Badge> : <Badge tone="warning">Escalation required</Badge>}<span className="ml-3 text-slate-500">Clearance:</span>{esc ? <Badge tone="warning">Pending review</Badge> : <Badge tone="danger">Blocked</Badge>}</div>
+          <div className="space-y-4 px-6 py-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">Identity Verification Analysis</h3>
+              <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
+            </div>
+            <IdentityComparison record={record} capture={capture?.url} comparisons={comparisonsFor(o as 'nin-mismatch' | 'exam-mismatch')} />
+            <div className="flex flex-wrap gap-2 text-sm"><span className="text-slate-500">Verification:</span>{esc ? <Badge tone="violet">Escalated</Badge> : <Badge tone="warning">Escalation required</Badge>}<span className="ml-3 text-slate-500">Clearance:</span>{esc ? <Badge tone="warning">Pending review</Badge> : <Badge tone="warning">Pending: on hold</Badge>}</div>
           </div>
         ) : (
           <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
-            <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+            <figure className="w-36"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
             {kind === 'cleared' ? (
               <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2" aria-label="Clearance record">
                 {row('Student', `${record.firstName} ${record.middleName} ${record.lastName}`)}
@@ -410,7 +414,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
                 {row('Institution', UNILAG.name)}
                 {row('Department', record.department)}
                 {row('Admission session', record.session)}
-                {row('Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{record.nin === 'mismatch' ? 'Identity verified · NIN discrepancy resolved by JAMB' : 'Identity verified'}</span>)}
+                {row('Verification outcome', <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{resolvedDiscrepancy(record.reg) === 'exam' ? 'Identity verified · examination record discrepancy resolved by JAMB' : record.nin === 'mismatch' ? 'Identity verified · NIN discrepancy resolved by JAMB' : 'Identity verified'}</span>)}
                 {row('Clearance reference', <span className="font-mono">{record.clearanceRef}</span>)}
                 {row('Clearance date and time', record.clearedAt ? dateTime(record.clearedAt) : '—')}
                 {row('Clearance officer', record.clearedBy)}
@@ -433,7 +437,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
                 <p className="text-slate-600">{record.department} · {record.course} · {record.session}</p>
                 {kind === 'verified' && (
                   <ul className="flex flex-wrap gap-2 pt-1" aria-label="Verification indicators">
-                    {['JAMB record: Match', e.checks?.nin === 'mismatch' ? 'NIN record: resolved by JAMB' : 'NIN record: Match'].map((t) => <li key={t}><Badge tone="success"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />{t}</Badge></li>)}
+                    {[e.checks?.face === 'no-match' ? 'JAMB record: resolved by JAMB' : 'JAMB record: Match', e.checks?.nin === 'mismatch' ? 'NIN record: resolved by JAMB' : 'NIN record: Match'].map((t) => <li key={t}><Badge tone="success"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />{t}</Badge></li>)}
                   </ul>
                 )}
                 {kind === 'verified' && <p className="text-slate-600">The student can proceed with institutional clearance.</p>}
@@ -450,7 +454,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
               <figure className="w-24"><img src={capture.url} alt="Captured face used for the verification" className="h-28 w-full rounded-lg object-cover ring-1 ring-slate-200" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">Captured face</figcaption></figure>
             </div>
             <dl className="grid content-start gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB identity', 'Match'], ['NIN verification', e.checks?.nin === 'mismatch' ? 'Mismatch · resolved by JAMB' : 'Match']] as [string, ReactNode][]).map(([k, v]) => (
+              {([['Verification reference', <span className="font-mono">{e.ref}</span>], ['Verified', dateTime(e.at)], ['JAMB vs Live Capture', e.checks?.face === 'no-match' ? 'Mismatch · resolved by JAMB' : 'Match'], ['NIN vs Live Capture', e.checks?.nin === 'mismatch' ? 'Mismatch · resolved by JAMB' : 'Match']] as [string, ReactNode][]).map(([k, v]) => (
                 <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 text-slate-900">{v}</dd></div>
               ))}
               <p className="text-xs text-slate-500 sm:col-span-2">The capture was used only for this verification and is not stored.</p>
@@ -483,7 +487,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
         </div>
       </Card>
       {esc && <EscalationStatusPanel e={esc} />}
-      {escalating && <EscalationDrawer record={record} category={kind === 'existing' ? 'duplicate-clearance' : 'jamb-nin-discrepancy'} capture={capture?.url} onClose={() => setEscalating(false)} onDone={setSubmitted} />}
+      {escalating && <EscalationDrawer record={record} category={kind === 'existing' ? 'duplicate-clearance' : o === 'exam-mismatch' ? 'exam-impersonation' : 'jamb-nin-discrepancy'} capture={capture?.url} onClose={() => setEscalating(false)} onDone={setSubmitted} />}
     </div>
   );
 }
@@ -579,7 +583,7 @@ function ClearanceStudentPage() {
       <PageHeader title="" breadcrumbs={[{ label: 'My Clearance Records', to: '/clearance/records' }, { label: `${r.firstName} ${r.lastName}` }]} />
       {esc && r.clearance !== 'cleared' && <EscalationStatusPanel e={esc} />}
       <StudentJourney record={r} actions={actions} />
-      {escalating && <EscalationDrawer record={r} category={r.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : 'jamb-nin-discrepancy'} onClose={() => setEscalating(false)} />}
+      {escalating && <EscalationDrawer record={r} category={r.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : r.blocked === 'exam-mismatch' ? 'exam-impersonation' : 'jamb-nin-discrepancy'} onClose={() => setEscalating(false)} />}
 
     </>
   );

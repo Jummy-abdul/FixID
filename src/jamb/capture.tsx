@@ -35,26 +35,26 @@ export function SimulatedCapture({ image, subject, instruction = 'Position stude
     }, 900));
   };
   return (
-    <div className="mx-auto w-full max-w-sm">
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-slate-800" aria-label="Camera frame" role="img">
+    <div className="mx-auto w-full max-w-[14rem]">
+      <div className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-slate-900 ring-1 ring-slate-800" aria-label="Camera frame" role="img">
         {captured ? (
           <img src={captured} alt="Captured face" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-400">
-            <Camera className={cn('h-12 w-12', phase === 'focusing' && 'animate-pulse text-white')} aria-hidden="true" />
-            <p className="max-w-[60%] text-center text-sm text-slate-300">{phase === 'focusing' ? 'Hold still…' : instruction}</p>
+            <Camera className={cn('h-8 w-8', phase === 'focusing' && 'animate-pulse text-white')} aria-hidden="true" />
+            <p className="max-w-[62%] text-center text-xs text-slate-300">{phase === 'focusing' ? 'Hold still…' : instruction}</p>
           </div>
         )}
         {!captured && <span aria-hidden="true" className={cn('pointer-events-none absolute inset-x-[16%] inset-y-[11%] rounded-[50%] border-2 border-dashed', phase === 'focusing' ? 'border-emerald-400' : 'border-white/50')} />}
         {/* Corner marks, like a camera viewfinder. */}
-        {['left-3 top-3 border-l-2 border-t-2', 'right-3 top-3 border-r-2 border-t-2', 'bottom-3 left-3 border-b-2 border-l-2', 'bottom-3 right-3 border-b-2 border-r-2'].map((c) => (
-          <span key={c} aria-hidden="true" className={cn('pointer-events-none absolute h-6 w-6 border-white/70', c)} />
+        {['left-2 top-2 border-l-2 border-t-2', 'right-2 top-2 border-r-2 border-t-2', 'bottom-2 left-2 border-b-2 border-l-2', 'bottom-2 right-2 border-b-2 border-r-2'].map((c) => (
+          <span key={c} aria-hidden="true" className={cn('pointer-events-none absolute h-4 w-4 border-white/70', c)} />
         ))}
         <span aria-hidden="true" className={cn('pointer-events-none absolute inset-0 bg-white transition-opacity duration-150', phase === 'flash' ? 'opacity-90' : 'opacity-0')} />
       </div>
-      <div className="mt-4 flex flex-col items-center gap-2" aria-live="polite">
+      <div className="mt-3 flex flex-col items-center gap-2" aria-live="polite">
         {captured ? status : (
-          <Button size="lg" className="w-full" icon={phase === 'idle' ? <Camera className="h-5 w-5" /> : <Loader2 className="h-5 w-5 animate-spin" />} disabled={phase !== 'idle'} onClick={capture}>
+          <Button className="w-full" icon={phase === 'idle' ? <Camera className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />} disabled={phase !== 'idle'} onClick={capture}>
             {phase === 'idle' ? 'Capture Face' : 'Capturing…'}
           </Button>
         )}

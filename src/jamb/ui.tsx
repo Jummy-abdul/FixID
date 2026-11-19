@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn';
 import type { StudentRecord } from './data';
 import jambLogo from './assets/jamb-logo.png';
 import { type ConsoleRole } from './personas';
-import { registrationPortrait } from './portraits';
+import { jambPortraitLabel, registrationPortrait } from './portraits';
 import { accessDisabled, officerFor, useJambState, type Officer } from './store';
 
 /* ---------------- access and layout ---------------- */
@@ -167,8 +167,8 @@ export const CLEARANCE_FILTER = [{ value: 'all', label: 'Any clearance status' }
 /* ---------------- portraits ---------------- */
 
 /** A student's original JAMB registration portrait (a photograph when supplied, otherwise "portrait on file"). */
-export function Portrait({ record, label = 'JAMB registration portrait', className }: { record: Pick<StudentRecord, 'reg' | 'gender' | 'firstName' | 'lastName'>; label?: string; className?: string }) {
-  return <FaceImage src={registrationPortrait(record)} label={`${label}: ${record.firstName} ${record.lastName}`} className={className} />;
+export function Portrait({ record, label, className }: { record: Pick<StudentRecord, 'reg' | 'gender' | 'firstName' | 'lastName'>; label?: string; className?: string }) {
+  return <FaceImage src={registrationPortrait(record)} label={`${label ?? jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={className} />;
 }
 /** An identity image that falls back to the neutral placeholder when it isn't available. */
 export function FaceImage({ src, label, className }: { src?: string; label: string; className?: string }) {

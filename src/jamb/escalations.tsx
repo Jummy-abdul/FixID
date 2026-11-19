@@ -10,7 +10,7 @@ import { formatDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { INSTITUTIONS, eventById, institutionByCode, type StudentRecord } from './data';
 import { dateTime } from './format';
-import { ninPortrait, registrationPortrait } from './portraits';
+import { jambPortraitLabel, ninPortrait, registrationPortrait } from './portraits';
 import {
   CATEGORY_LABEL, ESCALATION_STATUS_LABEL, RESOLUTION_LABEL, addExceptionNote, escalateToJamb, escalationStatus, escalationsOf, exceptionById, jambResponse, priorClearanceOf,
   recordOf, rejectEscalation, requestInformation, resolveException, respondToEscalation, startReview, useJambState,
@@ -30,30 +30,31 @@ const RESULT = {
   pending: { label: 'Inconclusive', cls: 'bg-amber-50 text-amber-900 ring-amber-200', icon: <CircleDashed className="h-4 w-4" aria-hidden="true" /> },
 };
 
-/** The three identity sources side by side, and how they compare. */
+/** The three identity sources side by side, and how they compare: a compact evidence panel. */
 export function IdentityComparison({ record, capture, comparisons, captureNote }: { record: StudentRecord; capture?: string; comparisons: Comparison[]; captureNote?: string }) {
+  const exam = jambPortraitLabel(record) === 'JAMB examination verification record';
   const panels: [string, ReactNode][] = [
-    ['JAMB Registration Record', <FaceImage src={registrationPortrait(record)} label={`JAMB registration portrait: ${record.firstName} ${record.lastName}`} className="aspect-[3/4] h-auto w-full" />],
-    ['NIN Identity Record', <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className="aspect-[3/4] h-auto w-full" />],
-    ['Captured Face', capture ? <img src={capture} alt="Captured face" className="aspect-[3/4] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className="aspect-[3/4] h-auto w-full" />],
+    [exam ? 'JAMB Examination Verification Record' : 'JAMB Registration Record', <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className="aspect-[4/5] h-auto w-full" />],
+    ['NIN Identity Record', <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className="aspect-[4/5] h-auto w-full" />],
+    ['Live Clearance Capture', capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className="aspect-[4/5] h-auto w-full" />],
   ];
   return (
-    <section aria-label="Identity Verification Analysis">
-      <div className="grid grid-cols-3 gap-3 sm:gap-5">
+    <section aria-label="Identity Verification Analysis" className="grid items-start gap-5 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
+      <div className="grid max-w-[27rem] grid-cols-3 gap-3">
         {panels.map(([label, img]) => (
           <figure key={label} className="min-w-0">
             {img}
-            <figcaption className="mt-2 text-center text-xs font-semibold text-slate-700 sm:text-sm">{label}</figcaption>
+            <figcaption className="mt-1.5 text-center text-[11px] font-semibold leading-tight text-slate-700 sm:text-xs">{label}</figcaption>
           </figure>
         ))}
       </div>
-      <table className="mt-5 w-full overflow-hidden rounded-lg text-sm ring-1 ring-slate-200" aria-label="Comparison outcomes">
-        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr><th scope="col" className="px-4 py-2">Comparison</th><th scope="col" className="px-4 py-2">Outcome</th></tr></thead>
+      <table className="w-full overflow-hidden rounded-lg text-sm ring-1 ring-slate-200" aria-label="Comparison outcomes">
+        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr><th scope="col" className="px-3 py-2">Comparison</th><th scope="col" className="px-3 py-2">Result</th></tr></thead>
         <tbody>
           {comparisons.map((c) => (
             <tr key={c.label} className={cn('border-t border-slate-100', RESULT[c.result].cls)}>
-              <th scope="row" className="px-4 py-2.5 text-left font-medium">{c.label}</th>
-              <td className="px-4 py-2.5"><span className="inline-flex items-center gap-1.5 font-semibold">{RESULT[c.result].icon}{RESULT[c.result].label}</span></td>
+              <th scope="row" className="px-3 py-2 text-left font-medium">{c.label}</th>
+              <td className="px-3 py-2"><span className="inline-flex items-center gap-1.5 font-semibold">{RESULT[c.result].icon}{RESULT[c.result].label}</span></td>
             </tr>
           ))}
         </tbody>
@@ -63,6 +64,7 @@ export function IdentityComparison({ record, capture, comparisons, captureNote }
 }
 
 const DEFAULT_COMMENT: Partial<Record<ExceptionCategory, string>> = {
+  'exam-impersonation': 'The student’s live captured portrait matches the NIN identity record but differs from the face associated with the JAMB examination verification record. This raises a possible examination identity impersonation concern. Kindly investigate and advise on the appropriate next steps.',
   'jamb-nin-discrepancy': 'The live portrait matches the original JAMB registration portrait. However, the NIN portrait returned during verification does not match the captured face. Kindly investigate and confirm the student’s identity.',
   'duplicate-clearance': 'This student has presented for clearance at University of Lagos, but an existing clearance record associated with another institution has been identified. Kindly investigate and advise on the appropriate next steps.',
 };
@@ -70,6 +72,7 @@ const DEFAULT_COMMENT: Partial<Record<ExceptionCategory, string>> = {
 const REASONS: Partial<Record<ExceptionCategory, string[]>> = {
   'duplicate-clearance': ['Student wishes to decline or withdraw the existing admission', 'Student wishes to proceed with another institution', 'Existing clearance requires review', 'Other'],
   'jamb-nin-discrepancy': ['Captured face does not match the NIN record', 'Student disputes the NIN record', 'Other'],
+  'exam-impersonation': ['Possible examination impersonation', 'Live capture does not match the JAMB examination record', 'Other'],
 };
 
 /** The university's escalation form: the student's details are prefilled; the officer adds the category, comment and evidence. */
@@ -83,7 +86,7 @@ export function EscalationDrawer({ record, category: initial, capture, onClose, 
   const prior = priorClearanceOf(record.reg);
   const options = [
     ...(category === 'duplicate-clearance' ? [] : ['Identity comparison results']),
-    ...(capture ? ['Captured face'] : []),
+    ...(capture ? ['Live clearance capture'] : []),
     ...(prior ? ['Previous clearance record'] : []),
     'Verification reference',
   ];
@@ -91,7 +94,7 @@ export function EscalationDrawer({ record, category: initial, capture, onClose, 
   const [error, setError] = useState('');
   const inst = institutionByCode(record.institution)!;
   const submit = () => {
-    const r = escalateToJamb({ reg: record.reg, officer, category, reason, comment, evidence, capture: capture && evidence.includes('Captured face') ? capture : undefined });
+    const r = escalateToJamb({ reg: record.reg, officer, category, reason, comment, evidence, capture: capture && evidence.includes('Live clearance capture') ? capture : undefined });
     if (!r.ok) { setError(r.error); return; }
     toast({ tone: 'success', title: 'Escalated to JAMB', description: r.value.id });
     onDone?.(r.value);
@@ -223,6 +226,7 @@ export function EscalationsPage() {
 type Dialog = null | 'comment' | 'info' | 'resolve' | 'reject';
 const RESOLUTIONS: Partial<Record<ExceptionCategory, ExceptionResolution[]>> = {
   'jamb-nin-discrepancy': ['identity-confirmed', 'identity-not-confirmed', 'record-corrected'],
+  'exam-impersonation': ['identity-confirmed', 'identity-not-confirmed', 'record-corrected'],
   'duplicate-clearance': ['existing-record-confirmed', 'release-authorised', 'previous-clearance-revoked', 'no-further-action'],
 };
 

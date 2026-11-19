@@ -11,7 +11,7 @@ import { cn } from '@/lib/cn';
 import { NYSC_EVENT_ID, eventById, institutionByCode, type StudentRecord } from './data';
 import { downloadPdf } from './certificate';
 import { StudentJourney, journeyOf } from './journey';
-import { demoFace } from './portraits';
+import { demoFace, jambPortraitLabel } from './portraits';
 import { OUTCOME_LABEL, activitiesFor, priorClearanceOf, allActivities, lookupForNysc, recordNyscVerification, recordOf, referToJamb, useJambState, type Activity } from './store';
 import { ActivityList, EventStatusBadge, NotFound, OutcomeBadge, Section, eventPeriod } from './shared';
 import { ConsoleLayout, JambLogo, OrgMark, Portrait, fmt, useOfficer } from './ui';
@@ -127,7 +127,7 @@ function VerifyCandidatePage() {
             {record && (
               <Card className="px-5 py-5" aria-label="JAMB record">
                 <div className="flex flex-col gap-5 sm:flex-row">
-                  <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+                  <figure className="w-32 shrink-0"><Portrait record={record} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">JAMB record found</p>
                     <h2 className="mt-1 text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
@@ -151,14 +151,14 @@ function VerifyCandidatePage() {
             <div className="flex items-center gap-3"><Portrait record={record} className="h-14 w-12" /><p className="text-sm text-slate-600"><span className="block font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span><span className="font-mono">{record.reg}</span></p></div>
             <Button size="sm" variant="ghost" disabled={verifying} onClick={() => { setStep(1); setCapture(null); }}>Change candidate</Button>
           </div>
-          <div className="mt-5 grid gap-6 md:grid-cols-[1fr_16rem]">
+          <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center">
             <div>
-              <h2 className="mb-3 text-center text-lg font-semibold text-slate-900">Capture the candidate’s face</h2>
+              <h2 className="mb-2 text-center text-sm font-semibold text-slate-900">Capture the candidate’s face</h2>
               <SimulatedCapture image={demoFace(record)} subject={`${record.firstName} ${record.lastName}`} instruction="Position the candidate’s face within the frame" captured={capture?.url ?? null}
                 onCaptured={(url) => { const c = { url, mode: 'demo' as const }; setCapture(c); verify(c); }}
                 status={verifying ? <p role="status" className="flex items-center gap-2 text-sm font-medium text-slate-700"><Loader2 className="h-4 w-4 animate-spin text-emerald-700" aria-hidden="true" />Verifying candidate…</p> : null} />
             </div>
-            <figure className="hidden md:block"><Portrait record={record} className="h-72 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+            <figure className="hidden w-36 sm:block"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
           </div>
         </Card>
       )}
@@ -197,7 +197,7 @@ function NyscResult({ activity: a, record: r, onNext, onRetake }: { activity: Ac
     <Card className="overflow-hidden" aria-label="Verification result">
       <div className={cn('flex items-center gap-4 px-6 py-5', head.cls)}>{head.icon}<div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div></div>
       <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">
-        <figure className="w-36"><Portrait record={r} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+        <figure className="w-36"><Portrait record={r} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(r)}</figcaption></figure>
         <div>
           <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{r.firstName} {r.middleName} {r.lastName}</span> · <span className="font-mono">{r.reg}</span></p>
           <table className="mt-3 w-full max-w-lg text-sm" aria-label="Verification checks">
@@ -340,7 +340,7 @@ export function NyscReportPage({ backTo }: { backTo: (reg: string) => string }) 
         </div>
         <div className="mt-5 flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-5 w-5" aria-hidden="true" /><h1 className="text-xl font-semibold">Candidate Identity Confirmed</h1></div>
         <div className="mt-5 grid gap-6 sm:grid-cols-[8rem_1fr]">
-          <figure><Portrait record={r} className="h-40 w-full" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">JAMB registration portrait</figcaption></figure>
+          <figure><Portrait record={r} className="h-40 w-full" /><figcaption className="mt-1 text-center text-[11px] text-slate-500">{jambPortraitLabel(r)}</figcaption></figure>
           <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
             {row('Candidate', `${r.firstName} ${r.middleName} ${r.lastName}`)}
             {row('JAMB registration number', <span className="font-mono">{r.reg}</span>)}

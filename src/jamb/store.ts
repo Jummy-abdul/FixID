@@ -29,12 +29,12 @@ export interface Officer {
   institution?: string;
 }
 
-export type UniversityOutcome = 'identity-confirmed' | 'nin-mismatch' | 'duplicate-clearance' | 'face-mismatch' | 'not-found' | 'invalid';
+export type UniversityOutcome = 'identity-confirmed' | 'nin-mismatch' | 'exam-mismatch' | 'duplicate-clearance' | 'face-mismatch' | 'not-found' | 'invalid';
 export type NyscOutcome = 'confirmed' | 'face-mismatch' | 'clearance-not-confirmed' | 'not-found' | 'invalid';
 export type ActivityOutcome = UniversityOutcome | NyscOutcome | 'clearance-completed' | 'escalated';
 
 export const OUTCOME_LABEL: Record<ActivityOutcome, string> = {
-  'identity-confirmed': 'Identity verified', 'nin-mismatch': 'JAMB/NIN discrepancy', 'duplicate-clearance': 'Existing clearance found',
+  'identity-confirmed': 'Identity verified', 'nin-mismatch': 'JAMB/NIN discrepancy', 'exam-mismatch': 'Examination record discrepancy', 'duplicate-clearance': 'Existing clearance found',
   'face-mismatch': 'Face verification failed', 'not-found': 'Record not found', invalid: 'Invalid registration number',
   confirmed: 'Identity confirmed', 'clearance-not-confirmed': 'Admission clearance not confirmed',
   'clearance-completed': 'Clearance completed', escalated: 'Escalated to JAMB',
@@ -62,9 +62,9 @@ export interface Activity {
   exceptionId?: string;
 }
 
-export type ExceptionCategory = 'jamb-nin-discrepancy' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
+export type ExceptionCategory = 'jamb-nin-discrepancy' | 'exam-impersonation' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
 export const CATEGORY_LABEL: Record<ExceptionCategory, string> = {
-  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
+  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'exam-impersonation': 'Possible examination impersonation', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
   'record-inconsistency': 'Student record inconsistency', 'failed-verification': 'Failed identity verification', 'manual-review': 'Manual review required',
 };
 export type ExceptionResolution = 'identity-confirmed' | 'identity-not-confirmed' | 'record-corrected' | 'clearance-revoked' | 'no-further-action'
@@ -388,10 +388,14 @@ const ESCALATING = ['UI', 'ABU', 'OAU', 'UNIBEN', 'UNIPORT', 'LASU', 'UNN'];
 
 /** The identity comparisons shown for an outcome (predefined; no biometric service is called). */
 export function comparisonsFor(outcome: UniversityOutcome): Comparison[] {
+  if (outcome === 'exam-mismatch') {
+    return [{ label: 'JAMB vs Live Capture', result: 'mismatch' }, { label: 'NIN vs Live Capture', result: 'match' }, { label: 'JAMB vs NIN', result: 'mismatch' }];
+  }
   const discrepancy = outcome === 'nin-mismatch';
   return [
-    { label: 'JAMB vs Captured Face', result: outcome === 'face-mismatch' ? 'mismatch' : 'match' },
-    { label: 'NIN vs Captured Face', result: discrepancy ? 'mismatch' : outcome === 'face-mismatch' ? 'pending' : 'match' },
+    { label: 'JAMB vs Live Capture', result: outcome === 'face-mismatch' ? 'mismatch' : 'match' },
+    { label: 'NIN vs Live Capture', result: discrepancy ? 'mismatch' : outcome === 'face-mismatch' ? 'pending' : 'match' },
+    ...(discrepancy ? [{ label: 'JAMB vs NIN', result: 'mismatch' as const }] : []),
   ];
 }
 let seededExceptions: JambException[] | null = null;
@@ -457,6 +461,7 @@ export function seededExceptionList(): JambException[] {
 function summaryFor(c: ExceptionCategory) {
   return {
     'jamb-nin-discrepancy': 'The presented face matched the JAMB registration record, but the NIN verification response did not match.',
+    'exam-impersonation': 'The live clearance capture matches the NIN identity record but not the face on the JAMB examination verification record.',
     'potential-fraud': 'The presented face did not match the JAMB registration record; the person presenting may not be the candidate.',
     'duplicate-clearance': 'The same JAMB admission record has already been cleared by another institution.',
     'record-inconsistency': 'The candidate’s biodata differs between the JAMB record and the institution’s admission list.',
@@ -550,8 +555,13 @@ export function universityResponse(r: StudentRecord): Exclude<UniversityOutcome,
 
 /** Whether JAMB resolved the student's latest JAMB/NIN discrepancy as identity confirmed. */
 export function ninResolvedByJamb(reg: string, state: JambState = current): boolean {
-  const e = exceptionsOf(state).find((x) => x.reg === reg && x.category === 'jamb-nin-discrepancy');
-  return e?.resolution?.outcome === 'identity-confirmed';
+  return !!resolvedDiscrepancy(reg, state);
+}
+/** Which identity discrepancy JAMB resolved as identity confirmed, if any: the NIN record, or the examination record. */
+export function resolvedDiscrepancy(reg: string, state: JambState = current): 'nin' | 'exam' | undefined {
+  const e = exceptionsOf(state).find((x) => x.reg === reg && (x.category === 'jamb-nin-discrepancy' || x.category === 'exam-impersonation'));
+  if (e?.resolution?.outcome !== 'identity-confirmed') return undefined;
+  return e.category === 'exam-impersonation' ? 'exam' : 'nin';
 }
 
 /** Whether JAMB released the student to clear here despite a previous clearance elsewhere. */
@@ -600,7 +610,13 @@ export function recordUniversityVerification(input: { entered: string; officer: 
   const activity: Activity = {
     ref: `JIV-${officer.institution}-${year}-${code6()}`, at, kind: 'university', eventId: eventForSession(record?.session ?? ACTIVE_SESSION).id, officer: officer.name, officerTitle: officer.title,
     organisation: officer.organisation, institution: officer.institution, session: record?.session ?? ACTIVE_SESSION, input: input.entered.trim(), reg: record?.reg, outcome,
-    checks: record ? { face: outcome === 'face-mismatch' ? 'no-match' : 'match', nin: outcome === 'face-mismatch' ? undefined : outcome === 'nin-mismatch' || ninResolvedByJamb(record.reg) ? 'mismatch' : 'match' } : undefined,
+    checks: record ? (() => {
+      const resolved = outcome === 'identity-confirmed' ? resolvedDiscrepancy(record.reg) : undefined;
+      return {
+        face: outcome === 'face-mismatch' || outcome === 'exam-mismatch' || resolved === 'exam' ? 'no-match' as const : 'match' as const,
+        nin: outcome === 'face-mismatch' ? undefined : outcome === 'nin-mismatch' || resolved === 'nin' ? 'mismatch' as const : 'match' as const,
+      };
+    })() : undefined,
     captureMode: record ? input.captureMode : undefined,
   };
   let state = current;
@@ -609,6 +625,7 @@ export function recordUniversityVerification(input: { entered: string; officer: 
     if (outcome === 'identity-confirmed') Object.assign(o, { verification: 'verified', nin: activity.checks?.nin ?? 'match', blocked: null });
     else if (outcome === 'face-mismatch') Object.assign(o, { verification: 'failed' });
     else if (outcome === 'nin-mismatch') Object.assign(o, { verification: 'exception', nin: 'mismatch', blocked: 'nin-mismatch' });
+    else if (outcome === 'exam-mismatch') Object.assign(o, { verification: 'exception', nin: 'match', blocked: 'exam-mismatch' });
     else Object.assign(o, { verification: 'exception', nin: 'match', blocked: 'duplicate-clearance' });
     state = { ...state, students: { ...state.students, [record.reg]: { ...state.students[record.reg], ...o } } };
     // A failed face match is raised automatically. Discrepancies and existing clearances wait for the officer to escalate.
@@ -716,8 +733,8 @@ export function resolveException(id: string, officer: Officer, outcome: Exceptio
   if (!e) return { ok: false, error: 'Exception not found.' };
   const r = patchException(id, officer, 'resolution-recorded', { status: 'resolved', resolution: { outcome, note: note.trim(), at: now(), by: officer.name } }, note.trim());
   const s = current.students[e.reg] ?? {};
-  if (r.ok && outcome === 'identity-confirmed' && e.category === 'jamb-nin-discrepancy') {
-    if (s.blocked === 'nin-mismatch') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
+  if (r.ok && outcome === 'identity-confirmed' && (e.category === 'jamb-nin-discrepancy' || e.category === 'exam-impersonation')) {
+    if (s.blocked === 'nin-mismatch' || s.blocked === 'exam-mismatch') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
   } else if (r.ok && (outcome === 'release-authorised' || outcome === 'previous-clearance-revoked') && e.category === 'duplicate-clearance') {
     if (s.blocked === 'duplicate-clearance') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
   } else if (r.ok && s.verification === 'escalated') {
@@ -755,7 +772,7 @@ export function escalateToJamb(input: { reg: string; officer: Officer; category:
   if (open) return { ok: false, error: `This student is already escalated (${open.id}).` };
   const at = now();
   const id = `ESC-${new Date().getFullYear()}-${code6().slice(0, 5)}`;
-  const outcome: UniversityOutcome = r.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : r.nin === 'mismatch' ? 'nin-mismatch' : r.verification === 'failed' ? 'face-mismatch' : 'identity-confirmed';
+  const outcome: UniversityOutcome = r.blocked === 'duplicate-clearance' ? 'duplicate-clearance' : r.blocked === 'exam-mismatch' ? 'exam-mismatch' : r.nin === 'mismatch' ? 'nin-mismatch' : r.verification === 'failed' ? 'face-mismatch' : 'identity-confirmed';
   const prior = priorClearanceOf(r.reg);
   // An existing clearance is a record issue, not a biometric result: no face comparisons are attached.
   const comparisons = input.category === 'duplicate-clearance' ? [] : comparisonsFor(outcome);

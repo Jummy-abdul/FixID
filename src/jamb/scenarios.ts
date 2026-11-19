@@ -10,7 +10,7 @@ import type { Session, StudentRecord } from './data';
 export type ScenarioId = 'U-A' | 'U-B' | 'U-C' | 'N-A' | 'N-B' | 'N-C';
 
 /** What the identity services answer for the candidate at university clearance. */
-export type UniversityScenario = 'identity-confirmed' | 'nin-mismatch' | 'duplicate-clearance';
+export type UniversityScenario = 'identity-confirmed' | 'nin-mismatch' | 'exam-mismatch' | 'duplicate-clearance';
 /** What NYSC verification establishes for the candidate. */
 export type NyscScenario = 'confirmed' | 'face-mismatch' | 'clearance-not-confirmed';
 
@@ -61,8 +61,10 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
   {
     id: 'U-B', label: 'Candidate B', workspace: 'university', reg: '20250190102IA', institution: 'UNILAG', session: '2025/2026', department: 'Mechanical Engineering',
     record: uni('Ibrahim', 'Musa', 'Abdullahi', 'Male', '2006-08-02T00:00:00.000Z', 'Kano', 264, 'Nassarawa CBT Centre, Kano'),
-    university: 'nin-mismatch', demoFace: 'same-person',
-    expected: 'Identity Verification Analysis: live capture matches JAMB but not NIN. Clearance is blocked; the officer escalates to JAMB.',
+    // Examination impersonation: another person sat the UTME, so the JAMB examination verification record shows
+    // the impersonator; the genuine candidate's live capture matches his NIN record.
+    university: 'exam-mismatch', demoFace: 'same-person',
+    expected: 'Identity Discrepancy Detected: the live capture matches NIN but not the JAMB examination verification record. Clearance is held; the officer escalates to JAMB.',
   },
   {
     id: 'U-C', label: 'Candidate C', workspace: 'university', reg: '20250190103OA', institution: 'UNILAG', session: '2025/2026', department: 'Economics',

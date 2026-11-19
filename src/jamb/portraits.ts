@@ -66,3 +66,11 @@ export function demoFace(r: Pick<StudentRecord, 'reg' | 'gender'>): string | und
   if (s) return byName('candidates', `${s.id}-demo`) ?? (s.demoFace === 'same-person' ? byName('candidates', `${s.id}-registration`) : undefined);
   return registrationPortrait(r);
 }
+
+/**
+ * What the student's JAMB image is. For the examination-impersonation scenario the face JAMB holds is the one
+ * recorded at examination verification (the impersonator's), so it must not be called the registration portrait.
+ */
+export function jambPortraitLabel(r: Pick<StudentRecord, 'reg'>): string {
+  return scenarioByReg(r.reg)?.university === 'exam-mismatch' ? 'JAMB examination verification record' : 'JAMB registration portrait';
+}

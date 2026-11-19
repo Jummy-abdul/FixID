@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { institutionByCode, type StudentRecord } from './data';
 import { CATEGORY_LABEL, OUTCOME_LABEL, activitiesFor, exceptionsForReg, outcomeTone, priorClearanceOf, useJambState, type Activity } from './store';
+import { jambPortraitLabel } from './portraits';
 import { ClearanceBadge, Portrait, VerificationBadge } from './ui';
 
 type StageState = 'done' | 'pending' | 'failed' | 'warning' | 'not-available';
@@ -79,7 +80,7 @@ export function StudentJourney({ record: r, actions, exceptionPath, showAudit }:
     <div className="space-y-6">
       <Card className="px-5 py-5">
         <div className="flex flex-col gap-5 sm:flex-row">
-          <figure className="w-32 shrink-0"><Portrait record={r} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">JAMB registration portrait</figcaption></figure>
+          <figure className="w-32 shrink-0"><Portrait record={r} className="h-40 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(r)}</figcaption></figure>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>

@@ -259,7 +259,7 @@ export interface StudentRecord {
   clearedBy?: string;
   clearanceRef?: string;
   /** Clearance can't proceed until JAMB resolves the exception. */
-  blocked?: 'nin-mismatch' | 'duplicate-clearance';
+  blocked?: 'nin-mismatch' | 'exam-mismatch' | 'duplicate-clearance';
   /** A hand-written test candidate. */
   scenario?: ScenarioCandidate['id'];
 }
