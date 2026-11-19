@@ -15,7 +15,7 @@ const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >
  * (see its README): the JAMB registration portrait, the NIN record's portrait and the face the simulated "Capture Face" reveals.
  * Served as static files; anything missing falls back to a neutral placeholder.
  */
-type FaceKind = 'jamb' | 'nin' | 'live';
+type FaceKind = 'jamb' | 'nin' | 'live' | 'reference';
 export const FACE_SETS: Record<string, string> = { 'U-A': 's1', 'U-B': 's2', 'U-C': 's3', 'N-A': 'nysc_a', 'N-B': 'nysc_b', 'N-C': 'nysc_c' };
 /** Paths under public/demo/faces/. Each candidate has its own files; none are shared across candidates. */
 const FACE_FILES: Record<string, Partial<Record<FaceKind, string>>> = {
@@ -24,8 +24,10 @@ const FACE_FILES: Record<string, Partial<Record<FaceKind, string>>> = {
   // Scenario 3 has only the registered portrait; the person presenting is the same student.
   s3: { jamb: 'jamb/s3_jamb.jpg', live: 'jamb/s3_jamb.jpg' },
   // NYSC candidates (public/demo/faces/nysc/): JAMB profile photograph, NIN identity photograph, simulated live capture.
-  nysc_a: { jamb: 'nysc/nysc_a_jamb.jpg', nin: 'nysc/nysc_a_nin.jpg', live: 'nysc/nysc_a_live.jpg' },
-  nysc_b: { jamb: 'nysc/nysc_b_jamb.jpg', nin: 'nysc/nysc_b_nin.jpg', live: 'nysc/nysc_b_live.jpg' },
+  // `reference` is the face captured and stored at the candidate's university admission clearance on FixID.
+  // A: the same person as the NYSC live capture. B: a different person. C has no clearance, so no reference.
+  nysc_a: { jamb: 'nysc/nysc_a_jamb.jpg', nin: 'nysc/nysc_a_nin.jpg', live: 'nysc/nysc_a_live.jpg', reference: 'nysc/nysc_a_jamb.jpg' },
+  nysc_b: { jamb: 'nysc/nysc_b_jamb.jpg', nin: 'nysc/nysc_b_nin.jpg', live: 'nysc/nysc_b_live.jpg', reference: 'nysc/nysc_b_jamb.jpg' },
   nysc_c: { jamb: 'nysc/nysc_c_jamb.jpg', nin: 'nysc/nysc_c_nin.jpg', live: 'nysc/nysc_c_live.jpg' },
 };
 export const facePath = (set: string, kind: FaceKind): string | undefined => {
@@ -80,4 +82,14 @@ export function jambPortraitLabel(r: Pick<StudentRecord, 'reg'>): string {
   const s = scenarioByReg(r.reg);
   if (s?.university === 'exam-mismatch') return 'JAMB examination verification record';
   return s?.workspace === 'nysc' ? 'JAMB profile photograph' : 'JAMB registration portrait';
+}
+
+/**
+ * The FixID reference image: the face captured and stored at the candidate's university admission clearance on
+ * FixID. Only a completed clearance has one; nothing is substituted when it is missing.
+ */
+export function clearanceReferenceImage(r: Pick<StudentRecord, 'reg' | 'clearance'>): string | undefined {
+  if (r.clearance !== 'cleared') return undefined;
+  const set = faceSet(r.reg);
+  return set ? facePath(set, 'reference') ?? facePath(set, 'live') : undefined;
 }

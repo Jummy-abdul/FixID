@@ -29,7 +29,7 @@ function activityEntry(a: Activity): JourneyEntry {
     activity: a.kind === 'nysc' ? 'NYSC identity verification' : a.outcome === 'clearance-completed' ? 'Admission clearance completed' : a.outcome === 'escalated' ? 'Escalated to JAMB' : a.outcome === 'duplicate-clearance' ? 'Existing clearance check' : 'Identity verification at clearance',
     organisation: a.organisation, at: a.at, officer: a.officer, outcome: <Badge tone={tone(a)}>{OUTCOME_LABEL[a.outcome]}</Badge>, reference: <span className="font-mono">{a.ref}</span>,
     details: a.checks ? [
-      ...(a.checks.face ? [['Face match (JAMB record)', a.checks.face === 'match' ? 'Match' : 'No match'] as [string, ReactNode]] : []),
+      ...(a.checks.face ? [[a.kind === 'nysc' ? 'FixID reference vs NYSC live capture' : 'Face match (JAMB record)', a.checks.face === 'match' ? 'Match' : 'No match'] as [string, ReactNode]] : []),
       ...(a.checks.nin ? [['NIN verification', a.checks.nin === 'match' ? 'Match' : 'Mismatch'] as [string, ReactNode]] : []),
     ] : undefined,
   };

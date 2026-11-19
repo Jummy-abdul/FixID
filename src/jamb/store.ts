@@ -7,6 +7,7 @@ import {
   type Institution, type Session, type StudentRecord,
 } from './data';
 import { JAMB_PERSONAS, type ConsoleRole } from './personas';
+import { clearanceReferenceImage } from './portraits';
 import { registrantByReg, scenarioByReg, type PriorClearance, type Registrant } from './scenarios';
 
 /**
@@ -745,11 +746,14 @@ export function confirmClearance(reg: string, officer: Officer): Result<StudentR
 
 /* ---------------- NYSC ---------------- */
 
-/** What NYSC verification establishes (the face response is predefined per candidate; no live service is called). */
+/**
+ * What NYSC verification establishes: the NYSC live capture is compared only with the FixID reference image stored
+ * at the candidate's university admission clearance (predefined per candidate; no live service is called).
+ * Without a clearance reference there is no comparison: the reference record is not found.
+ */
 export function nyscResponse(r: StudentRecord): Exclude<NyscOutcome, 'not-found' | 'invalid'> {
-  const s = scenarioByReg(r.reg);
-  if (s?.nysc === 'face-mismatch') return 'face-mismatch';
-  return r.clearance === 'cleared' ? 'confirmed' : 'clearance-not-confirmed';
+  if (!clearanceReferenceImage(r)) return 'clearance-not-confirmed';
+  return scenarioByReg(r.reg)?.nysc === 'face-mismatch' ? 'face-mismatch' : 'confirmed';
 }
 
 export function lookupForNysc(input: string): { ok: true; record: StudentRecord } | { ok: false; outcome: 'invalid' | 'not-found' } {
@@ -772,23 +776,20 @@ export function recordNyscVerification(input: { entered: string; officer: Office
   return { ok: true, value: activity };
 }
 
-/**
- * The two independent NYSC comparisons: the live capture against the JAMB profile photograph, and against the NIN
- * identity photograph (predefined per candidate; no biometric service is called). JAMB and NIN aren't compared.
- */
-export function nyscChecks(r: StudentRecord): { face: 'match' | 'no-match'; nin: 'match' | 'mismatch' } {
-  return { face: scenarioByReg(r.reg)?.nysc === 'face-mismatch' ? 'no-match' : 'match', nin: 'match' };
+/** The single NYSC comparison: the FixID clearance reference image against the NYSC live capture (none without a reference). */
+export function nyscChecks(r: StudentRecord): { face?: 'match' | 'no-match' } {
+  const o = nyscResponse(r);
+  return o === 'clearance-not-confirmed' ? {} : { face: o === 'face-mismatch' ? 'no-match' : 'match' };
 }
+export const NYSC_COMPARISON_LABEL = 'FixID Reference vs NYSC Live Capture';
 export function nyscComparisons(a: Pick<Activity, 'checks'>): Comparison[] {
-  return [
-    { label: 'JAMB vs Live Capture', result: a.checks?.face === 'no-match' ? 'mismatch' : 'match' },
-    { label: 'NIN vs Live Capture', result: a.checks?.nin === 'mismatch' ? 'mismatch' : 'match' },
-  ];
+  return a.checks?.face ? [{ label: NYSC_COMPARISON_LABEL, result: a.checks.face === 'no-match' ? 'mismatch' : 'match' }] : [];
 }
 /** Identity assurance and institutional clearance are separate results of an NYSC verification. */
-export function nyscStatuses(a: Pick<Activity, 'outcome'>): { identity: 'confirmed' | 'not-confirmed'; clearance: 'confirmed' | 'not-confirmed' | 'not-assessed' } {
+export function nyscStatuses(a: Pick<Activity, 'outcome'>): { identity: 'confirmed' | 'not-confirmed' | 'no-reference'; clearance: 'confirmed' | 'not-confirmed' | 'not-assessed' } {
   if (a.outcome === 'face-mismatch') return { identity: 'not-confirmed', clearance: 'not-assessed' };
-  return { identity: 'confirmed', clearance: a.outcome === 'confirmed' ? 'confirmed' : 'not-confirmed' };
+  if (a.outcome === 'clearance-not-confirmed') return { identity: 'no-reference', clearance: 'not-confirmed' };
+  return { identity: 'confirmed', clearance: 'confirmed' };
 }
 
 /**

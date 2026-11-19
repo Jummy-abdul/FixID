@@ -8,6 +8,7 @@ import { AUTH_STORAGE_KEY, builtInAccounts } from '@/auth/authCore';
 import { BASE_COUNTS, EVENTS, GENERATED_TOTALS, INSTITUTIONS, SESSIONS, UNILAG, baseRecords, institutionByCode, parseRegistration } from '@/jamb/data';
 import { SCENARIO_CANDIDATES } from '@/jamb/scenarios';
 import { journeyOf } from '@/jamb/journey';
+import { clearanceReferenceImage, demoFace } from '@/jamb/portraits';
 import {
   accessDisabled, activitiesFor, escalateToJamb, escalationFor, escalationStatus, jambResponse, rejectEscalation, requestInformation, respondToEscalation, confirmClearance, countsOf, recordExistingClearance, exceptionsForReg, getJambState, inviteUser, lookupForClearance, nationalCounts, officerFor,
   escalationsOf, nyscComparisons, nyscStatuses, recordNyscVerification, recordOf, assignCase, caseTypeOf, closeCase, comparisonsFor, exceptionById, priorClearanceOf, raiseAdmissionInquiry, referForInvestigation, CASE_DECISIONS, recordUniversityVerification, referToJamb, reloadJambState, resolveException, setUserStatus, usersOf,
@@ -224,33 +225,32 @@ describe('Candidate C identity timeline', () => {
 });
 
 describe('NYSC verification scenarios and shared data', () => {
-  it('A confirmed, B face mismatch (referable to JAMB), C admission clearance not confirmed', () => {
+  it('NYSC compares only the FixID clearance reference image with the live capture: match, mismatch, reference not found', () => {
+    const one = [{ label: 'FixID Reference vs NYSC Live Capture', result: 'match' }];
     const a = recordNyscVerification({ entered: NA, officer: nysc, captureMode: 'demo', record: recordOf(NA) });
-    expect(a.ok && a.value).toMatchObject({ outcome: 'confirmed', checks: { face: 'match', nin: 'match' } });
-    expect(nyscComparisons(a.ok ? a.value : {})).toEqual([{ label: 'JAMB vs Live Capture', result: 'match' }, { label: 'NIN vs Live Capture', result: 'match' }]);
-    expect(nyscStatuses(a.ok ? a.value : { outcome: 'invalid' })).toEqual({ identity: 'confirmed', clearance: 'confirmed' });
-    // Historical clearance comes from the shared record; NYSC creates no clearance of its own.
-    expect(recordOf(NA)).toMatchObject({ clearance: 'cleared', clearanceRef: 'JCL-UI-2022-771205', clearedBy: 'Kehinde Adeleke' });
+    expect(a.ok && a.value).toMatchObject({ outcome: 'confirmed', checks: { face: 'match' } });
+    expect(a.ok && a.value.checks).not.toHaveProperty('nin');
+    expect(nyscComparisons(a.ok ? a.value : {})).toEqual(one);
+    // The reference image is the face stored at the candidate's university clearance.
+    expect(clearanceReferenceImage(recordOf(NA)!)).toBe('/demo/faces/nysc/nysc_a_jamb.jpg');
+    expect(demoFace(recordOf(NA)!)).toBe('/demo/faces/nysc/nysc_a_live.jpg');
 
     const b = recordNyscVerification({ entered: NB, officer: nysc, captureMode: 'demo', record: recordOf(NB) });
-    expect(b.ok && b.value).toMatchObject({ outcome: 'face-mismatch', checks: { face: 'no-match', nin: 'match' } });
-    expect(nyscComparisons(b.ok ? b.value : {})).toEqual([{ label: 'JAMB vs Live Capture', result: 'mismatch' }, { label: 'NIN vs Live Capture', result: 'match' }]);
-    expect(nyscStatuses(b.ok ? b.value : { outcome: 'invalid' }).identity).toBe('not-confirmed');
+    expect(b.ok && b.value).toMatchObject({ outcome: 'face-mismatch', checks: { face: 'no-match' } });
+    expect(nyscComparisons(b.ok ? b.value : {})).toEqual([{ label: 'FixID Reference vs NYSC Live Capture', result: 'mismatch' }]);
+    expect(clearanceReferenceImage(recordOf(NB)!)).toBe('/demo/faces/nysc/nysc_b_jamb.jpg');
     expect(referToJamb(b.ok ? b.value.ref : '', nysc, '  ').ok).toBe(false);
-    const ref = referToJamb(b.ok ? b.value.ref : '', nysc, 'Live capture matches NIN but not the JAMB profile.');
-    // An identity exception for JAMB, not a fraud classification.
-    expect(ref.ok && ref.value).toMatchObject({ category: 'nysc-identity-discrepancy', raisedByOrganisation: 'National Youth Service Corps', escalation: { source: 'nysc', comment: 'Live capture matches NIN but not the JAMB profile.', comparisons: [{ label: 'JAMB vs Live Capture', result: 'mismatch' }, { label: 'NIN vs Live Capture', result: 'match' }] } });
-    expect(escalationsOf().some((e) => e.id === (ref.ok && ref.value.id))).toBe(true);
-    expect(referToJamb(b.ok ? b.value.ref : '', nysc, 'again').ok).toBe(false);
+    const ref = referToJamb(b.ok ? b.value.ref : '', nysc, 'Live capture does not match the FixID reference.');
+    expect(ref.ok && ref.value).toMatchObject({ category: 'nysc-identity-discrepancy', escalation: { source: 'nysc', comparisons: [{ label: 'FixID Reference vs NYSC Live Capture', result: 'mismatch' }] } });
 
+    // No clearance, so no reference image: nothing is substituted and no comparison is made.
+    expect(clearanceReferenceImage(recordOf(NC)!)).toBeUndefined();
     const c = recordNyscVerification({ entered: NC, officer: nysc, captureMode: 'demo', record: recordOf(NC) });
-    expect(c.ok && c.value).toMatchObject({ outcome: 'clearance-not-confirmed', checks: { face: 'match', nin: 'match' } });
-    expect(nyscStatuses(c.ok ? c.value : { outcome: 'invalid' })).toEqual({ identity: 'confirmed', clearance: 'not-confirmed' });
-    const cr = referToJamb(c.ok ? c.value.ref : '', nysc, 'No clearance record.');
-    expect(cr.ok && cr.value.category).toBe('nysc-clearance-not-confirmed');
-    // NYSC never creates a university clearance.
+    expect(c.ok && c.value).toMatchObject({ outcome: 'clearance-not-confirmed', checks: {} });
+    expect(nyscComparisons(c.ok ? c.value : {})).toEqual([]);
+    expect(nyscStatuses(c.ok ? c.value : { outcome: 'invalid' }).identity).toBe('no-reference');
     expect(recordOf(NC)!.clearance).toBe('pending');
-    // Deterministic: the same number always gives the same scenario.
+    // Deterministic.
     const again = recordNyscVerification({ entered: NB, officer: nysc, captureMode: 'demo', record: recordOf(NB) });
     expect(again.ok && again.value.outcome).toBe('face-mismatch');
   });
@@ -381,28 +381,29 @@ describe('workspaces', () => {
     expect(await screen.findByLabelText('Historical admission clearance')).toHaveTextContent('JCL-UI-2022-771205');
     await user.click(await screen.findByRole('button', { name: 'Continue to face capture' }));
     await user.click(screen.getByRole('button', { name: 'Capture Face' }));
-    expect(await screen.findByRole('heading', { name: 'Candidate Identity Confirmed' }, { timeout: 6000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Identity Match Confirmed' }, { timeout: 6000 })).toBeInTheDocument();
     expect(screen.getByLabelText('Verification status')).toHaveTextContent('Identity AssuranceConfirmedInstitutional ClearanceConfirmed');
-    expect(within(screen.getByLabelText('Comparison outcomes')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'))).toEqual(['JAMB vs Live Capture: Match', 'NIN vs Live Capture: Match']);
+    expect(within(screen.getByLabelText('Comparison outcomes')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'))).toEqual(['FixID Reference vs NYSC Live Capture: Match']);
+    expect(document.body.textContent).not.toMatch(/JAMB vs Live|NIN vs Live|NIN identity photograph|JAMB profile photograph/);
     const history = screen.getByLabelText('Candidate Identity & Clearance History');
     for (const t of ['JAMB Registration', 'JAMB Examination Verification', 'University Admission Clearance', 'NYSC Identity Verification', 'Kehinde Adeleke', 'JCL-UI-2022-771205']) expect(history).toHaveTextContent(t);
     expect(document.body.textContent).not.toMatch(/matriculat(ed|ion status|ion number|ion event)/i);
     await user.click(screen.getByRole('link', { name: 'View Verification Report' }));
     const report = await screen.findByLabelText('NYSC verification report');
-    for (const t of ['JCL-UI-2022-771205', 'Kehinde Adeleke', 'Final identity assurance result: Confirmed', 'University of Ibadan']) expect(report).toHaveTextContent(t);
+    for (const t of ['JCL-UI-2022-771205', 'Kehinde Adeleke', 'Final identity assurance result: Confirmed', 'University of Ibadan', 'FixID clearance reference image vs NYSC live capture']) expect(report).toHaveTextContent(t);
+    expect(report).not.toHaveTextContent(/NIN identity photograph|JAMB profile photograph/);
     // No captured biometric in the report.
     expect(within(report).queryByAltText(/live/i)).not.toBeInTheDocument();
   }, 15000);
 
-  it('NYSC Candidate B: identity not confirmed, referred to JAMB with a comment', async () => {
+  it('NYSC Candidate B: identity mismatch, referred to JAMB with a comment', async () => {
     const user = renderApp('/nysc/verify', 'acct_demo_nysc_officer');
     await user.type(await screen.findByLabelText(/JAMB Registration Number/), NB);
     await user.click(screen.getByRole('button', { name: 'Retrieve records' }));
     await user.click(await screen.findByRole('button', { name: 'Continue to face capture' }));
     await user.click(screen.getByRole('button', { name: 'Capture Face' }));
-    expect(await screen.findByRole('heading', { name: 'Candidate Identity Could Not Be Confirmed' }, { timeout: 6000 })).toBeInTheDocument();
-    expect(screen.getByText('The captured face matches the NIN identity record but does not match the JAMB profile record. Further investigation is required.')).toBeInTheDocument();
-    expect(within(screen.getByLabelText('Comparison outcomes')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'))).toEqual(['JAMB vs Live Capture: Mismatch', 'NIN vs Live Capture: Match']);
+    expect(await screen.findByRole('heading', { name: 'Identity Mismatch' }, { timeout: 6000 })).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Comparison outcomes')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'))).toEqual(['FixID Reference vs NYSC Live Capture: Mismatch']);
     expect(screen.queryByRole('link', { name: 'View Verification Report' })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/fraud/i);
     await user.click(screen.getByRole('button', { name: 'Refer to JAMB' }));
@@ -412,16 +413,18 @@ describe('workspaces', () => {
     expect(escalationsOf().find((e) => e.reg === NB)).toMatchObject({ category: 'nysc-identity-discrepancy' });
   }, 15000);
 
-  it('NYSC Candidate C: identity confirmed but admission clearance not confirmed; no report', async () => {
+  it('NYSC Candidate C: identity reference record not found; no comparison, no report', async () => {
     const user = renderApp('/nysc/verify', 'acct_demo_nysc_officer');
     await user.type(await screen.findByLabelText(/JAMB Registration Number/), NC);
     await user.click(screen.getByRole('button', { name: 'Retrieve records' }));
     expect(await screen.findByText('No confirmed admission clearance record found')).toBeInTheDocument();
+    expect(screen.getByText('No FixID reference image on record')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Continue to face capture' }));
     await user.click(screen.getByRole('button', { name: 'Capture Face' }));
-    expect(await screen.findByRole('heading', { name: 'Admission Clearance Not Confirmed' }, { timeout: 6000 })).toBeInTheDocument();
-    expect(screen.getByLabelText('Verification status')).toHaveTextContent('Identity AssuranceConfirmedInstitutional ClearanceNot Confirmed');
-    expect(within(screen.getByLabelText('Comparison outcomes')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'))).toEqual(['JAMB vs Live Capture: Match', 'NIN vs Live Capture: Match']);
+    expect(await screen.findByRole('heading', { name: 'Identity Reference Record Not Found' }, { timeout: 6000 })).toBeInTheDocument();
+    // No comparison at all, and no substitute photograph.
+    expect(screen.queryByLabelText('Comparison outcomes')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Verification status')).toHaveTextContent('Institutional ClearanceNot Confirmed');
     expect(screen.queryByRole('link', { name: 'View Verification Report' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refer for clearance review' })).toBeInTheDocument();
   }, 15000);

@@ -12,7 +12,7 @@ import { NYSC_EVENT_ID, eventById, institutionByCode, type StudentRecord } from 
 import { downloadPdf } from './certificate';
 import { StudentJourney } from './journey';
 import { EscalationStatusBadge, IdentityComparison } from './escalations';
-import { demoFace, ninPortrait, registrationPortrait } from './portraits';
+import { clearanceReferenceImage, demoFace } from './portraits';
 import {
   activitiesFor, allActivities, exceptionById, jambResponse, lookupForNysc, nyscComparisons, nyscStatuses, recordNyscVerification, recordOf, referToJamb, useJambState,
   type Activity, type NyscOutcome,
@@ -56,7 +56,7 @@ export function NyscConsole() {
 
 type Outcome = Exclude<NyscOutcome, 'not-found' | 'invalid'>;
 const NYSC_LABEL: Record<NyscOutcome, string> = {
-  confirmed: 'Identity confirmed', 'face-mismatch': 'Identity not confirmed', 'clearance-not-confirmed': 'Admission clearance not confirmed',
+  confirmed: 'Identity match confirmed', 'face-mismatch': 'Identity mismatch', 'clearance-not-confirmed': 'Reference record not found',
   'not-found': 'Record not found', invalid: 'Invalid registration number',
 };
 const NYSC_TONE: Record<NyscOutcome, Tone> = { confirmed: 'success', 'face-mismatch': 'danger', 'clearance-not-confirmed': 'warning', 'not-found': 'neutral', invalid: 'neutral' };
@@ -102,7 +102,7 @@ interface Stage { n: number; title: string; current?: boolean; state: 'done' | '
 function nyscStages(r: StudentRecord, a: Activity): Stage[] {
   const h = historicalClearance(r);
   const inst = institutionByCode(r.institution)?.name ?? r.institution;
-  const [jamb, nin] = nyscComparisons(a);
+  const [ref] = nyscComparisons(a);
   const o = a.outcome as Outcome;
   return [
     { n: 1, title: 'JAMB Registration', state: 'done', status: 'Registered', at: r.registeredAt, rows: [['Registration number', <span className="font-mono">{r.reg}</span>], ['Registration centre', r.registrationCentre]] },
@@ -112,7 +112,7 @@ function nyscStages(r: StudentRecord, a: Activity): Stage[] {
       : { n: 3, title: 'University Admission Clearance', state: 'warning', status: 'Not confirmed', rows: [['Institution', inst], ['Admission session', r.session], ['Record', 'No confirmed admission clearance record found']] },
     {
       n: 4, title: 'NYSC Identity Verification', current: true, state: o === 'confirmed' ? 'done' : o === 'face-mismatch' ? 'failed' : 'warning', status: NYSC_LABEL[o], at: a.at,
-      rows: [['Verification reference', <span className="font-mono">{a.ref}</span>], ['NYSC officer', a.officer], ['JAMB vs Live Capture', jamb.result === 'match' ? 'Match' : 'Mismatch'], ['NIN vs Live Capture', nin.result === 'match' ? 'Match' : 'Mismatch'],
+      rows: [['Verification reference', <span className="font-mono">{a.ref}</span>], ['NYSC officer', a.officer], ['FixID reference vs NYSC live capture', ref ? (ref.result === 'match' ? 'Match' : 'Mismatch') : 'Not performed: no reference image'],
         ...(a.exceptionId ? [['Referred to JAMB', <span className="font-mono">{a.exceptionId}</span>] as [string, ReactNode]] : [])],
     },
   ];
@@ -176,9 +176,9 @@ function NyscHome() {
         actions={<ButtonLink to="/nysc/verify" variant="primary" size="lg" icon={<ScanFace className="h-5 w-5" />}>Verify Candidate</ButtonLink>} />
       <section aria-label="Verification summary" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Candidates verified" value={fmt(withRecord.length)} to="/nysc/verifications" />
-        <StatCard label="Identity confirmed" value={fmt(count('confirmed') + count('clearance-not-confirmed'))} tone="emerald" to="/nysc/verifications?outcome=identity-confirmed" hint={`${fmt(count('confirmed'))} with clearance confirmed`} />
-        <StatCard label="Identity discrepancies" value={fmt(count('face-mismatch'))} to="/nysc/verifications?outcome=face-mismatch" />
-        <StatCard label="Institutional clearance not confirmed" value={fmt(count('clearance-not-confirmed'))} tone="amber" to="/nysc/verifications?outcome=clearance-not-confirmed" />
+        <StatCard label="Identity match confirmed" value={fmt(count('confirmed'))} tone="emerald" to="/nysc/verifications?outcome=confirmed" />
+        <StatCard label="Identity mismatches" value={fmt(count('face-mismatch'))} to="/nysc/verifications?outcome=face-mismatch" />
+        <StatCard label="Reference record not found" value={fmt(count('clearance-not-confirmed'))} tone="amber" to="/nysc/verifications?outcome=clearance-not-confirmed" />
         <StatCard label="Cases referred to JAMB" value={fmt(withRecord.filter((a) => a.exceptionId).length)} tone="violet" to="/nysc/verifications?outcome=referred" />
       </section>
       <Card className="px-5 py-5">
@@ -259,11 +259,12 @@ function VerifyCandidatePage() {
               <Card className="overflow-hidden" aria-label="Candidate records">
                 <div className="flex flex-col gap-5 px-5 py-5 sm:flex-row">
                   <div className="flex shrink-0 gap-3">
-                    <figure className="w-24"><FaceImage src={registrationPortrait(record)} label={`JAMB profile photograph: ${record.firstName} ${record.lastName}`} className="aspect-[4/5] h-auto w-full" /><figcaption className="mt-1 text-center text-[11px] font-medium leading-tight text-slate-600">JAMB profile photograph</figcaption></figure>
-                    <figure className="w-24"><FaceImage src={ninPortrait(record)} label={`NIN identity photograph: ${record.firstName} ${record.lastName}`} className="aspect-[4/5] h-auto w-full" /><figcaption className="mt-1 text-center text-[11px] font-medium leading-tight text-slate-600">NIN identity photograph</figcaption></figure>
+                    {clearanceReferenceImage(record)
+                      ? <figure className="w-24"><FaceImage src={clearanceReferenceImage(record)} label={`FixID clearance reference image: ${record.firstName} ${record.lastName}`} className="aspect-[4/5] h-auto w-full" /><figcaption className="mt-1 text-center text-[11px] font-medium leading-tight text-slate-600">FixID clearance reference image</figcaption></figure>
+                      : <div className="flex aspect-[4/5] w-24 items-center justify-center rounded-lg border border-dashed border-slate-300 px-2 text-center text-[11px] font-medium text-slate-500">No FixID reference image on record</div>}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">JAMB and NIN records retrieved</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Candidate records retrieved</p>
                     <h2 className="mt-1 text-xl font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</h2>
                     <div className="mt-3"><Rows rows={[['JAMB Registration Number', <span className="font-mono">{record.reg}</span>], ['Institution', inst], ['Course of study', record.course], ['Admission session', record.session]]} /></div>
                   </div>
@@ -306,16 +307,16 @@ function VerifyCandidatePage() {
 
 const HEAD: Record<Outcome, { cls: string; icon: ReactNode; title: string; text: string }> = {
   confirmed: {
-    cls: 'bg-emerald-50 text-emerald-950 border-emerald-200', icon: <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />, title: 'Candidate Identity Confirmed',
-    text: 'The captured face matches the candidate’s JAMB profile and NIN identity records, and a historical university admission clearance record was found.',
+    cls: 'bg-emerald-50 text-emerald-950 border-emerald-200', icon: <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />, title: 'Identity Match Confirmed',
+    text: 'The NYSC live capture matches the FixID reference image stored at the candidate’s university admission clearance.',
   },
   'face-mismatch': {
-    cls: 'bg-red-50 text-red-950 border-red-200', icon: <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden="true" />, title: 'Candidate Identity Could Not Be Confirmed',
-    text: 'The captured face matches the NIN identity record but does not match the JAMB profile record. Further investigation is required.',
+    cls: 'bg-red-50 text-red-950 border-red-200', icon: <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden="true" />, title: 'Identity Mismatch',
+    text: 'The NYSC live capture does not match the FixID reference image stored at the candidate’s university admission clearance. Further investigation is required.',
   },
   'clearance-not-confirmed': {
-    cls: 'bg-amber-50 text-amber-950 border-amber-200', icon: <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />, title: 'Admission Clearance Not Confirmed',
-    text: 'The candidate’s identity is confirmed, but FixID cannot establish that the required institutional admission clearance was completed.',
+    cls: 'bg-amber-50 text-amber-950 border-amber-200', icon: <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />, title: 'Identity Reference Record Not Found',
+    text: 'No FixID reference image from a university admission clearance is available for this candidate. No comparison was performed.',
   },
 };
 
@@ -331,8 +332,8 @@ function StatusTile({ label, value, tone }: { label: string; value: string; tone
 
 function referralComment(o: Outcome, r: StudentRecord) {
   return o === 'face-mismatch'
-    ? 'The candidate’s live captured face matches the NIN identity photograph but does not match the JAMB profile photograph. Kindly review the candidate’s identity records and advise on the appropriate next steps.'
-    : `The candidate’s identity was confirmed against the JAMB profile and NIN identity photographs, but no confirmed institutional admission clearance record was found for ${institutionByCode(r.institution)?.name} (${r.session} admission session). Kindly review and advise whether the candidate’s admission clearance can be confirmed.`;
+    ? 'The candidate’s NYSC live capture does not match the FixID reference image stored at their university admission clearance. Kindly review the candidate’s identity records and advise on the appropriate next steps.'
+    : `No FixID reference image from a university admission clearance is available for this candidate (${institutionByCode(r.institution)?.name}, ${r.session} admission session), so identity could not be compared. Kindly review and advise.`;
 }
 
 /** The outcome of an NYSC verification: shown after capture, and again when the officer opens a past record. */
@@ -354,10 +355,12 @@ function NyscResult({ activity, record: r, capture, onNext, onRetake }: { activi
       <div className="space-y-5 px-6 py-5">
         <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{r.firstName} {r.middleName} {r.lastName}</span> · <span className="font-mono">{r.reg}</span> · {institutionByCode(r.institution)?.name} · {r.course}</p>
         <dl aria-label="Verification status" className="grid gap-3 sm:grid-cols-2">
-          <StatusTile label="Identity Assurance" value={statuses.identity === 'confirmed' ? 'Confirmed' : 'Not Confirmed'} tone={statuses.identity === 'confirmed' ? 'good' : 'bad'} />
+          <StatusTile label="Identity Assurance" value={statuses.identity === 'confirmed' ? 'Confirmed' : statuses.identity === 'no-reference' ? 'Not established: no reference' : 'Not Confirmed'} tone={statuses.identity === 'confirmed' ? 'good' : statuses.identity === 'no-reference' ? 'hold' : 'bad'} />
           <StatusTile label="Institutional Clearance" value={statuses.clearance === 'confirmed' ? 'Confirmed' : statuses.clearance === 'not-confirmed' ? 'Not Confirmed' : 'On hold: identity not confirmed'} tone={statuses.clearance === 'confirmed' ? 'good' : statuses.clearance === 'not-confirmed' ? 'bad' : 'hold'} />
         </dl>
-        <IdentityComparison record={r} capture={capture} comparisons={nyscComparisons(a)} captureNote="Live capture not retained" />
+        {nyscComparisons(a).length ? <IdentityComparison record={r} capture={capture} comparisons={nyscComparisons(a)} captureNote="Live capture not retained" /> : (
+          <div role="note" className="rounded-lg border border-dashed border-amber-300 bg-amber-50/50 px-4 py-3 text-sm text-amber-950">No FixID university clearance reference image exists for this candidate, so no comparison was performed. No other photograph is used in its place.</div>
+        )}
         <div className="border-t border-slate-100 pt-4"><NyscHistory record={r} activity={a} /></div>
         {referral && (
           <div className="rounded-lg bg-violet-50 px-4 py-3 text-sm ring-1 ring-inset ring-violet-200" aria-label="Referral to JAMB">
@@ -397,9 +400,9 @@ function ReferDrawer({ activity: a, record: r, capture, onClose }: { activity: A
       <div className="space-y-4">
         {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
         <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-inset ring-slate-200">
-          <Rows rows={[['Candidate', `${r.firstName} ${r.middleName} ${r.lastName}`], ['JAMB Registration Number', <span className="font-mono">{r.reg}</span>], ['Institution', institutionByCode(r.institution)?.name], ['Case', o === 'face-mismatch' ? 'Identity exception' : 'Institutional clearance not confirmed']]} />
+          <Rows rows={[['Candidate', `${r.firstName} ${r.middleName} ${r.lastName}`], ['JAMB Registration Number', <span className="font-mono">{r.reg}</span>], ['Institution', institutionByCode(r.institution)?.name], ['Case', o === 'face-mismatch' ? 'Identity mismatch' : 'Identity reference record not found']]} />
         </div>
-        <p className="text-sm text-slate-600">Attached: comparison results (JAMB vs Live Capture, NIN vs Live Capture){o === 'face-mismatch' ? ', the live capture' : ''} and the historical clearance record.</p>
+        <p className="text-sm text-slate-600">Attached: {o === 'face-mismatch' ? 'the comparison result (FixID reference vs NYSC live capture), the live capture and ' : ''}the historical clearance record.</p>
         <Field label="Comment" required>{(p) => <Textarea {...p} rows={5} value={comment} onChange={(e) => { setComment(e.target.value); setError(''); }} />}</Field>
       </div>
     </Drawer>
@@ -409,8 +412,8 @@ function ReferDrawer({ activity: a, record: r, capture, onClose }: { activity: A
 /* ---------------- history ---------------- */
 
 const FILTERS: [string, string][] = [
-  ['all', 'All outcomes'], ['identity-confirmed', 'Identity confirmed'], ['confirmed', 'Identity and clearance confirmed'], ['face-mismatch', 'Identity discrepancy'],
-  ['clearance-not-confirmed', 'Institutional clearance not confirmed'], ['referred', 'Referred to JAMB'], ['not-found', 'Record not found'], ['invalid', 'Invalid registration number'],
+  ['all', 'All outcomes'], ['confirmed', 'Identity match confirmed'], ['face-mismatch', 'Identity mismatch'],
+  ['clearance-not-confirmed', 'Reference record not found'], ['referred', 'Referred to JAMB'], ['not-found', 'Record not found'], ['invalid', 'Invalid registration number'],
 ];
 function matches(a: Activity, f: string) {
   if (f === 'all') return true;
@@ -496,7 +499,7 @@ export function NyscReportPage({ backTo }: { backTo: (reg: string) => string }) 
   const h = r ? historicalClearance(r) : undefined;
   if (!a || !r || a.outcome !== 'confirmed' || !h) return <NotFound what="Verification report" back="/nysc/verifications" />;
   const inst = institutionByCode(r.institution)!;
-  const [jamb, nin] = nyscComparisons(a);
+  const [cmp] = nyscComparisons(a);
   const stages = nyscStages(r, a);
   const save = async () => {
     if (!el.current) return;
@@ -523,13 +526,13 @@ export function NyscReportPage({ backTo }: { backTo: (reg: string) => string }) 
           <div className="text-right"><p className="font-semibold text-slate-900">National Youth Service Corps</p><p className="text-xs text-slate-500">NYSC Identity Verification Report</p><p className="mt-1 font-mono text-xs text-slate-600">{a.ref}</p></div>
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-emerald-50 px-4 py-3 ring-1 ring-inset ring-emerald-200">
-          <div className="flex items-center gap-2 text-emerald-800"><ShieldCheck className="h-5 w-5" aria-hidden="true" /><h1 className="text-lg font-semibold">Candidate Identity Confirmed</h1></div>
+          <div className="flex items-center gap-2 text-emerald-800"><ShieldCheck className="h-5 w-5" aria-hidden="true" /><h1 className="text-lg font-semibold">Identity Match Confirmed</h1></div>
           <p className="text-xs font-medium text-emerald-900">Identity Assurance: Confirmed · Institutional Clearance: Confirmed</p>
         </div>
 
         {heading('Candidate')}
         <div className="mt-3 grid gap-5 sm:grid-cols-[6.5rem_1fr]">
-          <figure><FaceImage src={registrationPortrait(r)} label={`JAMB profile photograph: ${r.firstName} ${r.lastName}`} className="aspect-[4/5] h-auto w-full" /><figcaption className="mt-1 text-center text-[10px] text-slate-500">JAMB profile photograph</figcaption></figure>
+          <figure><FaceImage src={clearanceReferenceImage(r)} label={`FixID clearance reference image: ${r.firstName} ${r.lastName}`} className="aspect-[4/5] h-auto w-full" /><figcaption className="mt-1 text-center text-[10px] text-slate-500">FixID clearance reference image</figcaption></figure>
           <dl className="grid content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
             {row('Candidate name', `${r.firstName} ${r.middleName} ${r.lastName}`)}
             {row('JAMB registration number', <span className="font-mono">{r.reg}</span>)}
@@ -543,8 +546,7 @@ export function NyscReportPage({ backTo }: { backTo: (reg: string) => string }) 
         {heading('Identity verification (NYSC)')}
         <table className="mt-2 w-full text-sm" aria-label="Identity verification results">
           <tbody>
-            <tr className="border-b border-slate-100"><td className="py-1.5 text-slate-600">JAMB profile photograph vs live capture</td><td className="py-1.5 text-right">{result(jamb.result)}</td></tr>
-            <tr className="border-b border-slate-100"><td className="py-1.5 text-slate-600">NIN identity photograph vs live capture</td><td className="py-1.5 text-right">{result(nin.result)}</td></tr>
+            <tr className="border-b border-slate-100"><td className="py-1.5 text-slate-600">FixID clearance reference image vs NYSC live capture</td><td className="py-1.5 text-right">{result(cmp?.result ?? 'pending')}</td></tr>
             <tr className="border-b border-slate-100"><td className="py-1.5 text-slate-600">NYSC verification date and time</td><td className="py-1.5 text-right font-medium text-slate-900">{dateTime(a.at)}</td></tr>
             <tr><td className="py-1.5 text-slate-600">NYSC verification officer</td><td className="py-1.5 text-right font-medium text-slate-900">{a.officer}</td></tr>
           </tbody>
@@ -578,7 +580,7 @@ export function NyscReportPage({ backTo }: { backTo: (reg: string) => string }) 
 
         <div className="mt-6 rounded-lg border border-slate-300 px-4 py-3 text-sm">
           <p className="font-semibold text-slate-900">Final identity assurance result: Confirmed</p>
-          <p className="mt-1 text-slate-700">The graduate presenting for NYSC verification is the person associated with JAMB registration {r.reg} and the NIN identity record, and holds a historical admission clearance record from {h.institution}.</p>
+          <p className="mt-1 text-slate-700">The graduate presenting for NYSC verification matches the face captured at their university admission clearance on FixID ({h.institution}, {h.reference}) for JAMB registration {r.reg}.</p>
         </div>
         <p className="mt-6 border-t border-slate-200 pt-4 text-[11px] text-slate-500">Generated {dateTime(new Date().toISOString())}. The live capture image is not included in this report. Demo environment.</p>
       </div>

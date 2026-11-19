@@ -10,7 +10,7 @@ import { formatDate } from '@/lib/dates';
 import { cn } from '@/lib/cn';
 import { INSTITUTIONS, SESSIONS, institutionByCode, type Session, type StudentRecord } from './data';
 import { dateTime } from './format';
-import { jambPortraitLabel, ninPortrait, registrationPortrait } from './portraits';
+import { clearanceReferenceImage, jambPortraitLabel, ninPortrait, registrationPortrait } from './portraits';
 import {
   CASE_DECISIONS, CASE_TYPE_LABEL, CATEGORY_LABEL, DECISION_ACTION, DECISION_NEEDS_PLACEMENT, ESCALATION_STATUS_LABEL, INVESTIGATION_TEAMS, JAMB_REVIEWERS, RESOLUTION_LABEL,
   addExceptionNote, assignCase, caseSubject, caseTypeOf, closeCase, escalateToJamb, escalationStatus, escalationsOf, exceptionById, jambResponse, priorClearanceOf,
@@ -42,9 +42,10 @@ export function IdentityComparison({ record, capture, comparisons, captureNote }
   const faces = {
     jamb: { label: exam ? 'JAMB Examination Verification Record' : nysc ? 'JAMB Profile Photograph' : 'JAMB Registration Record', el: <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={img} /> },
     nin: { label: nysc ? 'NIN Identity Photograph' : 'NIN Identity Record', el: <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className={img} /> },
-    live: { label: nysc ? 'Live Capture' : 'Live Clearance Capture', el: capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} /> },
+    reference: { label: 'FixID Clearance Reference', el: <FaceImage src={clearanceReferenceImage(record)} label={`FixID clearance reference image: ${record.firstName} ${record.lastName}`} className={img} /> },
+    live: { label: nysc ? 'NYSC Live Capture' : 'Live Clearance Capture', el: capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} /> },
   };
-  const source = (part: string) => (/live/i.test(part) ? faces.live : /nin/i.test(part) ? faces.nin : faces.jamb);
+  const source = (part: string) => (/live/i.test(part) ? faces.live : /reference/i.test(part) ? faces.reference : /nin/i.test(part) ? faces.nin : faces.jamb);
   const shown = comparisons.filter((c) => !/^JAMB vs NIN$/i.test(c.label));
   const ROW = { match: 'ring-emerald-200 bg-emerald-50/40', mismatch: 'ring-red-200 bg-red-50/40', pending: 'ring-amber-200 bg-amber-50/40' };
   const VERDICT = {
