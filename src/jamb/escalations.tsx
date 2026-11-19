@@ -30,40 +30,44 @@ const RESULT = {
   pending: { label: 'Inconclusive', cls: 'bg-amber-50 text-amber-900 ring-amber-200', icon: <CircleDashed className="h-4 w-4" aria-hidden="true" /> },
 };
 
-/** The identity evidence (three compact portraits) and the verification results (one row per comparison). */
+/**
+ * Each comparison as a pair of faces side by side: the reference record on the left, the face it was compared with on
+ * the right, and the result between them. The live capture is compared independently against each record.
+ */
 export function IdentityComparison({ record, capture, comparisons, captureNote }: { record: StudentRecord; capture?: string; comparisons: Comparison[]; captureNote?: string }) {
   const exam = jambPortraitLabel(record) === 'JAMB examination verification record';
   const img = 'aspect-[4/5] h-auto w-full';
-  const panels: [string, ReactNode][] = [
-    [exam ? 'JAMB Examination Verification Record' : 'JAMB Registration Record', <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={img} />],
-    ['NIN Identity Record', <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className={img} />],
-    ['Live Clearance Capture', capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} />],
-  ];
-  const heading = 'mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500';
+  const faces = {
+    jamb: { label: exam ? 'JAMB Examination Verification Record' : 'JAMB Registration Record', el: <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={img} /> },
+    nin: { label: 'NIN Identity Record', el: <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className={img} /> },
+    live: { label: 'Live Clearance Capture', el: capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} /> },
+  };
+  const source = (part: string) => (/live/i.test(part) ? faces.live : /nin/i.test(part) ? faces.nin : faces.jamb);
+  const TONE = { match: 'ring-emerald-200 bg-emerald-50/40', mismatch: 'ring-red-200 bg-red-50/40', pending: 'ring-amber-200 bg-amber-50/40' };
+  const LINK = { match: 'bg-emerald-600', mismatch: 'bg-red-600', pending: 'bg-amber-500' };
   return (
-    <section aria-label="Identity Verification Analysis" className="grid items-start gap-5 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-      <div aria-label="Student identity evidence">
-        <h3 className={heading}>Identity evidence</h3>
-        <div className="grid max-w-[22rem] grid-cols-3 gap-3">
-          {panels.map(([label, el]) => (
-            <figure key={label} className="min-w-0">
-              {el}
-              <figcaption className="mt-1.5 text-center text-[11px] font-semibold leading-tight text-slate-700">{label}</figcaption>
-            </figure>
-          ))}
-        </div>
-      </div>
-      <div>
-        <h3 className={heading}>Verification results</h3>
-        <ul aria-label="Comparison outcomes" className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200">
-          {comparisons.map((c) => (
-            <li key={c.label} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
-              <span className="font-medium text-slate-800">{c.label}</span>
-              <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset', RESULT[c.result].cls)}>{RESULT[c.result].icon}{RESULT[c.result].label}</span>
+    <section aria-label="Identity Verification Analysis">
+      <ul aria-label="Comparison outcomes" className="grid gap-4 sm:grid-cols-2">
+        {comparisons.map((c) => {
+          const [l, r] = c.label.split(/\s+vs\s+/i);
+          const left = source(l), right = source(r ?? 'live');
+          return (
+            <li key={c.label} aria-label={`${c.label}: ${RESULT[c.result].label}`} className={cn('rounded-xl p-3 ring-1', TONE[c.result])}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800">{c.label}</p>
+                <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset', RESULT[c.result].cls)}>{RESULT[c.result].icon}{RESULT[c.result].label}</span>
+              </div>
+              <div className="mt-3 flex items-start justify-center gap-2">
+                <figure className="w-28 min-w-0">{left.el}<figcaption className="mt-1.5 text-center text-[11px] font-semibold leading-tight text-slate-700">{left.label}</figcaption></figure>
+                <span aria-hidden="true" className={cn('mt-[3.75rem] grid h-7 w-7 shrink-0 place-items-center rounded-full text-white shadow-sm', LINK[c.result])}>
+                  {c.result === 'match' ? <CheckCircle2 className="h-4 w-4" /> : c.result === 'mismatch' ? <XCircle className="h-4 w-4" /> : <CircleDashed className="h-4 w-4" />}
+                </span>
+                <figure className="w-28 min-w-0">{right.el}<figcaption className="mt-1.5 text-center text-[11px] font-semibold leading-tight text-slate-700">{right.label}</figcaption></figure>
+              </div>
             </li>
-          ))}
-        </ul>
-      </div>
+          );
+        })}
+      </ul>
     </section>
   );
 }

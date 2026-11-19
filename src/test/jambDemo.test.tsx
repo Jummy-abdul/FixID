@@ -252,9 +252,11 @@ describe('workspaces', () => {
     await user.click(screen.getByRole('button', { name: 'Capture Face' }));
     expect(await screen.findByRole('heading', { name: 'Identity Discrepancy Detected' }, { timeout: 6000 })).toBeInTheDocument();
     const analysis = screen.getByLabelText('Identity Verification Analysis');
-    for (const label of ['JAMB Examination Verification Record', 'NIN Identity Record', 'Live Clearance Capture']) expect(within(analysis).getByText(label)).toBeInTheDocument();
+    for (const label of ['JAMB Examination Verification Record', 'NIN Identity Record']) expect(within(analysis).getByText(label)).toBeInTheDocument();
+    // The live capture appears in each side-by-side pair.
+    expect(within(analysis).getAllByText('Live Clearance Capture')).toHaveLength(2);
     const outcomes = screen.getByLabelText('Comparison outcomes');
-    expect(within(outcomes).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['JAMB examination record vs Live CaptureMismatch', 'NIN identity record vs Live CaptureMatch']);
+    expect(within(outcomes).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'))).toEqual(['JAMB examination record vs Live Capture: Mismatch', 'NIN identity record vs Live Capture: Match']);
     expect(outcomes).not.toHaveTextContent(/JAMB vs NIN/);
     expect(screen.getByText('The captured face matches the NIN identity record but does not match the JAMB examination verification record. Further investigation is required.')).toBeInTheDocument();
     expect(screen.getByLabelText('Status')).toHaveTextContent('Verification:Escalation requiredClearance:Pending review');
