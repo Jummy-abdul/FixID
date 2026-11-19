@@ -379,7 +379,7 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
     cleared: { tone: 'success', icon: <ShieldCheck className="h-8 w-8" aria-hidden="true" />, title: 'Clearance Successful', text: `${record.firstName} ${record.lastName} has been cleared by ${UNILAG.name}.` },
     verified: { tone: 'success', icon: <CheckCircle2 className="h-8 w-8" aria-hidden="true" />, title: 'Identity Verified', text: 'The captured face matches the student’s JAMB and NIN identity records.' },
     discrepancy: { tone: 'warning', icon: <AlertTriangle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Discrepancy Detected', text: o === 'exam-mismatch'
-      ? 'The live captured face matches the NIN identity record but does not match the face associated with the JAMB examination verification record. This discrepancy requires investigation.'
+      ? 'The captured face matches the NIN identity record but does not match the JAMB examination verification record. Further investigation is required.'
       : 'The captured portrait matches the JAMB registration record but differs from the NIN identity record. Further investigation is required.' },
     existing: { tone: 'warning', icon: <ShieldAlert className="h-8 w-8" aria-hidden="true" />, title: 'Existing Clearance Record Found', text: 'This student already has an existing clearance record associated with another institution within the same admission session. Further review is required.' },
     failed: { tone: 'danger', icon: <XCircle className="h-8 w-8" aria-hidden="true" />, title: 'Identity Could Not Be Confirmed', text: 'The captured face does not match the student’s JAMB registration record.' },
@@ -389,18 +389,26 @@ function ResultPanel({ event: e, record, capture, onNext }: { event: Activity; r
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden" aria-label="Verification result">
-        <div className={cn('flex items-center gap-4 px-6 py-5', banner)}>
-          <span className="shrink-0">{head.icon}</span>
-          <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
-        </div>
+        {kind === 'discrepancy' ? (
+          // A compact alert: states the issue without dominating the screen.
+          <div role="alert" className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-6 py-3 text-amber-950">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+            <div><h2 className="text-base font-semibold">{head.title}</h2><p className="text-sm">{head.text}</p></div>
+          </div>
+        ) : (
+          <div className={cn('flex items-center gap-4 px-6 py-5', banner)}>
+            <span className="shrink-0">{head.icon}</span>
+            <div><h2 className="text-xl font-semibold">{head.title}</h2><p className="text-sm opacity-90">{head.text}</p></div>
+          </div>
+        )}
         {kind === 'discrepancy' ? (
           <div className="space-y-4 px-6 py-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">Identity Verification Analysis</h3>
-              <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
-            </div>
+            <p className="text-sm text-slate-600"><span className="font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span> · <span className="font-mono">{record.reg}</span> · {record.department}</p>
             <IdentityComparison record={record} capture={capture?.url} comparisons={comparisonsFor(o as 'nin-mismatch' | 'exam-mismatch')} />
-            <div className="flex flex-wrap gap-2 text-sm"><span className="text-slate-500">Verification:</span>{esc ? <Badge tone="violet">Escalated</Badge> : <Badge tone="warning">Escalation required</Badge>}<span className="ml-3 text-slate-500">Clearance:</span>{esc ? <Badge tone="warning">Pending review</Badge> : <Badge tone="warning">Pending: on hold</Badge>}</div>
+            <dl className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-slate-100 pt-3 text-sm" aria-label="Status">
+              <div className="flex items-center gap-2"><dt className="text-slate-500">Verification:</dt><dd>{esc ? <Badge tone="violet">Escalated</Badge> : <Badge tone="warning">Escalation required</Badge>}</dd></div>
+              <div className="flex items-center gap-2"><dt className="text-slate-500">Clearance:</dt><dd><Badge tone="warning">Pending review</Badge></dd></div>
+            </dl>
           </div>
         ) : (
           <div className="grid gap-6 px-6 py-6 md:grid-cols-[auto_1fr]">

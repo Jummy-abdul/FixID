@@ -389,7 +389,8 @@ const ESCALATING = ['UI', 'ABU', 'OAU', 'UNIBEN', 'UNIPORT', 'LASU', 'UNN'];
 /** The identity comparisons shown for an outcome (predefined; no biometric service is called). */
 export function comparisonsFor(outcome: UniversityOutcome): Comparison[] {
   if (outcome === 'exam-mismatch') {
-    return [{ label: 'JAMB vs Live Capture', result: 'mismatch' }, { label: 'NIN vs Live Capture', result: 'match' }, { label: 'JAMB vs NIN', result: 'mismatch' }];
+    // The live capture is compared independently against each record; JAMB vs NIN isn't needed for the decision.
+    return [{ label: 'JAMB examination record vs Live Capture', result: 'mismatch' }, { label: 'NIN identity record vs Live Capture', result: 'match' }];
   }
   const discrepancy = outcome === 'nin-mismatch';
   return [

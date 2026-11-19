@@ -95,7 +95,7 @@ describe('university clearance scenarios', () => {
     // Nothing reaches JAMB until the officer escalates.
     expect(exceptionsForReg(B)).toHaveLength(0);
     const esc = escalateToJamb({ reg: B, officer: uni, category: 'exam-impersonation', comment: 'Live portrait matches NIN but not the JAMB examination record.', evidence: ['Identity comparison results'] });
-    expect(esc.ok && esc.value).toMatchObject({ id: expect.stringMatching(/^ESC-\d{4}-\d{5}$/), status: 'open', raisedBy: 'Tolulope Adebayo', escalation: { institution: 'UNILAG', comparisons: [{ label: 'JAMB vs Live Capture', result: 'mismatch' }, { label: 'NIN vs Live Capture', result: 'match' }, { label: 'JAMB vs NIN', result: 'mismatch' }] } });
+    expect(esc.ok && esc.value).toMatchObject({ id: expect.stringMatching(/^ESC-\d{4}-\d{5}$/), status: 'open', raisedBy: 'Tolulope Adebayo', escalation: { institution: 'UNILAG', comparisons: [{ label: 'JAMB examination record vs Live Capture', result: 'mismatch' }, { label: 'NIN identity record vs Live Capture', result: 'match' }] } });
     expect(exceptionsForReg(B)[0]).toMatchObject({ category: 'exam-impersonation' });
     expect(recordOf(B)!.verification).toBe('escalated');
     expect(escalateToJamb({ reg: B, officer: uni, category: 'exam-impersonation', comment: 'again', evidence: [] }).ok).toBe(false);
@@ -250,15 +250,14 @@ describe('workspaces', () => {
     const user = renderApp(`/clearance/verify?reg=${B}`, 'acct_demo_unilag_clearance');
     await user.click(await screen.findByRole('button', { name: 'Confirm and continue' }));
     await user.click(screen.getByRole('button', { name: 'Capture Face' }));
-    expect(await screen.findByRole('heading', { name: 'Identity Verification Analysis' }, { timeout: 6000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Identity Discrepancy Detected' }, { timeout: 6000 })).toBeInTheDocument();
     const analysis = screen.getByLabelText('Identity Verification Analysis');
     for (const label of ['JAMB Examination Verification Record', 'NIN Identity Record', 'Live Clearance Capture']) expect(within(analysis).getByText(label)).toBeInTheDocument();
     const outcomes = screen.getByLabelText('Comparison outcomes');
-    expect(within(outcomes).getByRole('row', { name: /JAMB vs Live Capture Mismatch/ })).toBeInTheDocument();
-    expect(within(outcomes).getByRole('row', { name: /NIN vs Live Capture Match/ })).toBeInTheDocument();
-    expect(within(outcomes).getByRole('row', { name: /JAMB vs NIN Mismatch/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Identity Discrepancy Detected' })).toBeInTheDocument();
-    expect(screen.getByText('The live captured face matches the NIN identity record but does not match the face associated with the JAMB examination verification record. This discrepancy requires investigation.')).toBeInTheDocument();
+    expect(within(outcomes).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['JAMB examination record vs Live CaptureMismatch', 'NIN identity record vs Live CaptureMatch']);
+    expect(outcomes).not.toHaveTextContent(/JAMB vs NIN/);
+    expect(screen.getByText('The captured face matches the NIN identity record but does not match the JAMB examination verification record. Further investigation is required.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status')).toHaveTextContent('Verification:Escalation requiredClearance:Pending review');
     expect(document.body.textContent).not.toMatch(/fraud/i);
     expect(screen.queryByRole('button', { name: /Use Demo Face|Start Camera/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Complete Clearance' })).not.toBeInTheDocument();

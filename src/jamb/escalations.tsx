@@ -30,35 +30,40 @@ const RESULT = {
   pending: { label: 'Inconclusive', cls: 'bg-amber-50 text-amber-900 ring-amber-200', icon: <CircleDashed className="h-4 w-4" aria-hidden="true" /> },
 };
 
-/** The three identity sources side by side, and how they compare: a compact evidence panel. */
+/** The identity evidence (three compact portraits) and the verification results (one row per comparison). */
 export function IdentityComparison({ record, capture, comparisons, captureNote }: { record: StudentRecord; capture?: string; comparisons: Comparison[]; captureNote?: string }) {
   const exam = jambPortraitLabel(record) === 'JAMB examination verification record';
+  const img = 'aspect-[4/5] h-auto w-full';
   const panels: [string, ReactNode][] = [
-    [exam ? 'JAMB Examination Verification Record' : 'JAMB Registration Record', <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className="aspect-[4/5] h-auto w-full" />],
-    ['NIN Identity Record', <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className="aspect-[4/5] h-auto w-full" />],
-    ['Live Clearance Capture', capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className="aspect-[4/5] h-auto w-full" />],
+    [exam ? 'JAMB Examination Verification Record' : 'JAMB Registration Record', <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={img} />],
+    ['NIN Identity Record', <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className={img} />],
+    ['Live Clearance Capture', capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} />],
   ];
+  const heading = 'mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500';
   return (
-    <section aria-label="Identity Verification Analysis" className="grid items-start gap-5 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
-      <div className="grid max-w-[27rem] grid-cols-3 gap-3">
-        {panels.map(([label, img]) => (
-          <figure key={label} className="min-w-0">
-            {img}
-            <figcaption className="mt-1.5 text-center text-[11px] font-semibold leading-tight text-slate-700 sm:text-xs">{label}</figcaption>
-          </figure>
-        ))}
-      </div>
-      <table className="w-full overflow-hidden rounded-lg text-sm ring-1 ring-slate-200" aria-label="Comparison outcomes">
-        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><tr><th scope="col" className="px-3 py-2">Comparison</th><th scope="col" className="px-3 py-2">Result</th></tr></thead>
-        <tbody>
-          {comparisons.map((c) => (
-            <tr key={c.label} className={cn('border-t border-slate-100', RESULT[c.result].cls)}>
-              <th scope="row" className="px-3 py-2 text-left font-medium">{c.label}</th>
-              <td className="px-3 py-2"><span className="inline-flex items-center gap-1.5 font-semibold">{RESULT[c.result].icon}{RESULT[c.result].label}</span></td>
-            </tr>
+    <section aria-label="Identity Verification Analysis" className="grid items-start gap-5 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+      <div aria-label="Student identity evidence">
+        <h3 className={heading}>Identity evidence</h3>
+        <div className="grid max-w-[22rem] grid-cols-3 gap-3">
+          {panels.map(([label, el]) => (
+            <figure key={label} className="min-w-0">
+              {el}
+              <figcaption className="mt-1.5 text-center text-[11px] font-semibold leading-tight text-slate-700">{label}</figcaption>
+            </figure>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
+      <div>
+        <h3 className={heading}>Verification results</h3>
+        <ul aria-label="Comparison outcomes" className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200">
+          {comparisons.map((c) => (
+            <li key={c.label} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+              <span className="font-medium text-slate-800">{c.label}</span>
+              <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset', RESULT[c.result].cls)}>{RESULT[c.result].icon}{RESULT[c.result].label}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }
