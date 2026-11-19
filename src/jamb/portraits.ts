@@ -16,16 +16,21 @@ const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >
  * Served as static files; anything missing falls back to a neutral placeholder.
  */
 type FaceKind = 'jamb' | 'nin' | 'live';
-export const FACE_SETS: Record<string, string> = { 'U-A': 's1', 'U-B': 's2', 'U-C': 's3' };
+export const FACE_SETS: Record<string, string> = { 'U-A': 's1', 'U-B': 's2', 'U-C': 's3', 'N-A': 'nysc_a', 'N-B': 'nysc_b', 'N-C': 'nysc_c' };
+/** Paths under public/demo/faces/. Each candidate has its own files; none are shared across candidates. */
 const FACE_FILES: Record<string, Partial<Record<FaceKind, string>>> = {
-  s1: { jamb: 's1_jamb.jpg', nin: 's1_nin.jpg', live: 's1_live.jpg' },
-  s2: { jamb: 's2_jamb.jpg', nin: 's2_nin.jpg', live: 's2_live.jpg' },
+  s1: { jamb: 'jamb/s1_jamb.jpg', nin: 'jamb/s1_nin.jpg', live: 'jamb/s1_live.jpg' },
+  s2: { jamb: 'jamb/s2_jamb.jpg', nin: 'jamb/s2_nin.jpg', live: 'jamb/s2_live.jpg' },
   // Scenario 3 has only the registered portrait; the person presenting is the same student.
-  s3: { jamb: 's3_jamb.jpg', live: 's3_jamb.jpg' },
+  s3: { jamb: 'jamb/s3_jamb.jpg', live: 'jamb/s3_jamb.jpg' },
+  // NYSC candidates (public/demo/faces/nysc/): JAMB profile photograph, NIN identity photograph, simulated live capture.
+  nysc_a: { jamb: 'nysc/nysc_a_jamb.jpg', nin: 'nysc/nysc_a_nin.jpg', live: 'nysc/nysc_a_live.jpg' },
+  nysc_b: { jamb: 'nysc/nysc_b_jamb.jpg', nin: 'nysc/nysc_b_nin.jpg', live: 'nysc/nysc_b_live.jpg' },
+  nysc_c: { jamb: 'nysc/nysc_c_jamb.jpg', nin: 'nysc/nysc_c_nin.jpg', live: 'nysc/nysc_c_live.jpg' },
 };
 export const facePath = (set: string, kind: FaceKind): string | undefined => {
   const file = FACE_FILES[set]?.[kind];
-  return file ? `/demo/faces/jamb/${file}` : undefined;
+  return file ? `/demo/faces/${file}` : undefined;
 };
 const faceSet = (reg: string) => { const s = scenarioByReg(reg); return s ? FACE_SETS[s.id] : undefined; };
 
@@ -72,5 +77,7 @@ export function demoFace(r: Pick<StudentRecord, 'reg' | 'gender'>): string | und
  * recorded at examination verification (the impersonator's), so it must not be called the registration portrait.
  */
 export function jambPortraitLabel(r: Pick<StudentRecord, 'reg'>): string {
-  return scenarioByReg(r.reg)?.university === 'exam-mismatch' ? 'JAMB examination verification record' : 'JAMB registration portrait';
+  const s = scenarioByReg(r.reg);
+  if (s?.university === 'exam-mismatch') return 'JAMB examination verification record';
+  return s?.workspace === 'nysc' ? 'JAMB profile photograph' : 'JAMB registration portrait';
 }

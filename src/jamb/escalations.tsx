@@ -38,9 +38,9 @@ export function IdentityComparison({ record, capture, comparisons, captureNote }
   const exam = jambPortraitLabel(record) === 'JAMB examination verification record';
   const img = 'aspect-[4/5] h-auto w-full';
   const faces = {
-    jamb: { label: exam ? 'JAMB Examination Verification Record' : 'JAMB Registration Record', el: <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={img} /> },
-    nin: { label: 'NIN Identity Record', el: <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className={img} /> },
-    live: { label: 'Live Clearance Capture', el: capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} /> },
+    jamb: { label: exam ? 'JAMB Examination Verification Record' : jambPortraitLabel(record) === 'JAMB profile photograph' ? 'JAMB Profile Photograph' : 'JAMB Registration Record', el: <FaceImage src={registrationPortrait(record)} label={`${jambPortraitLabel(record)}: ${record.firstName} ${record.lastName}`} className={img} /> },
+    nin: { label: jambPortraitLabel(record) === 'JAMB profile photograph' ? 'NIN Identity Photograph' : 'NIN Identity Record', el: <FaceImage src={ninPortrait(record)} label="NIN identity record portrait" className={img} /> },
+    live: { label: jambPortraitLabel(record) === 'JAMB profile photograph' ? 'Live Capture' : 'Live Clearance Capture', el: capture ? <img src={capture} alt="Live clearance capture" className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" /> : <FaceImage label={captureNote ?? 'Capture not retained'} className={img} /> },
   };
   const source = (part: string) => (/live/i.test(part) ? faces.live : /nin/i.test(part) ? faces.nin : faces.jamb);
   const TONE = { match: 'ring-emerald-200 bg-emerald-50/40', mismatch: 'ring-red-200 bg-red-50/40', pending: 'ring-amber-200 bg-amber-50/40' };
@@ -220,7 +220,7 @@ export function EscalationsPage() {
             { key: 'id', header: 'Escalation reference', cell: (e) => <Link to={`/jamb/escalations/${e.id}`} className="font-mono text-xs font-medium text-slate-900 hover:text-brand-700">{e.id}</Link> },
             { key: 'n', header: 'Student', className: '!whitespace-normal min-w-[9rem]', cell: (e) => { const r = recordOf(e.reg, state); return <span className="font-medium text-slate-900">{r?.firstName} {r?.lastName}</span>; } },
             { key: 'r', header: 'JAMB registration number', cell: (e) => <span className="font-mono text-xs">{e.reg}</span> },
-            { key: 'i', header: 'Institution', className: '!whitespace-normal', cell: (e) => <span className="text-slate-600">{institutionByCode(e.institution)?.name}</span> },
+            { key: 'i', header: 'Institution', className: '!whitespace-normal', cell: (e) => <span className="text-slate-600">{institutionByCode(e.institution)?.name}{e.escalation?.source === 'nysc' && <span className="block text-xs font-medium text-blue-700">Referred by NYSC</span>}</span> },
             { key: 's', header: 'Admission session', cell: (e) => e.session },
             { key: 'c', header: 'Category', className: '!whitespace-normal min-w-[10rem]', cell: (e) => <span>{CATEGORY_LABEL[e.category]}{e.escalation?.reason && <span className="block text-xs text-slate-500">{e.escalation.reason}</span>}</span> },
             { key: 'd', header: 'Date submitted', cell: (e) => <span className="tabular-nums text-slate-600">{formatDate(e.escalation!.submittedAt)}</span> },
@@ -237,6 +237,8 @@ const RESOLUTIONS: Partial<Record<ExceptionCategory, ExceptionResolution[]>> = {
   'jamb-nin-discrepancy': ['identity-confirmed', 'identity-not-confirmed', 'record-corrected'],
   'exam-impersonation': ['identity-confirmed', 'identity-not-confirmed', 'record-corrected'],
   'duplicate-clearance': ['existing-record-confirmed', 'release-authorised', 'previous-clearance-revoked', 'no-further-action'],
+  'nysc-identity-discrepancy': ['identity-confirmed', 'identity-not-confirmed', 'record-corrected', 'no-further-action'],
+  'nysc-clearance-not-confirmed': ['record-corrected', 'no-further-action', 'identity-not-confirmed'],
 };
 
 export function EscalationDetailPage() {
@@ -255,6 +257,7 @@ export function EscalationDetailPage() {
   const inst = institutionByCode(e.institution)!;
   const prior = priorClearanceOf(e.reg);
   const status = escalationStatus(e);
+  const fromNysc = e.escalation.source === 'nysc';
   const live = status === 'open' || status === 'in-review' || status === 'awaiting-information';
   const outcomes = RESOLUTIONS[e.category] ?? ['identity-confirmed', 'identity-not-confirmed', 'no-further-action'];
   const open = (d: Dialog) => { setError(''); setText(d === 'info' ? 'Please provide the student’s NIN slip and a copy of the admission letter.' : ''); if (d === 'resolve') setOutcome(outcomes[0]); setDialog(d); };
@@ -295,15 +298,16 @@ export function EscalationDetailPage() {
               <IdentityComparison record={r} capture={e.escalation.capture} comparisons={e.escalation.comparisons ?? []} captureNote="Live capture not attached" />
             </Card>
           )}
-          <Card className="px-5 py-5" aria-label="Clearance officer’s comment">
-            <h2 className="text-base font-semibold text-slate-900">Clearance officer’s comment</h2>
+          <Card className="px-5 py-5" aria-label={fromNysc ? 'NYSC officer’s comment' : 'Clearance officer’s comment'}>
+            <h2 className="text-base font-semibold text-slate-900">{fromNysc ? 'NYSC officer’s comment' : 'Clearance officer’s comment'}</h2>
             <blockquote className="mt-2 border-l-4 border-slate-200 pl-4 text-sm text-slate-800">{e.escalation.comment}</blockquote>
-            <p className="mt-2 text-xs text-slate-500">{e.escalation.submittedBy}, {e.escalation.submittedByTitle} · {inst.name} · {dateTime(e.escalation.submittedAt)}</p>
+            <p className="mt-2 text-xs text-slate-500">{e.escalation.submittedBy}, {e.escalation.submittedByTitle} · {fromNysc ? 'National Youth Service Corps' : inst.name} · {dateTime(e.escalation.submittedAt)}</p>
           </Card>
           <Card className="px-5 py-5">
             <DescriptionList items={[
               { label: 'Escalation reference', value: <span className="font-mono">{e.id}</span> },
               { label: 'Submitted', value: `${dateTime(e.escalation.submittedAt)} by ${e.escalation.submittedBy}` },
+              ...(fromNysc ? [{ label: 'Referred by', value: 'National Youth Service Corps (NYSC verification)' }] : []),
               { label: 'Institution', value: `${inst.name} (${inst.code})` },
               { label: 'Event', value: eventById(e.eventId)?.name ?? '—' },
               { label: 'Category', value: CATEGORY_LABEL[e.category] },

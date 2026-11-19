@@ -62,9 +62,9 @@ export interface Activity {
   exceptionId?: string;
 }
 
-export type ExceptionCategory = 'jamb-nin-discrepancy' | 'exam-impersonation' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
+export type ExceptionCategory = 'jamb-nin-discrepancy' | 'exam-impersonation' | 'nysc-identity-discrepancy' | 'nysc-clearance-not-confirmed' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
 export const CATEGORY_LABEL: Record<ExceptionCategory, string> = {
-  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'exam-impersonation': 'Possible examination impersonation', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
+  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'exam-impersonation': 'Possible examination impersonation', 'nysc-identity-discrepancy': 'Identity discrepancy at NYSC verification', 'nysc-clearance-not-confirmed': 'Admission clearance not confirmed at NYSC verification', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
   'record-inconsistency': 'Student record inconsistency', 'failed-verification': 'Failed identity verification', 'manual-review': 'Manual review required',
 };
 export type ExceptionResolution = 'identity-confirmed' | 'identity-not-confirmed' | 'record-corrected' | 'clearance-revoked' | 'no-further-action'
@@ -92,6 +92,8 @@ export interface Escalation {
   comparisons?: Comparison[];
   /** The live capture, only when the officer attached it as evidence. */
   capture?: string;
+  /** Who referred the case: an institution's clearance officer (default) or NYSC. */
+  source?: 'university' | 'nysc';
 }
 export type EscalationStatus = 'open' | 'in-review' | 'awaiting-information' | 'resolved' | 'rejected';
 export const ESCALATION_STATUS_LABEL: Record<EscalationStatus, string> = { open: 'Open', 'in-review': 'Under review', 'awaiting-information': 'Awaiting information', resolved: 'Resolved', rejected: 'Rejected' };
@@ -343,7 +345,7 @@ export function seededNyscActivities(): Activity[] {
       out.push({
         ref: `NYV-2026-${String(400000 + k * 97 + j * 13).padStart(6, '0')}`, at: workingHours(from + r() * (to - from), r), kind: 'nysc', eventId: NYSC_EVENT_ID,
         officer: NYSC_OFFICERS[(k + j) % 3], officerTitle: titleFor('nysc'), organisation: 'National Youth Service Corps', input: rec.reg, reg: rec.reg, outcome,
-        checks: { face: outcome === 'face-mismatch' ? 'no-match' : 'match' }, captureMode: 'camera',
+        checks: { face: outcome === 'face-mismatch' ? 'no-match' : 'match', nin: 'match' }, captureMode: 'camera',
       });
     });
     // A few candidates who never completed clearance.
@@ -354,7 +356,7 @@ export function seededNyscActivities(): Activity[] {
         out.push({
           ref: `NYV-2026-${String(500000 + k * 31).padStart(6, '0')}`, at: workingHours(from + r() * (to - from), r), kind: 'nysc', eventId: NYSC_EVENT_ID,
           officer: NYSC_OFFICERS[k % 3], officerTitle: titleFor('nysc'), organisation: 'National Youth Service Corps', input: rec.reg, reg: rec.reg,
-          outcome: 'clearance-not-confirmed', checks: { face: 'match' }, captureMode: 'camera',
+          outcome: 'clearance-not-confirmed', checks: { face: 'match', nin: 'match' }, captureMode: 'camera',
         });
       }
     }
@@ -463,6 +465,8 @@ function summaryFor(c: ExceptionCategory) {
   return {
     'jamb-nin-discrepancy': 'The presented face matched the JAMB registration record, but the NIN verification response did not match.',
     'exam-impersonation': 'The live clearance capture matches the NIN identity record but not the face on the JAMB examination verification record.',
+    'nysc-identity-discrepancy': 'At NYSC verification the live capture matched the NIN identity record but not the JAMB profile photograph.',
+    'nysc-clearance-not-confirmed': 'At NYSC verification the candidate’s identity was confirmed, but no confirmed institutional admission clearance record was found.',
     'potential-fraud': 'The presented face did not match the JAMB registration record; the person presenting may not be the candidate.',
     'duplicate-clearance': 'The same JAMB admission record has already been cleared by another institution.',
     'record-inconsistency': 'The candidate’s biodata differs between the JAMB record and the institution’s admission list.',
@@ -682,7 +686,7 @@ export function recordNyscVerification(input: { entered: string; officer: Office
   const outcome: NyscOutcome = record ? nyscResponse(record) : input.outcome ?? 'not-found';
   const activity: Activity = {
     ref: `NYV-${new Date().getFullYear()}-${code6()}`, at: now(), kind: 'nysc', eventId: NYSC_EVENT_ID, officer: officer.name, officerTitle: officer.title,
-    organisation: officer.organisation, input: input.entered.trim(), reg: record?.reg, outcome, checks: record ? { face: outcome === 'face-mismatch' ? 'no-match' : 'match' } : undefined,
+    organisation: officer.organisation, input: input.entered.trim(), reg: record?.reg, outcome, checks: record ? nyscChecks(record) : undefined,
     captureMode: record ? input.captureMode : undefined,
   };
   const state = { ...current, activities: [activity, ...current.activities] };
@@ -690,20 +694,62 @@ export function recordNyscVerification(input: { entered: string; officer: Office
   return { ok: true, value: activity };
 }
 
-/** NYSC refers a candidate whose face didn't match to JAMB. */
-export function referToJamb(activityRef: string, officer: Officer): Result<JambException> {
+/**
+ * The two independent NYSC comparisons: the live capture against the JAMB profile photograph, and against the NIN
+ * identity photograph (predefined per candidate; no biometric service is called). JAMB and NIN aren't compared.
+ */
+export function nyscChecks(r: StudentRecord): { face: 'match' | 'no-match'; nin: 'match' | 'mismatch' } {
+  return { face: scenarioByReg(r.reg)?.nysc === 'face-mismatch' ? 'no-match' : 'match', nin: 'match' };
+}
+export function nyscComparisons(a: Pick<Activity, 'checks'>): Comparison[] {
+  return [
+    { label: 'JAMB vs Live Capture', result: a.checks?.face === 'no-match' ? 'mismatch' : 'match' },
+    { label: 'NIN vs Live Capture', result: a.checks?.nin === 'mismatch' ? 'mismatch' : 'match' },
+  ];
+}
+/** Identity assurance and institutional clearance are separate results of an NYSC verification. */
+export function nyscStatuses(a: Pick<Activity, 'outcome'>): { identity: 'confirmed' | 'not-confirmed'; clearance: 'confirmed' | 'not-confirmed' | 'not-assessed' } {
+  if (a.outcome === 'face-mismatch') return { identity: 'not-confirmed', clearance: 'not-assessed' };
+  return { identity: 'confirmed', clearance: a.outcome === 'confirmed' ? 'confirmed' : 'not-confirmed' };
+}
+
+/**
+ * NYSC refers a verification to JAMB with the officer's comment: an identity discrepancy (face didn't match the JAMB
+ * profile) or an admission clearance that can't be confirmed. It's recorded as an exception for JAMB to review; the
+ * candidate is not classified as fraudulent.
+ */
+export function referToJamb(activityRef: string, officer: Officer, comment = '', capture?: string): Result<JambException> {
+  if (officer.role !== 'nysc-officer') return { ok: false, error: 'Only an NYSC verification officer can refer a candidate.' };
   const a = current.activities.find((x) => x.ref === activityRef);
   const r = a?.reg ? recordOf(a.reg) : undefined;
   if (!a || !r) return { ok: false, error: 'Verification not found.' };
-  if (a.exceptionId) return { ok: false, error: 'Already referred to JAMB.' };
-  const [state, e] = newException(current, r, officer, 'potential-fraud', [
-    { label: 'Face match against JAMB registration portrait', value: 'No match', tone: 'bad' },
-    { label: 'Admission clearance', value: r.clearance === 'cleared' ? `Completed (${institutionByCode(r.institution)?.name})` : 'Not completed' },
-    { label: 'Capture', value: a.captureMode === 'camera' ? 'Live camera capture' : 'Demo face' }, { label: 'NYSC verification reference', value: a.ref },
-  ], a.ref);
-  const linked = { ...state, activities: state.activities.map((x) => (x.ref === activityRef ? { ...x, exceptionId: e.id } : x)), createdExceptions: state.createdExceptions.map((x) => (x.id === e.id ? { ...x, eventId: NYSC_EVENT_ID } : x)) };
-  save(audit(linked, officer, 'Referred to JAMB for review', { reg: r.reg, student: studentName(r), outcome: CATEGORY_LABEL['potential-fraud'], reference: e.id }));
-  return { ok: true, value: { ...e, eventId: NYSC_EVENT_ID } };
+  if (a.exceptionId) return { ok: false, error: `Already referred to JAMB (${a.exceptionId}).` };
+  if (a.outcome !== 'face-mismatch' && a.outcome !== 'clearance-not-confirmed') return { ok: false, error: 'Only an unconfirmed verification can be referred.' };
+  if (!comment.trim()) return { ok: false, error: 'Add a comment for JAMB.' };
+  const category: ExceptionCategory = a.outcome === 'face-mismatch' ? 'nysc-identity-discrepancy' : 'nysc-clearance-not-confirmed';
+  const comparisons = nyscComparisons(a);
+  const inst = institutionByCode(r.institution);
+  const evidence: Evidence[] = [
+    ...comparisons.map((c): Evidence => ({ label: c.label, value: c.result === 'match' ? 'Match' : 'Mismatch', tone: c.result === 'match' ? 'good' : 'bad' })),
+    { label: 'Historical admission clearance', value: r.clearance === 'cleared' ? `Cleared: ${inst?.name}, ${r.clearanceRef}` : `No confirmed clearance record (${inst?.name}, ${r.session})` },
+    { label: 'NYSC verification reference', value: a.ref },
+  ];
+  const at = now();
+  const id = `ESC-${new Date().getFullYear()}-${code6().slice(0, 5)}`;
+  const e: JambException = {
+    id, reg: r.reg, institution: r.institution, session: r.session, eventId: NYSC_EVENT_ID, category, summary: summaryFor(category),
+    raisedAt: at, raisedBy: officer.name, raisedByOrganisation: officer.organisation, status: 'open', evidence, activityRef: a.ref,
+    history: [ev(`${id}-1`, at, 'created', officer.name, officer.organisation, undefined, 'open', comment.trim())],
+    escalation: {
+      comment: comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: r.institution, submittedAt: at, source: 'nysc',
+      evidence: category === 'nysc-identity-discrepancy' ? ['Identity comparison results', 'Live capture', 'Historical clearance record'] : ['Identity comparison results', 'Historical clearance record'],
+      comparisons, capture,
+    },
+  };
+  let state: JambState = { ...current, createdExceptions: [e, ...current.createdExceptions] };
+  state = { ...state, activities: state.activities.map((x) => (x.ref === activityRef ? { ...x, exceptionId: id } : x)) };
+  save(audit(state, officer, 'Referred to JAMB for review', { reg: r.reg, student: studentName(r), outcome: CATEGORY_LABEL[category], reference: id }));
+  return { ok: true, value: exceptionById(id)! };
 }
 
 /* ---------------- JAMB: exceptions ---------------- */
