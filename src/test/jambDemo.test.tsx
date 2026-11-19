@@ -10,7 +10,7 @@ import { SCENARIO_CANDIDATES } from '@/jamb/scenarios';
 import { journeyOf } from '@/jamb/journey';
 import {
   accessDisabled, activitiesFor, escalateToJamb, escalationFor, escalationStatus, jambResponse, rejectEscalation, requestInformation, respondToEscalation, confirmClearance, countsOf, recordExistingClearance, exceptionsForReg, getJambState, inviteUser, lookupForClearance, nationalCounts, officerFor,
-  escalationsOf, nyscComparisons, nyscStatuses, recordNyscVerification, recordOf, recordUniversityVerification, referToJamb, reloadJambState, resolveException, setUserStatus, usersOf,
+  escalationsOf, nyscComparisons, nyscStatuses, recordNyscVerification, recordOf, assignCase, caseTypeOf, closeCase, comparisonsFor, exceptionById, priorClearanceOf, raiseAdmissionInquiry, referForInvestigation, CASE_DECISIONS, recordUniversityVerification, referToJamb, reloadJambState, resolveException, setUserStatus, usersOf,
 } from '@/jamb/store';
 import { createInitialState } from '@/store/state';
 
@@ -130,7 +130,7 @@ describe('university clearance scenarios', () => {
     // The university can't decide; JAMB rejects, then (escalated again) releases.
     expect(resolveException(exc.id, uni, 'release-authorised', 'x').ok).toBe(false);
     expect(rejectEscalation(exc.id, jamb, 'Attach the admission letter and escalate again.').ok).toBe(true);
-    expect(escalationStatus(exceptionsForReg(C)[0])).toBe('rejected');
+    expect(escalationStatus(exceptionsForReg(C)[0])).toBe('closed');
     expect(recordOf(C)!.blocked).toBe('duplicate-clearance');
     const again = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Admission letter attached.', evidence: [] });
     expect(again.ok).toBe(true);
@@ -138,6 +138,74 @@ describe('university clearance scenarios', () => {
     expect(recordOf(C)!.blocked).toBeUndefined();
     expect(verifyUni(C).ok && recordOf(C)!.verification).toBe('verified');
     expect(confirmClearance(C, uni).ok).toBe(true);
+  });
+});
+
+describe('Scenario 4 and the JAMB case lifecycle', () => {
+  const D = '20250190104KE';
+  it('D: a valid JAMB registration with no admission record stops clearance; nothing is created', () => {
+    const r = lookupForClearance(D, uni);
+    expect(r).toMatchObject({ ok: false, outcome: 'admission-not-found', session: '2025/2026', registrant: { firstName: 'Kelechi', lastName: 'Eze' } });
+    // Not a student record: no admission list, no clearance, no biometric result.
+    expect(recordOf(D)).toBeUndefined();
+    expect(lookupForClearance(D, uni, '2024/2025')).toMatchObject({ outcome: 'admission-not-found', session: '2024/2025' });
+    const a = recordUniversityVerification({ entered: D, officer: uni, captureMode: 'demo', outcome: 'admission-not-found', session: '2025/2026' });
+    expect(a.ok && a.value).toMatchObject({ outcome: 'admission-not-found', reg: undefined });
+    expect(a.ok && a.value.checks).toBeUndefined();
+    // Existing lookups are unchanged.
+    expect(lookupForClearance(A, uni).ok).toBe(true);
+  });
+
+  it('admission record inquiry: JAMB assigns, requests information, the university responds, JAMB records the located admission and closes', () => {
+    expect(raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Other', comment: '  ' }).ok).toBe(false);
+    const x = raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Candidate holds an admission offer from this institution', comment: 'Admission letter presented.' });
+    expect(x.ok && x.value).toMatchObject({ category: 'admission-inquiry', institution: 'UNILAG', session: '2025/2026', status: 'open', escalation: { comparisons: [] } });
+    const id = x.ok ? x.value.id : '';
+    expect(caseTypeOf(exceptionById(id)!)).toBe('admission-inquiry');
+    expect(escalationStatus(exceptionById(id)!)).toBe('open');
+    expect(raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Other', comment: 'again' }).ok).toBe(false);
+    // Only JAMB can manage the case.
+    expect(assignCase(id, uni).ok).toBe(false);
+    expect(assignCase(id, jamb).ok && exceptionById(id)).toMatchObject({ assignedTo: 'Aisha Danjuma', status: 'in-review', assignedAt: expect.any(String) });
+    expect(requestInformation(id, jamb, 'Send the admission letter.').ok).toBe(true);
+    expect(escalationStatus(exceptionById(id)!)).toBe('awaiting-information');
+    expect(respondToEscalation(id, uni, 'Admission letter attached.').ok).toBe(true);
+    expect(escalationStatus(exceptionById(id)!)).toBe('in-review');
+    expect(referForInvestigation(id, jamb, 'JAMB Admissions Records Unit', '').ok).toBe(false);
+    expect(referForInvestigation(id, jamb, 'JAMB Admissions Records Unit', 'Check CAPS.').ok && exceptionById(id)!.referredTo).toBe('JAMB Admissions Records Unit');
+    // A decision needs an explanation, and a located admission needs the institution and session.
+    expect(resolveException(id, jamb, 'admission-located', '').ok).toBe(false);
+    expect(resolveException(id, jamb, 'admission-located', 'Found in CAPS.').ok).toBe(false);
+    expect(closeCase(id, jamb).ok).toBe(false);
+    const done = resolveException(id, jamb, 'admission-located', 'Admission found in CAPS under the 2024/2025 session.', { institution: 'UNILAG', session: '2024/2025', reference: 'CAPS-COR-2026-0042', instructions: 'Check the 2024/2025 session.' });
+    expect(done.ok && done.value).toMatchObject({ status: 'resolved', resolution: { outcome: 'admission-located', details: { institution: 'UNILAG', session: '2024/2025', reference: 'CAPS-COR-2026-0042' } } });
+    // No admission or clearance is created by the decision.
+    expect(recordOf(D)).toBeUndefined();
+    expect(resolveException(id, jamb, 'no-admission-confirmed', 'x').ok).toBe(false);
+    expect(closeCase(id, jamb).ok && escalationStatus(exceptionById(id)!)).toBe('closed');
+    // Nothing is overwritten: every step is in the history.
+    expect(exceptionById(id)!.history.map((h) => h.action)).toEqual(['created', 'assigned', 'information-requested', 'note-added', 'escalated', 'resolution-recorded', 'closed']);
+  });
+
+  it('decisions depend on the case type; existing clearance has no revoke action', () => {
+    expect(CASE_DECISIONS['identity-discrepancy']).toEqual(['identity-confirmed', 'identity-discrepancy-confirmed']);
+    expect(CASE_DECISIONS['existing-clearance']).toEqual(['existing-record-confirmed', 'withdrawal-confirmed', 'next-step-authorised']);
+    expect(CASE_DECISIONS['existing-clearance']).not.toContain('previous-clearance-revoked');
+    expect(CASE_DECISIONS['admission-inquiry']).toEqual(['no-admission-confirmed', 'admission-located', 'institution-session-corrected', 'record-discrepancy-identified']);
+    // Two comparisons only, everywhere.
+    expect(comparisonsFor('nin-mismatch').map((c) => c.label)).toEqual(['JAMB vs Live Capture', 'NIN vs Live Capture']);
+  });
+
+  it('identity discrepancy confirmed keeps clearance on hold; authorising the next step on an existing clearance lifts the block without touching the previous record', () => {
+    verifyUni(B);
+    const b = escalateToJamb({ reg: B, officer: uni, category: 'exam-impersonation', comment: 'Live matches NIN only.', evidence: [] });
+    expect(resolveException(b.ok ? b.value.id : '', jamb, 'identity-discrepancy-confirmed', 'The examination record shows a different person.').ok).toBe(true);
+    expect(recordOf(B)!.blocked).toBe('exam-mismatch');
+    recordExistingClearance(C, uni);
+    const c = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Existing clearance found.', evidence: [] });
+    expect(resolveException(c.ok ? c.value.id : '', jamb, 'next-step-authorised', 'Withdrawal from UNIBEN verified; the candidate may proceed at UNILAG.').ok).toBe(true);
+    expect(recordOf(C)!.blocked).toBeUndefined();
+    expect(priorClearanceOf(C)).toMatchObject({ reference: 'JCL-UNIBEN-2025-418306' });
   });
 });
 
@@ -225,7 +293,7 @@ describe('workspaces', () => {
   it('JAMB uses the FixID sidebar with JAMB navigation and branding only', async () => {
     renderApp('/jamb', 'acct_demo_jamb_officer');
     const nav = await screen.findByRole('navigation', { name: 'Primary' });
-    for (const label of ['Home', 'Verification Events', 'Verification Activity', 'Exceptions & Escalations', 'Student Records', 'Institutions', 'Reports', 'Users & Access', 'Audit Logs', 'Settings']) {
+    for (const label of ['Home', 'Verification Events', 'Verification Activity', 'Escalation Management', 'Student Records', 'Institutions', 'Reports', 'Users & Access', 'Audit Logs', 'Settings']) {
       expect(within(nav).getByRole('link', { name: label })).toBeInTheDocument();
     }
     for (const g of ['Verification', 'Institutions', 'Users & Access', 'Administration']) expect(within(nav).getAllByText(g).length).toBeGreaterThan(0);

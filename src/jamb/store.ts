@@ -7,7 +7,7 @@ import {
   type Institution, type Session, type StudentRecord,
 } from './data';
 import { JAMB_PERSONAS, type ConsoleRole } from './personas';
-import { scenarioByReg, type PriorClearance } from './scenarios';
+import { registrantByReg, scenarioByReg, type PriorClearance, type Registrant } from './scenarios';
 
 /**
  * The platform's shared state: what officers do (verifications, clearances, escalations,
@@ -29,12 +29,12 @@ export interface Officer {
   institution?: string;
 }
 
-export type UniversityOutcome = 'identity-confirmed' | 'nin-mismatch' | 'exam-mismatch' | 'duplicate-clearance' | 'face-mismatch' | 'not-found' | 'invalid';
+export type UniversityOutcome = 'identity-confirmed' | 'nin-mismatch' | 'exam-mismatch' | 'duplicate-clearance' | 'admission-not-found' | 'face-mismatch' | 'not-found' | 'invalid';
 export type NyscOutcome = 'confirmed' | 'face-mismatch' | 'clearance-not-confirmed' | 'not-found' | 'invalid';
 export type ActivityOutcome = UniversityOutcome | NyscOutcome | 'clearance-completed' | 'escalated';
 
 export const OUTCOME_LABEL: Record<ActivityOutcome, string> = {
-  'identity-confirmed': 'Identity verified', 'nin-mismatch': 'JAMB/NIN discrepancy', 'exam-mismatch': 'Examination record discrepancy', 'duplicate-clearance': 'Existing clearance found',
+  'identity-confirmed': 'Identity verified', 'nin-mismatch': 'JAMB/NIN discrepancy', 'exam-mismatch': 'Examination record discrepancy', 'duplicate-clearance': 'Existing clearance found', 'admission-not-found': 'Admission record not found',
   'face-mismatch': 'Face verification failed', 'not-found': 'Record not found', invalid: 'Invalid registration number',
   confirmed: 'Identity confirmed', 'clearance-not-confirmed': 'Admission clearance not confirmed',
   'clearance-completed': 'Clearance completed', escalated: 'Escalated to JAMB',
@@ -62,19 +62,70 @@ export interface Activity {
   exceptionId?: string;
 }
 
-export type ExceptionCategory = 'jamb-nin-discrepancy' | 'exam-impersonation' | 'nysc-identity-discrepancy' | 'nysc-clearance-not-confirmed' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
+export type ExceptionCategory = 'jamb-nin-discrepancy' | 'exam-impersonation' | 'nysc-identity-discrepancy' | 'nysc-clearance-not-confirmed' | 'admission-inquiry' | 'potential-fraud' | 'duplicate-clearance' | 'record-inconsistency' | 'failed-verification' | 'manual-review';
 export const CATEGORY_LABEL: Record<ExceptionCategory, string> = {
-  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'exam-impersonation': 'Possible examination impersonation', 'nysc-identity-discrepancy': 'Identity discrepancy at NYSC verification', 'nysc-clearance-not-confirmed': 'Admission clearance not confirmed at NYSC verification', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
+  'jamb-nin-discrepancy': 'JAMB and NIN identity discrepancy', 'exam-impersonation': 'Possible examination impersonation', 'nysc-identity-discrepancy': 'Identity discrepancy at NYSC verification', 'nysc-clearance-not-confirmed': 'Admission clearance not confirmed at NYSC verification', 'admission-inquiry': 'Admission record inquiry', 'potential-fraud': 'Potential identity fraud', 'duplicate-clearance': 'Existing clearance at another institution',
   'record-inconsistency': 'Student record inconsistency', 'failed-verification': 'Failed identity verification', 'manual-review': 'Manual review required',
 };
 export type ExceptionResolution = 'identity-confirmed' | 'identity-not-confirmed' | 'record-corrected' | 'clearance-revoked' | 'no-further-action'
-  | 'existing-record-confirmed' | 'release-authorised' | 'previous-clearance-revoked' | 'escalation-rejected';
+  | 'existing-record-confirmed' | 'release-authorised' | 'previous-clearance-revoked' | 'escalation-rejected'
+  | 'identity-discrepancy-confirmed' | 'withdrawal-confirmed' | 'next-step-authorised'
+  | 'no-admission-confirmed' | 'admission-located' | 'institution-session-corrected' | 'record-discrepancy-identified'
+  | 'clearance-record-located' | 'no-clearance-confirmed';
 export const RESOLUTION_LABEL: Record<ExceptionResolution, string> = {
   'identity-confirmed': 'Identity confirmed: clearance may proceed', 'identity-not-confirmed': 'Identity not confirmed: clearance remains blocked',
   'record-corrected': 'Record corrected by JAMB', 'clearance-revoked': 'Earlier clearance upheld: duplicate blocked', 'no-further-action': 'No further action required',
-  'existing-record-confirmed': 'Existing record confirmed: clearance here is not permitted', 'release-authorised': 'Release authorised by JAMB: clearance may proceed',
+  'existing-record-confirmed': 'Previous clearance confirmed: clearance here is not permitted', 'release-authorised': 'Release authorised by JAMB: clearance may proceed',
   'previous-clearance-revoked': 'Previous clearance revoked by JAMB: clearance may proceed', 'escalation-rejected': 'Escalation rejected',
+  'identity-discrepancy-confirmed': 'Identity discrepancy confirmed: clearance remains on hold',
+  'withdrawal-confirmed': 'Admission withdrawal confirmed by JAMB: clearance may proceed',
+  'next-step-authorised': 'Next step authorised by JAMB: clearance may proceed',
+  'no-admission-confirmed': 'No admission record exists for this institution and session',
+  'admission-located': 'Admission record located',
+  'institution-session-corrected': 'Institution or session corrected',
+  'record-discrepancy-identified': 'Record discrepancy identified',
+  'clearance-record-located': 'Admission clearance record located',
+  'no-clearance-confirmed': 'No admission clearance record exists',
 };
+
+/**
+ * The kind of case, which decides the decisions JAMB can record. Identity discrepancies (university or NYSC),
+ * an existing clearance at another institution, an admission record inquiry, or an NYSC clearance confirmation.
+ */
+export type CaseType = 'identity-discrepancy' | 'existing-clearance' | 'admission-inquiry' | 'clearance-confirmation' | 'other';
+export const CASE_TYPE_LABEL: Record<CaseType, string> = {
+  'identity-discrepancy': 'Identity discrepancy', 'existing-clearance': 'Existing clearance', 'admission-inquiry': 'Admission record inquiry',
+  'clearance-confirmation': 'Clearance confirmation (NYSC)', other: 'Other',
+};
+export function caseTypeOf(e: Pick<JambException, 'category'>): CaseType {
+  switch (e.category) {
+    case 'jamb-nin-discrepancy': case 'exam-impersonation': case 'nysc-identity-discrepancy': case 'potential-fraud': case 'failed-verification': return 'identity-discrepancy';
+    case 'duplicate-clearance': return 'existing-clearance';
+    case 'admission-inquiry': return 'admission-inquiry';
+    case 'nysc-clearance-not-confirmed': return 'clearance-confirmation';
+    default: return 'other';
+  }
+}
+/** The decisions available for each kind of case (requesting information and referral are available for all). */
+export const CASE_DECISIONS: Record<CaseType, ExceptionResolution[]> = {
+  'identity-discrepancy': ['identity-confirmed', 'identity-discrepancy-confirmed'],
+  'existing-clearance': ['existing-record-confirmed', 'withdrawal-confirmed', 'next-step-authorised'],
+  'admission-inquiry': ['no-admission-confirmed', 'admission-located', 'institution-session-corrected', 'record-discrepancy-identified'],
+  'clearance-confirmation': ['clearance-record-located', 'no-clearance-confirmed'],
+  other: ['identity-confirmed', 'identity-not-confirmed', 'record-corrected', 'no-further-action'],
+};
+/** The action name JAMB sees for each decision. */
+export const DECISION_ACTION: Partial<Record<ExceptionResolution, string>> = {
+  'identity-confirmed': 'Confirm Identity', 'identity-discrepancy-confirmed': 'Confirm Identity Discrepancy',
+  'existing-record-confirmed': 'Confirm Previous Clearance', 'withdrawal-confirmed': 'Confirm Admission Withdrawal', 'next-step-authorised': 'Authorise Next Step',
+  'no-admission-confirmed': 'Confirm No Admission Record Exists', 'admission-located': 'Admission Record Located', 'institution-session-corrected': 'Correct Institution or Session',
+  'record-discrepancy-identified': 'Record Discrepancy Identified', 'clearance-record-located': 'Clearance Record Located', 'no-clearance-confirmed': 'Confirm No Clearance Record',
+  'identity-not-confirmed': 'Identity Not Confirmed', 'record-corrected': 'Record Corrected', 'no-further-action': 'No Further Action',
+};
+/** Decisions that must name the institution and admission session JAMB found. */
+export const DECISION_NEEDS_PLACEMENT: ExceptionResolution[] = ['admission-located', 'institution-session-corrected'];
+/** JAMB teams a case can be referred to for further investigation. */
+export const INVESTIGATION_TEAMS = ['JAMB Identity Investigations Unit', 'JAMB Admissions Records Unit', 'JAMB Legal and Compliance', 'JAMB ICT Data Integrity Unit'];
 
 /** A comparison between two identity sources (predefined per record: no biometric service is called). */
 export interface Comparison { label: string; result: 'match' | 'mismatch' | 'pending' }
@@ -95,10 +146,24 @@ export interface Escalation {
   /** Who referred the case: an institution's clearance officer (default) or NYSC. */
   source?: 'university' | 'nysc';
 }
-export type EscalationStatus = 'open' | 'in-review' | 'awaiting-information' | 'resolved' | 'rejected';
-export const ESCALATION_STATUS_LABEL: Record<EscalationStatus, string> = { open: 'Open', 'in-review': 'Under review', 'awaiting-information': 'Awaiting information', resolved: 'Resolved', rejected: 'Rejected' };
+/** The case lifecycle: New → Under review → (Awaiting information) → Resolved → Closed. */
+export type EscalationStatus = 'open' | 'in-review' | 'awaiting-information' | 'resolved' | 'closed';
+export const ESCALATION_STATUS_LABEL: Record<EscalationStatus, string> = { open: 'New', 'in-review': 'Under review', 'awaiting-information': 'Awaiting information', resolved: 'Resolved', closed: 'Closed' };
 
 export interface Evidence { label: string; value: string; tone?: 'good' | 'bad' | 'neutral' }
+/**
+ * What JAMB recorded with its decision. FixID records the decision; it does not change JAMB's own admission or
+ * identity records, so an authoritative correction is captured as a reference.
+ */
+export interface ResolutionDetails {
+  /** The institution and session JAMB found (admission record located, or institution/session corrected). */
+  institution?: string;
+  session?: Session;
+  /** Reference of an authoritative correction JAMB completed in its own systems, when there is one. */
+  reference?: string;
+  /** Instructions for the originating institution. */
+  instructions?: string;
+}
 export interface JambException {
   id: string;
   reg: string;
@@ -115,7 +180,12 @@ export interface JambException {
   evidence: Evidence[];
   activityRef?: string;
   history: ExceptionEvent[];
-  resolution?: { outcome: ExceptionResolution; note: string; at: string; by: string };
+  resolution?: { outcome: ExceptionResolution; note: string; at: string; by: string; details?: ResolutionDetails };
+  /** When the case was assigned to its JAMB officer. */
+  assignedAt?: string;
+  /** The JAMB team a case was referred to for further investigation. */
+  referredTo?: string;
+  closedAt?: string;
   /** Present when an institution escalated the case to JAMB. */
   escalation?: Escalation;
 }
@@ -385,7 +455,7 @@ export function activitiesFor(reg: string, state: JambState = current): Activity
 
 /* ---------------- exceptions register ---------------- */
 
-const JAMB_REVIEWERS = ['Grace Uwaifo', 'Musa Idris', 'Aisha Danjuma'];
+export const JAMB_REVIEWERS = ['Grace Uwaifo', 'Musa Idris', 'Aisha Danjuma'];
 const ESCALATING = ['UI', 'ABU', 'OAU', 'UNIBEN', 'UNIPORT', 'LASU', 'UNN'];
 
 /** The identity comparisons shown for an outcome (predefined; no biometric service is called). */
@@ -394,11 +464,11 @@ export function comparisonsFor(outcome: UniversityOutcome): Comparison[] {
     // The live capture is compared independently against each record; JAMB vs NIN isn't needed for the decision.
     return [{ label: 'JAMB examination record vs Live Capture', result: 'mismatch' }, { label: 'NIN identity record vs Live Capture', result: 'match' }];
   }
+  // The live capture is compared independently against each record; JAMB and NIN aren't compared with each other.
   const discrepancy = outcome === 'nin-mismatch';
   return [
     { label: 'JAMB vs Live Capture', result: outcome === 'face-mismatch' ? 'mismatch' : 'match' },
     { label: 'NIN vs Live Capture', result: discrepancy ? 'mismatch' : outcome === 'face-mismatch' ? 'pending' : 'match' },
-    ...(discrepancy ? [{ label: 'JAMB vs NIN', result: 'mismatch' as const }] : []),
   ];
 }
 let seededExceptions: JambException[] | null = null;
@@ -466,6 +536,7 @@ function summaryFor(c: ExceptionCategory) {
     'jamb-nin-discrepancy': 'The presented face matched the JAMB registration record, but the NIN verification response did not match.',
     'exam-impersonation': 'The live clearance capture matches the NIN identity record but not the face on the JAMB examination verification record.',
     'nysc-identity-discrepancy': 'At NYSC verification the live capture matched the NIN identity record but not the JAMB profile photograph.',
+    'admission-inquiry': 'The candidate’s JAMB registration is valid, but no admission offer was found for the institution and admission session checked.',
     'nysc-clearance-not-confirmed': 'At NYSC verification the candidate’s identity was confirmed, but no confirmed institutional admission clearance record was found.',
     'potential-fraud': 'The presented face did not match the JAMB registration record; the person presenting may not be the candidate.',
     'duplicate-clearance': 'The same JAMB admission record has already been cleared by another institution.',
@@ -540,7 +611,14 @@ type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 const studentName = (r: StudentRecord) => `${r.firstName} ${r.lastName}`;
 
 /** The registration numbers a clearance officer may open: their own institution's admission records. */
-export function lookupForClearance(input: string, officer: Officer, session: Session = ACTIVE_SESSION): { ok: true; record: StudentRecord } | { ok: false; outcome: 'invalid' | 'not-found' } {
+export type ClearanceLookup =
+  | { ok: true; record: StudentRecord }
+  | { ok: false; outcome: 'invalid' | 'not-found' }
+  /** Valid JAMB registration, but no admission offer for the institution and session checked (Scenario 4). */
+  | { ok: false; outcome: 'admission-not-found'; registrant: Registrant; session: Session };
+export function lookupForClearance(input: string, officer: Officer, session: Session = ACTIVE_SESSION): ClearanceLookup {
+  const registrant = registrantByReg(input);
+  if (registrant) return { ok: false, outcome: 'admission-not-found', registrant, session };
   const p = parseRegistration(input);
   if (!p.ok) return { ok: false, outcome: p.reason === 'format' ? 'invalid' : 'not-found' };
   if (p.institution.code !== officer.institution || p.session !== session) return { ok: false, outcome: 'not-found' };
@@ -572,7 +650,7 @@ export function resolvedDiscrepancy(reg: string, state: JambState = current): 'n
 /** Whether JAMB released the student to clear here despite a previous clearance elsewhere. */
 export function duplicateReleasedByJamb(reg: string, state: JambState = current): boolean {
   const e = exceptionsOf(state).find((x) => x.reg === reg && x.category === 'duplicate-clearance');
-  return e?.resolution?.outcome === 'release-authorised' || e?.resolution?.outcome === 'previous-clearance-revoked';
+  return ['release-authorised', 'previous-clearance-revoked', 'withdrawal-confirmed', 'next-step-authorised'].includes(e?.resolution?.outcome ?? '');
 }
 
 function newException(state: JambState, r: StudentRecord, officer: Officer, category: ExceptionCategory, evidence: Evidence[], activityRef: string): [JambState, JambException] {
@@ -604,7 +682,7 @@ export function recordExistingClearance(reg: string, officer: Officer): Result<S
 }
 
 /** Records a university identity verification (any outcome) and its consequences for the student. */
-export function recordUniversityVerification(input: { entered: string; officer: Officer; captureMode: 'camera' | 'demo'; record?: StudentRecord; outcome?: 'not-found' | 'invalid' }): Result<Activity> {
+export function recordUniversityVerification(input: { entered: string; officer: Officer; captureMode: 'camera' | 'demo'; record?: StudentRecord; outcome?: 'not-found' | 'invalid' | 'admission-not-found'; session?: Session }): Result<Activity> {
   const { officer, record } = input;
   if (officer.role !== 'clearance-officer' || !officer.institution) return { ok: false, error: 'Only an institution’s clearance officer can verify students.' };
   if (record && record.institution !== officer.institution) return { ok: false, error: 'This student isn’t on your institution’s admission list.' };
@@ -613,8 +691,8 @@ export function recordUniversityVerification(input: { entered: string; officer: 
   const at = now();
   const year = new Date().getFullYear();
   const activity: Activity = {
-    ref: `JIV-${officer.institution}-${year}-${code6()}`, at, kind: 'university', eventId: eventForSession(record?.session ?? ACTIVE_SESSION).id, officer: officer.name, officerTitle: officer.title,
-    organisation: officer.organisation, institution: officer.institution, session: record?.session ?? ACTIVE_SESSION, input: input.entered.trim(), reg: record?.reg, outcome,
+    ref: `JIV-${officer.institution}-${year}-${code6()}`, at, kind: 'university', eventId: eventForSession(record?.session ?? input.session ?? ACTIVE_SESSION).id, officer: officer.name, officerTitle: officer.title,
+    organisation: officer.organisation, institution: officer.institution, session: record?.session ?? input.session ?? ACTIVE_SESSION, input: input.entered.trim(), reg: record?.reg, outcome,
     checks: record ? (() => {
       const resolved = outcome === 'identity-confirmed' ? resolvedDiscrepancy(record.reg) : undefined;
       return {
@@ -767,22 +845,55 @@ function patchException(id: string, officer: Officer, action: ExceptionAction, c
   return { ok: true, value: exceptionById(id)! };
 }
 export const assignException = (id: string, officer: Officer, reviewer: string) => patchException(id, officer, 'assigned', { assignedTo: reviewer, status: 'assigned' }, `Assigned to ${reviewer}.`);
-export const startReview = (id: string, officer: Officer) => patchException(id, officer, 'review-started', { status: 'in-review', assignedTo: exceptionById(id)?.assignedTo ?? officer.name });
+export const startReview = (id: string, officer: Officer) => {
+  const e = exceptionById(id);
+  return patchException(id, officer, 'review-started', { status: 'in-review', assignedTo: e?.assignedTo ?? officer.name, assignedAt: e?.assignedTo ? e.assignedAt : now() });
+};
+/** A JAMB officer takes ownership of a case (or assigns it to a colleague). A new case moves to Under review. */
+export function assignCase(id: string, officer: Officer, assignee: string = officer.name): Result<JambException> {
+  const e = exceptionById(id);
+  if (!e) return { ok: false, error: 'Case not found.' };
+  if (!assignee.trim()) return { ok: false, error: 'Choose an officer.' };
+  if (e.status === 'resolved' || e.status === 'closed') return { ok: false, error: 'This case is already decided.' };
+  const status: ExceptionStatus = e.status === 'awaiting-information' ? e.status : 'in-review';
+  return patchException(id, officer, 'assigned', { assignedTo: assignee, assignedAt: now(), status }, assignee === officer.name ? `${officer.name} took ownership of the case.` : `Assigned to ${assignee}.`);
+}
+/** Refers a case to another authorised JAMB team. The case stays under review; the referral is recorded. */
+export function referForInvestigation(id: string, officer: Officer, team: string, note: string): Result<JambException> {
+  if (!note.trim()) return { ok: false, error: 'Explain why the case is being referred.' };
+  const e = exceptionById(id);
+  if (!e) return { ok: false, error: 'Case not found.' };
+  if (e.status === 'resolved' || e.status === 'closed') return { ok: false, error: 'This case is already decided.' };
+  return patchException(id, officer, 'escalated', { status: 'in-review', referredTo: team, assignedTo: e.assignedTo ?? officer.name, assignedAt: e.assignedAt ?? now() }, `Referred to ${team} for further investigation. ${note.trim()}`);
+}
+/** Closes a decided case. The record, its evidence and its history are kept. */
+export function closeCase(id: string, officer: Officer, note = ''): Result<JambException> {
+  const e = exceptionById(id);
+  if (!e) return { ok: false, error: 'Case not found.' };
+  if (e.status !== 'resolved') return { ok: false, error: 'Record a decision before closing the case.' };
+  return patchException(id, officer, 'closed', { status: 'closed', closedAt: now() }, note.trim() || 'Case closed. The decision was returned to the originating institution.');
+}
 export const addExceptionNote = (id: string, officer: Officer, note: string) => (note.trim() ? patchException(id, officer, 'note-added', {}, note.trim()) : { ok: false as const, error: 'Write a note first.' });
 export const requestInformation = (id: string, officer: Officer, note: string) => patchException(id, officer, 'information-requested', { status: 'awaiting-information' }, note.trim() || 'Further information requested from the institution.');
 export const closeException = (id: string, officer: Officer) => patchException(id, officer, 'closed', { status: 'closed' });
 export const reopenException = (id: string, officer: Officer, note: string) => patchException(id, officer, 'reopened', { status: 'reopened', resolution: undefined }, note.trim() || 'Reopened for further review.');
 
 /** Records JAMB's resolution. Confirming identity on a JAMB/NIN discrepancy lifts the clearance block. */
-export function resolveException(id: string, officer: Officer, outcome: ExceptionResolution, note: string): Result<JambException> {
-  if (!note.trim()) return { ok: false, error: 'Add resolution notes.' };
+export function resolveException(id: string, officer: Officer, outcome: ExceptionResolution, note: string, details: ResolutionDetails = {}): Result<JambException> {
+  if (!note.trim()) return { ok: false, error: 'Explain the decision.' };
   const e = exceptionById(id);
   if (!e) return { ok: false, error: 'Exception not found.' };
-  const r = patchException(id, officer, 'resolution-recorded', { status: 'resolved', resolution: { outcome, note: note.trim(), at: now(), by: officer.name } }, note.trim());
+  if (e.status === 'resolved' || e.status === 'closed') return { ok: false, error: 'This case is already decided.' };
+  if (DECISION_NEEDS_PLACEMENT.includes(outcome) && (!details.institution || !details.session)) return { ok: false, error: 'Record the institution and admission session JAMB found.' };
+  const clean: ResolutionDetails = Object.fromEntries(Object.entries(details).filter(([, v]) => typeof v === 'string' && v.trim())) as ResolutionDetails;
+  const r = patchException(id, officer, 'resolution-recorded', {
+    status: 'resolved', assignedTo: e.assignedTo ?? officer.name, assignedAt: e.assignedAt ?? now(),
+    resolution: { outcome, note: note.trim(), at: now(), by: officer.name, ...(Object.keys(clean).length ? { details: clean } : {}) },
+  }, note.trim());
   const s = current.students[e.reg] ?? {};
   if (r.ok && outcome === 'identity-confirmed' && (e.category === 'jamb-nin-discrepancy' || e.category === 'exam-impersonation')) {
     if (s.blocked === 'nin-mismatch' || s.blocked === 'exam-mismatch') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
-  } else if (r.ok && (outcome === 'release-authorised' || outcome === 'previous-clearance-revoked') && e.category === 'duplicate-clearance') {
+  } else if (r.ok && (outcome === 'release-authorised' || outcome === 'previous-clearance-revoked' || outcome === 'withdrawal-confirmed' || outcome === 'next-step-authorised') && e.category === 'duplicate-clearance') {
     if (s.blocked === 'duplicate-clearance') save({ ...current, students: { ...current.students, [e.reg]: { ...s, blocked: null, verification: 'verified' } } });
   } else if (r.ok && s.verification === 'escalated') {
     // Decided without lifting the block: the student stays blocked, no longer awaiting JAMB.
@@ -796,9 +907,9 @@ export function resolveException(id: string, officer: Officer, outcome: Exceptio
 export const escalationsOf = (state: JambState = current) => exceptionsOf(state).filter((e) => e.escalation);
 export const escalationFor = (reg: string, state: JambState = current) => escalationsOf(state).find((e) => e.reg === reg);
 export function escalationStatus(e: JambException): EscalationStatus {
-  if (e.resolution?.outcome === 'escalation-rejected') return 'rejected';
-  if (e.status === 'resolved' || e.status === 'closed') return 'resolved';
-  if (e.status === 'in-review') return 'in-review';
+  if (e.status === 'closed') return 'closed';
+  if (e.status === 'resolved') return 'resolved';
+  if (e.status === 'in-review' || e.status === 'assigned') return 'in-review';
   if (e.status === 'awaiting-information') return 'awaiting-information';
   return 'open';
 }
@@ -852,6 +963,50 @@ export function respondToEscalation(id: string, officer: Officer, text: string):
   const event = ev(`${id}-${e.history.length + 1}-${code6()}`, now(), 'note-added', officer.name, officer.organisation, e.status, to, text.trim());
   const state: JambState = { ...current, exceptions: { ...current.exceptions, [id]: { ...current.exceptions[id], status: to, history: [...e.history, event] } } };
   save(audit(state, officer, 'Escalation response sent', { reg: e.reg, reference: id }));
+  return { ok: true, value: exceptionById(id)! };
+}
+
+/**
+ * The candidate a case is about: an admitted student record, or (for an admission record inquiry) a JAMB registrant
+ * with no admission record at the institution checked.
+ */
+export interface CaseSubject { reg: string; firstName: string; middleName: string; lastName: string; gender: 'Female' | 'Male'; record?: StudentRecord; registrant?: Registrant }
+export function caseSubject(reg: string, state: JambState = current): CaseSubject | undefined {
+  const record = recordOf(reg, state);
+  if (record) return { reg: record.reg, firstName: record.firstName, middleName: record.middleName, lastName: record.lastName, gender: record.gender, record };
+  const registrant = registrantByReg(reg);
+  return registrant ? { reg: registrant.reg, firstName: registrant.firstName, middleName: registrant.middleName, lastName: registrant.lastName, gender: registrant.gender, registrant } : undefined;
+}
+
+/**
+ * The university asks JAMB to investigate a missing admission record (Scenario 4). Separate from identity
+ * escalations: nothing about the candidate's identity is in question, and no clearance record exists.
+ */
+export function raiseAdmissionInquiry(input: { reg: string; session: Session; officer: Officer; reason: string; comment: string }): Result<JambException> {
+  const { officer } = input;
+  const registrant = registrantByReg(input.reg);
+  if (!registrant) return { ok: false, error: 'No registrant without an admission record matches this number.' };
+  if (officer.role !== 'clearance-officer' || !officer.institution) return { ok: false, error: 'Only an institution’s clearance officer can raise an admission record inquiry.' };
+  if (!input.comment.trim()) return { ok: false, error: 'Describe why the admission record should exist.' };
+  const open = escalationsOf().find((e) => e.reg === registrant.reg && e.institution === officer.institution && e.session === input.session && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(e)));
+  if (open) return { ok: false, error: `An inquiry is already open for this candidate and session (${open.id}).` };
+  const at = now();
+  const id = `ESC-${new Date().getFullYear()}-${code6().slice(0, 5)}`;
+  const inst = institutionByCode(officer.institution)!;
+  const evidence: Evidence[] = [
+    { label: 'Escalation reason', value: input.reason },
+    { label: 'JAMB registration', value: 'Valid', tone: 'good' },
+    { label: 'Admission record', value: `Not found for ${inst.name}, ${input.session}`, tone: 'bad' },
+    { label: 'Clearance record', value: 'None created' },
+  ];
+  const e: JambException = {
+    id, reg: registrant.reg, institution: officer.institution, session: input.session, eventId: eventForSession(input.session).id, category: 'admission-inquiry', summary: summaryFor('admission-inquiry'),
+    raisedAt: at, raisedBy: officer.name, raisedByOrganisation: officer.organisation, status: 'open', evidence,
+    history: [ev(`${id}-1`, at, 'created', officer.name, officer.organisation, undefined, 'open', input.comment.trim())],
+    escalation: { comment: input.comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: officer.institution, submittedAt: at, reason: input.reason, evidence: ['JAMB registration check', 'Admission record check'], comparisons: [] },
+  };
+  const state: JambState = { ...current, createdExceptions: [e, ...current.createdExceptions] };
+  save(audit(state, officer, 'Admission record inquiry raised', { reg: registrant.reg, student: `${registrant.firstName} ${registrant.lastName}`, outcome: CATEGORY_LABEL['admission-inquiry'], reference: id }));
   return { ok: true, value: exceptionById(id)! };
 }
 

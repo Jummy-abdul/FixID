@@ -112,3 +112,29 @@ export const SCENARIO_CANDIDATES: ScenarioCandidate[] = [
 
 export const scenarioById = (id: string) => SCENARIO_CANDIDATES.find((c) => c.id === id);
 export const scenarioByReg = (reg: string) => SCENARIO_CANDIDATES.find((c) => c.reg === reg.trim().toUpperCase());
+
+/**
+ * JAMB registrants with a valid registration and biodata but no admission offer at the institution being checked
+ * (Scenario 4). They are not on any institution's admission list: a valid registration is not an admission.
+ */
+export interface Registrant {
+  reg: string;
+  firstName: string;
+  middleName: string;
+  lastName: string;
+  gender: 'Female' | 'Male';
+  dateOfBirth: string;
+  stateOfOrigin: string;
+  registeredAt: string;
+  registrationCentre: string;
+  utmeScore: number;
+  exam: { at: string; centre: string; reference: string };
+}
+export const REGISTRANTS: Registrant[] = [
+  {
+    reg: '20250190104KE', firstName: 'Kelechi', middleName: 'Chinonso', lastName: 'Eze', gender: 'Male', dateOfBirth: '2006-06-11T00:00:00.000Z', stateOfOrigin: 'Enugu',
+    registeredAt: '2025-01-24T12:40:00.000Z', registrationCentre: 'Ogui CBT Centre, Enugu', utmeScore: 241,
+    exam: { at: '2025-04-30T13:00:00.000Z', centre: 'Ogui CBT Centre, Enugu', reference: 'UTME-2025-465381' },
+  },
+];
+export const registrantByReg = (reg: string) => REGISTRANTS.find((r) => r.reg === reg.trim().toUpperCase());

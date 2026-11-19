@@ -33,7 +33,7 @@ export const JAMB_NAV: NavGroup[] = [
     items: [
       { label: 'Verification Events', to: '/jamb/events', icon: CalendarCheck, description: 'Events published to institutions and NYSC' },
       { label: 'Verification Activity', to: '/jamb/activity', icon: History, description: 'Every verification performed' },
-      { label: 'Exceptions & Escalations', to: '/jamb/escalations', icon: ShieldAlert, description: 'Identity exceptions and institutions’ escalations', alsoActiveOn: ['/jamb/exceptions'] },
+      { label: 'Escalation Management', to: '/jamb/escalations', icon: ShieldAlert, description: 'Investigate and resolve institutions’ escalations', alsoActiveOn: ['/jamb/exceptions'] },
       { label: 'Student Records', to: '/jamb/students', icon: Search, description: 'Search student identity records' },
     ],
   },
