@@ -68,7 +68,7 @@ export function historicalClearance(r: StudentRecord) {
   if (r.clearance !== 'cleared' || !r.clearanceRef) return undefined;
   return {
     institution: institutionByCode(r.institution)?.name ?? r.institution, session: r.session, reference: r.clearanceRef, at: r.clearedAt, officer: r.clearedBy,
-    outcome: r.nin === 'mismatch' ? 'Identity verified (NIN discrepancy resolved by JAMB)' : 'Identity verified (JAMB and NIN match)', verificationRef: r.verificationRef,
+    outcome: 'Identity verified at clearance', verificationRef: r.verificationRef,
   };
 }
 
@@ -278,7 +278,7 @@ function VerifyCandidatePage() {
                 </div>
               </Card>
             )}
-            {!issue && !record && <div className="flex min-h-[8rem] items-center justify-center rounded-xl border border-dashed border-slate-300 px-6 text-center text-sm text-slate-500">The candidate’s JAMB, NIN and clearance records appear here.</div>}
+            {!issue && !record && <div className="flex min-h-[8rem] items-center justify-center rounded-xl border border-dashed border-slate-300 px-6 text-center text-sm text-slate-500">The candidate’s records and FixID clearance reference appear here.</div>}
           </div>
         </div>
       )}
