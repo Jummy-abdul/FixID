@@ -19,6 +19,8 @@ import {
 } from './store';
 import { NotFound } from './shared';
 import { FaceImage, useOfficer } from './ui';
+import { SimulatedCapture } from './capture';
+import { demoFace } from './portraits';
 
 /* ---------------- shared pieces ---------------- */
 
@@ -79,11 +81,6 @@ export function IdentityComparison({ record, capture, comparisons, captureNote }
   );
 }
 
-const DEFAULT_COMMENT: Partial<Record<ExceptionCategory, string>> = {
-  'exam-impersonation': 'The student’s live captured portrait matches the NIN identity record but differs from the face associated with the JAMB examination verification record. This raises a possible examination identity impersonation concern. Kindly investigate and advise on the appropriate next steps.',
-  'jamb-nin-discrepancy': 'The live portrait matches the original JAMB registration portrait. However, the NIN portrait returned during verification does not match the captured face. Kindly investigate and confirm the student’s identity.',
-  'duplicate-clearance': 'This student has presented for clearance at University of Lagos, but an existing clearance record associated with another institution has been identified. Kindly investigate and advise on the appropriate next steps.',
-};
 /** Reasons the officer can give, per kind of case. */
 const REASONS: Partial<Record<ExceptionCategory, string[]>> = {
   'duplicate-clearance': ['Student wishes to decline or withdraw the existing admission', 'Student wishes to proceed with another institution', 'Existing clearance requires review', 'Other'],
@@ -91,18 +88,64 @@ const REASONS: Partial<Record<ExceptionCategory, string[]>> = {
   'exam-impersonation': ['Possible examination impersonation', 'Live capture does not match the JAMB examination record', 'Other'],
 };
 
-/** The university's escalation form: the student's details are prefilled; the officer adds the category, comment and evidence. */
+/** A live capture taken in the escalation form, with when it was taken. */
+export interface FormCapture { url: string; at: string }
+/**
+ * The face capture required before some submissions (an existing clearance, an admission record inquiry): evidence
+ * that the candidate was physically present. Reuses the simulated capture; the device camera is never used.
+ */
+export function CaptureStep({ image, subject, captured, onCaptured }: { image: string | undefined; subject: string; captured: FormCapture | null; onCaptured: (c: FormCapture | null) => void }) {
+  return (
+    <fieldset aria-label="Face capture">
+      <legend className="text-sm font-medium text-slate-700">Candidate’s face <span className="text-red-600" aria-hidden="true">*</span></legend>
+      <p className="mt-0.5 text-xs text-slate-500">Required. Shows the candidate was present at the institution; the capture is attached to the case.</p>
+      <div className="mt-2">
+        <SimulatedCapture image={image} subject={subject} instruction="Position the candidate’s face within the frame" captured={captured?.url ?? null}
+          onCaptured={(url) => onCaptured({ url, at: new Date().toISOString() })}
+          status={captured ? (
+            <p role="status" className="flex flex-wrap items-center justify-center gap-2 text-xs text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />Captured {dateTime(captured.at)}
+              <button type="button" className="font-medium text-brand-600 underline-offset-2 hover:underline" onClick={() => onCaptured(null)}>Retake</button>
+            </p>
+          ) : null} />
+      </div>
+    </fieldset>
+  );
+}
+
+/** The live capture attached to a case, as JAMB and the institution see it. */
+export function AttachedCapture({ e }: { e: JambException }) {
+  const x = e.escalation;
+  const inst = institutionByCode(e.institution)?.name;
+  return (
+    <figure aria-label="Captured face" className="w-40 shrink-0">
+      {x?.capture
+        ? <img src={x.capture} alt={`Live capture at ${inst}`} className="aspect-[4/5] w-full rounded-lg object-cover ring-1 ring-slate-200" />
+        : <div className="flex aspect-[4/5] w-full items-center justify-center rounded-lg border border-dashed border-slate-300 px-2 text-center text-xs text-slate-500">No live capture attached</div>}
+      <figcaption className="mt-1 text-center text-[11px] leading-tight text-slate-600">
+        <span className="block font-semibold text-slate-800">Live capture at {inst}</span>
+        {x?.capturedAt && <span className="block">Captured {dateTime(x.capturedAt)}</span>}
+      </figcaption>
+    </figure>
+  );
+}
+
+/** The university's escalation form: the student's details are prefilled; the officer adds the reason, their own description and evidence. */
 export function EscalationDrawer({ record, category: initial, capture, onClose, onDone }: { record: StudentRecord; category: ExceptionCategory; capture?: string; onClose: () => void; onDone?: (e: JambException) => void }) {
   const officer = useOfficer();
   const toast = useToast();
   const category = initial;
   const reasons = REASONS[category] ?? ['Other'];
   const [reason, setReason] = useState(reasons[0]);
-  const [comment, setComment] = useState(DEFAULT_COMMENT[initial] ?? '');
+  // Blank: JAMB receives the officer's own explanation.
+  const [comment, setComment] = useState('');
+  // An existing clearance elsewhere needs a face capture taken here, before submission.
+  const needsCapture = category === 'duplicate-clearance';
+  const [taken, setTaken] = useState<FormCapture | null>(null);
   const prior = priorClearanceOf(record.reg);
   const options = [
     ...(category === 'duplicate-clearance' ? [] : ['Identity comparison results']),
-    ...(capture ? ['Live clearance capture'] : []),
+    ...(capture || needsCapture ? ['Live clearance capture'] : []),
     ...(prior ? ['Previous clearance record'] : []),
     'Verification reference',
   ];
@@ -110,7 +153,9 @@ export function EscalationDrawer({ record, category: initial, capture, onClose, 
   const [error, setError] = useState('');
   const inst = institutionByCode(record.institution)!;
   const submit = () => {
-    const r = escalateToJamb({ reg: record.reg, officer, category, reason, comment, evidence, capture: capture && evidence.includes('Live clearance capture') ? capture : undefined });
+    const r = needsCapture
+      ? escalateToJamb({ reg: record.reg, officer, category, reason, comment, evidence: evidence.includes('Live clearance capture') ? evidence : [...evidence, 'Live clearance capture'], capture: taken?.url, capturedAt: taken?.at })
+      : escalateToJamb({ reg: record.reg, officer, category, reason, comment, evidence, capture: capture && evidence.includes('Live clearance capture') ? capture : undefined });
     if (!r.ok) { setError(r.error); return; }
     toast({ tone: 'success', title: 'Escalated to JAMB', description: r.value.id });
     onDone?.(r.value);
@@ -128,13 +173,14 @@ export function EscalationDrawer({ record, category: initial, capture, onClose, 
         </dl>
         <p className="text-sm"><span className="text-slate-500">Case: </span><span className="font-medium text-slate-900">{CATEGORY_LABEL[category]}</span></p>
         <Field label="Escalation reason" required>{(p) => <Select {...p} value={reason} onChange={(e) => setReason(e.target.value)}>{reasons.map((x) => <option key={x} value={x}>{x}</option>)}</Select>}</Field>
-        <Field label="Description" required>{(p) => <Textarea {...p} rows={5} value={comment} onChange={(e) => setComment(e.target.value)} />}</Field>
+        <Field label="Description" required>{(p) => <Textarea {...p} rows={5} value={comment} placeholder="Describe the issue in your own words" onChange={(e) => { setComment(e.target.value); setError(''); }} />}</Field>
+        {needsCapture && <CaptureStep image={demoFace(record)} subject={`${record.firstName} ${record.lastName}`} captured={taken} onCaptured={(c) => { setTaken(c); setError(''); }} />}
         <fieldset>
           <legend className="text-sm font-medium text-slate-700">Supporting evidence</legend>
           <div className="mt-2 space-y-2">
             {options.map((o) => (
               <label key={o} className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" className="rounded border-slate-300" checked={evidence.includes(o)} onChange={(e) => setEvidence((v) => (e.target.checked ? [...v, o] : v.filter((x) => x !== o)))} />{o}
+                <input type="checkbox" className="rounded border-slate-300" checked={evidence.includes(o)} disabled={needsCapture && o === 'Live clearance capture'} onChange={(e) => setEvidence((v) => (e.target.checked ? [...v, o] : v.filter((x) => x !== o)))} />{o}
               </label>
             ))}
           </div>
@@ -221,21 +267,23 @@ export function CaseEvidence({ e }: { e: JambException }) {
   if (type === 'existing-clearance' && prior) {
     return (
       <div aria-label="Existing clearance record">
-        <p className="mb-3 text-sm text-slate-600">A record issue, not a biometric result: no face comparison applies. The previous clearance record is unchanged.</p>
-        <Rows rows={[['Previous institution', institutionByCode(prior.institution)?.name], ['Previous admission session', prior.session], ['Department', prior.department], ['Previous clearance date', dateTime(prior.clearedAt)], ['Clearance officer', prior.clearedBy], ['Previous clearance reference', <span className="font-mono">{prior.reference}</span>],
-          ['Existing clearance status', 'Cleared'], ['Presenting institution', inst?.name], ['Current admission session', e.session]]} />
+        <p className="mb-3 text-sm text-slate-600">A record issue, not a biometric result: no face comparison applies. The previous clearance record is unchanged. The live capture shows the candidate was present.</p>
+        <div className="flex flex-col gap-5 sm:flex-row"><AttachedCapture e={e} /><div className="min-w-0 flex-1"><Rows cols="sm:grid-cols-2" rows={[['Previous institution', institutionByCode(prior.institution)?.name], ['Previous admission session', prior.session], ['Department', prior.department], ['Previous clearance date', dateTime(prior.clearedAt)], ['Clearance officer', prior.clearedBy], ['Previous clearance reference', <span className="font-mono">{prior.reference}</span>],
+          ['Existing clearance status', 'Cleared'], ['Presenting institution', inst?.name], ['Current admission session', e.session]]} /></div></div>
       </div>
     );
   }
   if (type === 'admission-inquiry') {
     return (
       <div aria-label="Admission record check">
-        <p className="mb-3 text-sm text-slate-600">Identity is not in question: no face comparison applies, and no clearance record was created.</p>
+        <p className="mb-3 text-sm text-slate-600">No face comparison applies and no clearance record was created. The live capture shows the candidate was present.</p>
+        <div className="flex flex-col gap-5 sm:flex-row"><AttachedCapture e={e} /><div className="min-w-0 flex-1 space-y-2">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex items-center justify-between rounded-lg px-4 py-3 ring-1 ring-inset ring-emerald-200 bg-emerald-50/50"><span className="text-sm text-slate-700">JAMB Registration</span><span className="inline-flex items-center gap-1.5 text-sm font-bold uppercase text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Valid</span></div>
           <div className="flex items-center justify-between rounded-lg px-4 py-3 ring-1 ring-inset ring-red-200 bg-red-50/50"><span className="text-sm text-slate-700">Admission Record</span><span className="inline-flex items-center gap-1.5 text-sm font-bold uppercase text-red-700"><XCircle className="h-4 w-4" aria-hidden="true" />Not found</span></div>
         </div>
-        <p className="mt-2 text-xs text-slate-500">Checked against {inst?.name}, {e.session} admission session. This does not establish that the candidate holds no admission elsewhere.</p>
+        <p className="text-xs text-slate-500">Checked against {inst?.name}, {e.session} admission session. This does not establish that the candidate holds no admission elsewhere.</p>
+        </div></div>
       </div>
     );
   }
@@ -271,6 +319,7 @@ function Submission({ e }: { e: JambException }) {
       <Rows rows={[
         [nysc ? 'Referred by' : 'Originating institution', nysc ? 'National Youth Service Corps' : institutionByCode(x.institution)?.name],
         [nysc ? 'NYSC officer' : 'Clearance officer', `${x.submittedBy}, ${x.submittedByTitle}`], ['Date and time submitted', dateTime(x.submittedAt)],
+        ...(x.capture ? [['Date and time of capture', x.capturedAt ? dateTime(x.capturedAt) : 'Not recorded'] as [string, ReactNode]] : []),
         ['Case type', CASE_TYPE_LABEL[caseTypeOf(e)]], ['Escalation reason', x.reason ?? CATEGORY_LABEL[e.category]], ['Supporting evidence', x.evidence.join(', ') || '—'],
       ]} />
       <div aria-label={nysc ? 'NYSC officer’s comment' : 'Clearance officer’s comment'}>

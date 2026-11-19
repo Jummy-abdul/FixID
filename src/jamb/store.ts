@@ -144,6 +144,8 @@ export interface Escalation {
   comparisons?: Comparison[];
   /** The live capture, only when the officer attached it as evidence. */
   capture?: string;
+  /** When the live capture was taken, when known. */
+  capturedAt?: string;
   /** Who referred the case: an institution's clearance officer (default) or NYSC. */
   source?: 'university' | 'nysc';
 }
@@ -920,13 +922,15 @@ export function jambResponse(e: JambException): ExceptionEvent | undefined {
 }
 
 /** The university escalates a discrepancy or an existing clearance to JAMB. Clearance stays pending JAMB's review. */
-export function escalateToJamb(input: { reg: string; officer: Officer; category: ExceptionCategory; reason?: string; comment: string; evidence: string[]; capture?: string }): Result<JambException> {
+export function escalateToJamb(input: { reg: string; officer: Officer; category: ExceptionCategory; reason?: string; comment: string; evidence: string[]; capture?: string; capturedAt?: string }): Result<JambException> {
   const { officer } = input;
   const r = recordOf(input.reg);
   if (!r) return { ok: false, error: 'Student record not found.' };
   if (officer.role !== 'clearance-officer' || r.institution !== officer.institution) return { ok: false, error: 'Only this institution’s clearance officer can escalate the student.' };
   if (r.clearance === 'cleared') return { ok: false, error: 'This student has already been cleared.' };
   if (!input.comment.trim()) return { ok: false, error: 'Describe the issue for JAMB.' };
+  // Evidence the candidate was physically present: required for an existing clearance at another institution.
+  if (input.category === 'duplicate-clearance' && !input.capture) return { ok: false, error: 'Capture the candidate’s face before submitting.' };
   const open = escalationsOf().find((e) => e.reg === r.reg && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(e)));
   if (open) return { ok: false, error: `This student is already escalated (${open.id}).` };
   const at = now();
@@ -946,7 +950,7 @@ export function escalateToJamb(input: { reg: string; officer: Officer; category:
     id, reg: r.reg, institution: r.institution, session: r.session, eventId: eventForSession(r.session).id, category: input.category, summary: summaryFor(input.category),
     raisedAt: at, raisedBy: officer.name, raisedByOrganisation: officer.organisation, status: 'open', evidence, activityRef: r.verificationRef,
     history: [ev(`${id}-1`, at, 'created', officer.name, officer.organisation, undefined, 'open', input.comment.trim())],
-    escalation: { comment: input.comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: r.institution, submittedAt: at, reason: input.reason, evidence: input.evidence, comparisons, capture: input.capture },
+    escalation: { comment: input.comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: r.institution, submittedAt: at, reason: input.reason, evidence: input.evidence, comparisons, capture: input.capture, capturedAt: input.capture ? input.capturedAt ?? at : undefined },
   };
   let state: JambState = { ...current, createdExceptions: [e, ...current.createdExceptions], students: { ...current.students, [r.reg]: { ...current.students[r.reg], verification: 'escalated' } } };
   state = { ...state, activities: [{ ref: id, at, kind: 'university', eventId: e.eventId, officer: officer.name, officerTitle: officer.title, organisation: officer.organisation, institution: r.institution, session: r.session, input: r.reg, reg: r.reg, outcome: 'escalated', exceptionId: id }, ...state.activities] };
@@ -983,12 +987,13 @@ export function caseSubject(reg: string, state: JambState = current): CaseSubjec
  * The university asks JAMB to investigate a missing admission record (Scenario 4). Separate from identity
  * escalations: nothing about the candidate's identity is in question, and no clearance record exists.
  */
-export function raiseAdmissionInquiry(input: { reg: string; session: Session; officer: Officer; reason: string; comment: string }): Result<JambException> {
+export function raiseAdmissionInquiry(input: { reg: string; session: Session; officer: Officer; reason: string; comment: string; capture?: string; capturedAt?: string }): Result<JambException> {
   const { officer } = input;
   const registrant = registrantByReg(input.reg);
   if (!registrant) return { ok: false, error: 'No registrant without an admission record matches this number.' };
   if (officer.role !== 'clearance-officer' || !officer.institution) return { ok: false, error: 'Only an institution’s clearance officer can raise an admission record inquiry.' };
   if (!input.comment.trim()) return { ok: false, error: 'Describe why the admission record should exist.' };
+  if (!input.capture) return { ok: false, error: 'Capture the candidate’s face before submitting.' };
   const open = escalationsOf().find((e) => e.reg === registrant.reg && e.institution === officer.institution && e.session === input.session && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(e)));
   if (open) return { ok: false, error: `An inquiry is already open for this candidate and session (${open.id}).` };
   const at = now();
@@ -999,12 +1004,13 @@ export function raiseAdmissionInquiry(input: { reg: string; session: Session; of
     { label: 'JAMB registration', value: 'Valid', tone: 'good' },
     { label: 'Admission record', value: `Not found for ${inst.name}, ${input.session}`, tone: 'bad' },
     { label: 'Clearance record', value: 'None created' },
+    { label: 'Live capture', value: 'Attached' },
   ];
   const e: JambException = {
     id, reg: registrant.reg, institution: officer.institution, session: input.session, eventId: eventForSession(input.session).id, category: 'admission-inquiry', summary: summaryFor('admission-inquiry'),
     raisedAt: at, raisedBy: officer.name, raisedByOrganisation: officer.organisation, status: 'open', evidence,
     history: [ev(`${id}-1`, at, 'created', officer.name, officer.organisation, undefined, 'open', input.comment.trim())],
-    escalation: { comment: input.comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: officer.institution, submittedAt: at, reason: input.reason, evidence: ['JAMB registration check', 'Admission record check'], comparisons: [] },
+    escalation: { comment: input.comment.trim(), submittedBy: officer.name, submittedByTitle: officer.title, institution: officer.institution, submittedAt: at, reason: input.reason, evidence: ['JAMB registration check', 'Admission record check', 'Live capture'], comparisons: [], capture: input.capture, capturedAt: input.capturedAt ?? at },
   };
   const state: JambState = { ...current, createdExceptions: [e, ...current.createdExceptions] };
   save(audit(state, officer, 'Admission record inquiry raised', { reg: registrant.reg, student: `${registrant.firstName} ${registrant.lastName}`, outcome: CATEGORY_LABEL['admission-inquiry'], reference: id }));

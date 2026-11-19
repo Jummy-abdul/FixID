@@ -123,7 +123,9 @@ describe('university clearance scenarios', () => {
     expect(activitiesFor(C)[0]).toMatchObject({ outcome: 'duplicate-clearance' });
     expect(activitiesFor(C)[0].checks).toBeUndefined();
     expect(confirmClearance(C, uni).ok).toBe(false);
-    const esc = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', reason: 'Student wishes to decline or withdraw the existing admission', comment: 'Existing clearance found.', evidence: ['Previous clearance record'] });
+    // A face capture is required for an existing clearance escalation.
+    expect(escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Existing clearance found.', evidence: [] })).toMatchObject({ ok: false, error: 'Capture the candidate’s face before submitting.' });
+    const esc = escalateToJamb({ capture: '/demo/faces/jamb/s3_jamb.jpg', capturedAt: '2026-11-19T10:00:00.000Z',  reg: C, officer: uni, category: 'duplicate-clearance', reason: 'Student wishes to decline or withdraw the existing admission', comment: 'Existing clearance found.', evidence: ['Previous clearance record'] });
     expect(esc.ok && esc.value.escalation).toMatchObject({ reason: 'Student wishes to decline or withdraw the existing admission', comparisons: [] });
     const [exc] = exceptionsForReg(C);
     expect(exc).toMatchObject({ category: 'duplicate-clearance' });
@@ -133,7 +135,7 @@ describe('university clearance scenarios', () => {
     expect(rejectEscalation(exc.id, jamb, 'Attach the admission letter and escalate again.').ok).toBe(true);
     expect(escalationStatus(exceptionsForReg(C)[0])).toBe('closed');
     expect(recordOf(C)!.blocked).toBe('duplicate-clearance');
-    const again = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Admission letter attached.', evidence: [] });
+    const again = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Admission letter attached.', evidence: [], capture: '/demo/faces/jamb/s3_jamb.jpg', capturedAt: '2026-11-19T10:00:00.000Z' });
     expect(again.ok).toBe(true);
     expect(resolveException(again.ok ? again.value.id : '', jamb, 'release-authorised', 'Previous admission withdrawn by the candidate.').ok).toBe(true);
     expect(recordOf(C)!.blocked).toBeUndefined();
@@ -159,12 +161,13 @@ describe('Scenario 4 and the JAMB case lifecycle', () => {
 
   it('admission record inquiry: JAMB assigns, requests information, the university responds, JAMB records the located admission and closes', () => {
     expect(raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Other', comment: '  ' }).ok).toBe(false);
-    const x = raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Candidate holds an admission offer from this institution', comment: 'Admission letter presented.' });
-    expect(x.ok && x.value).toMatchObject({ category: 'admission-inquiry', institution: 'UNILAG', session: '2025/2026', status: 'open', escalation: { comparisons: [] } });
+    expect(raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Other', comment: 'No capture.' })).toMatchObject({ ok: false, error: 'Capture the candidate’s face before submitting.' });
+    const x = raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Candidate holds an admission offer from this institution', comment: 'Admission letter presented.', capture: '/demo/faces/nysc/nysc_c_nin.jpg', capturedAt: '2026-11-19T10:00:00.000Z' });
+    expect(x.ok && x.value).toMatchObject({ category: 'admission-inquiry', institution: 'UNILAG', session: '2025/2026', status: 'open', escalation: { comparisons: [], comment: 'Admission letter presented.', capture: '/demo/faces/nysc/nysc_c_nin.jpg', capturedAt: '2026-11-19T10:00:00.000Z' } });
     const id = x.ok ? x.value.id : '';
     expect(caseTypeOf(exceptionById(id)!)).toBe('admission-inquiry');
     expect(escalationStatus(exceptionById(id)!)).toBe('open');
-    expect(raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Other', comment: 'again' }).ok).toBe(false);
+    expect(raiseAdmissionInquiry({ reg: D, session: '2025/2026', officer: uni, reason: 'Other', comment: 'again', capture: '/demo/faces/nysc/nysc_c_nin.jpg', capturedAt: '2026-11-19T10:00:00.000Z' }).ok).toBe(false);
     // Only JAMB can manage the case.
     expect(assignCase(id, uni).ok).toBe(false);
     expect(assignCase(id, jamb).ok && exceptionById(id)).toMatchObject({ assignedTo: 'Aisha Danjuma', status: 'in-review', assignedAt: expect.any(String) });
@@ -203,7 +206,7 @@ describe('Scenario 4 and the JAMB case lifecycle', () => {
     expect(resolveException(b.ok ? b.value.id : '', jamb, 'identity-discrepancy-confirmed', 'The examination record shows a different person.').ok).toBe(true);
     expect(recordOf(B)!.blocked).toBe('exam-mismatch');
     recordExistingClearance(C, uni);
-    const c = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Existing clearance found.', evidence: [] });
+    const c = escalateToJamb({ reg: C, officer: uni, category: 'duplicate-clearance', comment: 'Existing clearance found.', evidence: [], capture: '/demo/faces/jamb/s3_jamb.jpg', capturedAt: '2026-11-19T10:00:00.000Z' });
     expect(resolveException(c.ok ? c.value.id : '', jamb, 'next-step-authorised', 'Withdrawal from UNIBEN verified; the candidate may proceed at UNILAG.').ok).toBe(true);
     expect(recordOf(C)!.blocked).toBeUndefined();
     expect(priorClearanceOf(C)).toMatchObject({ reference: 'JCL-UNIBEN-2025-418306' });
@@ -353,7 +356,8 @@ describe('workspaces', () => {
     expect(screen.queryByRole('button', { name: 'Complete Clearance' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Escalate to JAMB' }));
     const drawer = await screen.findByRole('dialog', { name: 'Escalate to JAMB' });
-    expect((within(drawer).getByLabelText(/Description/) as HTMLTextAreaElement).value).toBe('The student’s live captured portrait matches the NIN identity record but differs from the face associated with the JAMB examination verification record. This raises a possible examination identity impersonation concern. Kindly investigate and advise on the appropriate next steps.');
+    expect((within(drawer).getByLabelText(/Description/) as HTMLTextAreaElement).value).toBe('');
+    await user.type(within(drawer).getByLabelText(/Description/), 'Live capture matches NIN but not the JAMB examination record.');
     await user.click(within(drawer).getByRole('button', { name: 'Submit escalation' }));
     expect(await screen.findByRole('heading', { name: 'Escalated to JAMB' })).toBeInTheDocument();
     expect(recordOf(B)!.verification).toBe('escalated');
@@ -369,8 +373,16 @@ describe('workspaces', () => {
     await user.click(screen.getByRole('button', { name: 'Escalate to JAMB' }));
     const drawer = await screen.findByRole('dialog', { name: 'Escalate to JAMB' });
     await user.selectOptions(within(drawer).getByLabelText(/Escalation reason/), 'Student wishes to proceed with another institution');
+    expect((within(drawer).getByLabelText(/Description/) as HTMLTextAreaElement).value).toBe('');
+    await user.type(within(drawer).getByLabelText(/Description/), 'Candidate says she withdrew from UNIBEN in December.');
+    // Without a face capture the escalation is refused.
+    await user.click(within(drawer).getByRole('button', { name: 'Submit escalation' }));
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('Capture the candidate’s face before submitting.');
+    await user.click(within(drawer).getByRole('button', { name: 'Capture Face' }));
+    expect(await within(drawer).findByText(/^Captured /, {}, { timeout: 4000 })).toBeInTheDocument();
     await user.click(within(drawer).getByRole('button', { name: 'Submit escalation' }));
     await waitFor(() => expect(escalationFor(C)?.escalation?.reason).toBe('Student wishes to proceed with another institution'));
+    expect(escalationFor(C)?.escalation).toMatchObject({ comment: 'Candidate says she withdrew from UNIBEN in December.', capture: expect.any(String), capturedAt: expect.any(String) });
     expect(document.body.textContent).not.toMatch(/matriculat(ed|ion status|ion number)/i);
   }, 15000);
 

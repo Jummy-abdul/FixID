@@ -12,9 +12,9 @@ import { cn } from '@/lib/cn';
 import { ACTIVE_ADMISSION_EVENT, ACTIVE_SESSION, EVENTS, SESSIONS, UNILAG, eventById, institutionByCode, sessionSlug, type Session, type StudentRecord } from './data';
 import { CertificatePage } from './certificate';
 import { StudentJourney } from './journey';
-import { demoFace, ninPortrait, jambPortraitLabel } from './portraits';
+import { demoFace, ninPortrait, jambPortraitLabel, registrantPortrait } from './portraits';
 import { REGISTRANTS, SCENARIO_CANDIDATES, type Registrant } from './scenarios';
-import { EscalationDrawer, EscalationStatusBadge, EscalationStatusPanel, IdentityComparison, UniversityCasePage, lastUpdated } from './escalations';
+import { CaptureStep, EscalationDrawer, EscalationStatusBadge, EscalationStatusPanel, IdentityComparison, UniversityCasePage, lastUpdated, type FormCapture } from './escalations';
 import {
   confirmClearance, countsOf, exceptionsOf, institutionActivities, lookupForClearance, priorClearanceOf, recordOf, recordUniversityVerification,
   recordsOf, useJambState, type Activity,
@@ -316,12 +316,14 @@ function AdmissionNotFound({ registrant: g, session, onAnotherSession }: { regis
   const toast = useToast();
   const [inquiring, setInquiring] = useState(false);
   const [reason, setReason] = useState(INQUIRY_REASONS[0]);
-  const [comment, setComment] = useState(`The candidate presented for admission clearance at ${UNILAG.name} for the ${session} admission session. The JAMB registration is valid, but no admission record was returned for this institution and session. Kindly confirm whether an admission record exists.`);
+  // Blank: JAMB receives the officer's own explanation.
+  const [comment, setComment] = useState('');
+  const [taken, setTaken] = useState<FormCapture | null>(null);
   const [error, setError] = useState('');
   const inquiry = escalationsOf(state).find((e) => e.reg === g.reg && e.institution === UNILAG.code && e.session === session);
   const open = inquiry && ['open', 'in-review', 'awaiting-information'].includes(escalationStatus(inquiry));
   const submit = () => {
-    const r = raiseAdmissionInquiry({ reg: g.reg, session, officer, reason, comment });
+    const r = raiseAdmissionInquiry({ reg: g.reg, session, officer, reason, comment, capture: taken?.url, capturedAt: taken?.at });
     if (!r.ok) { setError(r.error); return; }
     toast({ tone: 'success', title: 'Admission record inquiry sent to JAMB', description: r.value.id });
     setInquiring(false);
@@ -339,11 +341,14 @@ function AdmissionNotFound({ registrant: g, session, onAnotherSession }: { regis
         <div><h2 className="text-base font-semibold">Admission Record Not Found</h2><p className="text-sm">The candidate’s JAMB registration details are valid, but no admission offer was found for this institution and admission session. Institutional clearance cannot proceed.</p></div>
       </div>
       <div className="space-y-4 px-6 py-5">
-        <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Candidate">
+        <div className="flex flex-col gap-5 sm:flex-row">
+        <figure className="w-24 shrink-0"><FaceImage src={registrantPortrait(g.reg)} label={`JAMB registration portrait: ${g.firstName} ${g.lastName}`} className="aspect-[4/5] h-auto w-full" /><figcaption className="mt-1 text-center text-[11px] leading-tight text-slate-500">JAMB registration portrait</figcaption></figure>
+        <dl className="grid flex-1 content-start gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Candidate">
           {([['Full name', `${g.firstName} ${g.middleName} ${g.lastName}`], ['JAMB Registration Number', <span className="font-mono">{g.reg}</span>], ['JAMB registration validity', 'Valid'], ['Institution being checked', UNILAG.name], ['Admission session', session]] as [string, ReactNode][]).map(([k, v]) => (
             <div key={k}><dt className="text-slate-500">{k}</dt><dd className="mt-0.5 font-medium text-slate-900">{v}</dd></div>
           ))}
         </dl>
+        </div>
         <dl className="grid gap-3 sm:grid-cols-2" aria-label="Admission check status">{tile('JAMB Registration', 'Valid', true)}{tile('Admission Record', 'Not Found', false)}</dl>
         <p className="text-xs text-slate-500">No face capture is performed and no clearance record is created. This result covers only {UNILAG.name}, {session} admission session; it does not establish whether the candidate holds an admission elsewhere.</p>
         {inquiry && (
@@ -356,7 +361,7 @@ function AdmissionNotFound({ registrant: g, session, onAnotherSession }: { regis
       <div className="flex flex-wrap gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
         <ButtonLink to={`/clearance/events/${ACTIVE_ADMISSION_EVENT.id}`} variant="secondary">Return to Student List</ButtonLink>
         <Button variant="secondary" onClick={onAnotherSession}>Check Another Admission Session</Button>
-        {!open && <Button icon={<Send className="h-4 w-4" />} onClick={() => { setError(''); setInquiring(true); }}>Raise Admission Record Inquiry</Button>}
+        {!open && <Button icon={<Send className="h-4 w-4" />} onClick={() => { setError(''); setComment(''); setTaken(null); setInquiring(true); }}>Raise Admission Record Inquiry</Button>}
       </div>
       {inquiring && (
         <Drawer open onClose={() => setInquiring(false)} title="Raise Admission Record Inquiry" description="JAMB investigates whether an admission record exists. This is not an identity escalation."
@@ -369,7 +374,8 @@ function AdmissionNotFound({ registrant: g, session, onAnotherSession }: { regis
               ))}
             </dl>
             <Field label="Reason" required>{(p) => <Select {...p} value={reason} onChange={(e) => setReason(e.target.value)}>{INQUIRY_REASONS.map((x) => <option key={x}>{x}</option>)}</Select>}</Field>
-            <Field label="Comment" required>{(p) => <Textarea {...p} rows={5} value={comment} onChange={(e) => { setComment(e.target.value); setError(''); }} />}</Field>
+            <Field label="Description" required>{(p) => <Textarea {...p} rows={5} value={comment} placeholder="Explain why the admission record should exist, in your own words" onChange={(e) => { setComment(e.target.value); setError(''); }} />}</Field>
+            <CaptureStep image={registrantPortrait(g.reg)} subject={`${g.firstName} ${g.lastName}`} captured={taken} onCaptured={(c) => { setTaken(c); setError(''); }} />
           </div>
         </Drawer>
       )}

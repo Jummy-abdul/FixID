@@ -93,3 +93,10 @@ export function clearanceReferenceImage(r: Pick<StudentRecord, 'reg' | 'clearanc
   const set = faceSet(r.reg);
   return set ? facePath(set, 'reference') ?? facePath(set, 'live') : undefined;
 }
+
+/**
+ * The Scenario 4 registrant (valid JAMB registration, no admission record). Reuses an existing demo image that no
+ * other screen displays; the simulated capture shows the same person.
+ */
+const REGISTRANT_FACES: Record<string, string> = { '20250190104KE': '/demo/faces/nysc/nysc_c_nin.jpg' };
+export const registrantPortrait = (reg: string): string | undefined => REGISTRANT_FACES[reg.trim().toUpperCase()];
