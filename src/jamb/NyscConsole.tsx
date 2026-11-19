@@ -148,17 +148,16 @@ function VerifyCandidatePage() {
       {step === 2 && record && !result && (
         <Card className="px-5 py-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-            <div className="flex items-center gap-3"><Portrait record={record} className="h-14 w-12" /><p className="text-sm text-slate-600"><span className="block font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span><span className="font-mono">{record.reg}</span></p></div>
+            <div><p className="text-sm text-slate-600"><span className="block font-semibold text-slate-900">{record.firstName} {record.middleName} {record.lastName}</span><span className="font-mono">{record.reg}</span></p></div>
             <Button size="sm" variant="ghost" disabled={verifying} onClick={() => { setStep(1); setCapture(null); }}>Change candidate</Button>
           </div>
-          <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row sm:items-start sm:justify-center">
+          <div className="mt-4 flex justify-center">
             <div>
               <h2 className="mb-2 text-center text-sm font-semibold text-slate-900">Capture the candidate’s face</h2>
               <SimulatedCapture image={demoFace(record)} subject={`${record.firstName} ${record.lastName}`} instruction="Position the candidate’s face within the frame" captured={capture?.url ?? null}
                 onCaptured={(url) => { const c = { url, mode: 'demo' as const }; setCapture(c); verify(c); }}
                 status={verifying ? <p role="status" className="flex items-center gap-2 text-sm font-medium text-slate-700"><Loader2 className="h-4 w-4 animate-spin text-emerald-700" aria-hidden="true" />Verifying candidate…</p> : null} />
             </div>
-            <figure className="hidden w-36 sm:block"><Portrait record={record} className="h-44 w-full" /><figcaption className="mt-1 text-center text-xs text-slate-500">{jambPortraitLabel(record)}</figcaption></figure>
           </div>
         </Card>
       )}
