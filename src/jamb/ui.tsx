@@ -52,7 +52,7 @@ export function useOfficer(): Officer {
  * JAMB branding and the role's navigation), a header naming the organisation and role, and the account menu.
  * Chrome is hidden when printing.
  */
-export function ConsoleLayout({ nav, organisation, mark, children }: { nav: NavGroup[]; organisation: { name: string; role: string }; mark?: ReactNode; children: ReactNode }) {
+export function ConsoleLayout({ nav, organisation, mark, children, hideEnvironmentLabel, user }: { nav: NavGroup[]; organisation: { name: string; role: string }; mark?: ReactNode; children: ReactNode; hideEnvironmentLabel?: boolean; user?: { name: string; title: string; organisation: string } }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo?.(0, 0); }, [pathname]);
@@ -65,7 +65,7 @@ export function ConsoleLayout({ nav, organisation, mark, children }: { nav: NavG
       </div>
     </div>
   );
-  const footer = <p className="px-5 pb-4 text-[11px] text-slate-500"><span className="rounded-full bg-white/5 px-2 py-0.5">Demo environment</span></p>;
+  const footer = hideEnvironmentLabel ? null : <p className="px-5 pb-4 text-[11px] text-slate-500"><span className="rounded-full bg-white/5 px-2 py-0.5">Demo environment</span></p>;
   return (
     <div className="min-h-screen bg-slate-50">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block print:hidden"><SidebarNav groups={nav} brand={brand} footer={footer} /></aside>
@@ -88,7 +88,7 @@ export function ConsoleLayout({ nav, organisation, mark, children }: { nav: NavG
               <p className="truncate text-xs text-slate-500">{organisation.role}</p>
             </div>
           </div>
-          <div className="ml-auto"><AccountMenu /></div>
+          <div className="ml-auto"><AccountMenu user={user} /></div>
         </header>
         <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:max-w-none print:p-0">{children}</main>
       </div>
@@ -97,9 +97,11 @@ export function ConsoleLayout({ nav, organisation, mark, children }: { nav: NavG
 }
 
 /** The signed-in officer's menu (same pattern as FixID's account menu). */
-function AccountMenu() {
+function AccountMenu({ user }: { user?: { name: string; title: string; organisation: string } }) {
   const { account, signOut } = useAuth();
-  const officer = useOfficer();
+  const jambOfficer = useOfficer();
+  // Workspaces outside the JAMB console data name their own signed-in user.
+  const officer = user ?? jambOfficer;
   const navigate = useNavigate();
   const { open, toggle, close, containerRef, triggerRef } = usePopover();
   const menuRef = useRef<HTMLDivElement>(null);

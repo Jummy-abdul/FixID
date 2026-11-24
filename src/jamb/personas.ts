@@ -3,7 +3,7 @@
  * open their own workspace instead of an organization workspace, so no existing account, organization or
  * permission is affected. Fictional people; demo builds only.
  */
-export type ConsoleRole = 'jamb-officer' | 'clearance-officer' | 'nysc-officer';
+export type ConsoleRole = 'jamb-officer' | 'clearance-officer' | 'nysc-officer' | 'iiv-admin' | 'iiv-officer';
 
 export interface ConsolePersona {
   accountId: string;
@@ -40,4 +40,4 @@ export const JAMB_PERSONAS: ConsolePersona[] = [
   },
 ];
 
-export const consoleHome = (role: ConsoleRole) => (role === 'jamb-officer' ? '/jamb' : role === 'nysc-officer' ? '/nysc' : '/clearance');
+export const consoleHome = (role: ConsoleRole) => (role === 'jamb-officer' ? '/jamb' : role === 'nysc-officer' ? '/nysc' : role === 'iiv-admin' ? '/admin' : role === 'iiv-officer' ? '/institution' : '/clearance');

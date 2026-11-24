@@ -52,6 +52,8 @@ import { RequireConsole } from './jamb/ui';
 const JambConsole = lazy(() => import('./jamb/JambConsole').then((m) => ({ default: m.JambConsole })));
 const ClearanceConsole = lazy(() => import('./jamb/ClearanceConsole').then((m) => ({ default: m.ClearanceConsole })));
 const NyscConsole = lazy(() => import('./jamb/NyscConsole').then((m) => ({ default: m.NyscConsole })));
+const IivAdminConsole = lazy(() => import('./iiv/AdminConsole').then((m) => ({ default: m.AdminConsole })));
+const IivInstitutionConsole = lazy(() => import('./iiv/InstitutionConsole').then((m) => ({ default: m.InstitutionConsole })));
 const PublicVerificationPage = lazy(() => import('./jamb/certificate').then((m) => ({ default: m.PublicVerificationPage })));
 
 /** Redirect a renamed route, keeping the `:id` param and query string (e.g. dashboard filters). */
@@ -113,6 +115,9 @@ export function AppRoutes() {
       <Route path="clearance/*" element={<RequireConsole role="clearance-officer"><Suspense fallback={null}><ClearanceConsole /></Suspense></RequireConsole>} />
       <Route path="nysc/*" element={<RequireConsole role="nysc-officer"><Suspense fallback={null}><NyscConsole /></Suspense></RequireConsole>} />
       <Route path="verify-clearance/:ref" element={<Suspense fallback={null}><PublicVerificationPage /></Suspense>} />
+      {/* JAMB Institutional Identity Verification: the JAMB administrator and institution officer portals. */}
+      <Route path="admin/*" element={<RequireConsole role="iiv-admin"><Suspense fallback={null}><IivAdminConsole /></Suspense></RequireConsole>} />
+      <Route path="institution/*" element={<RequireConsole role="iiv-officer"><Suspense fallback={null}><IivInstitutionConsole /></Suspense></RequireConsole>} />
       <Route element={<RequireOnboarding />}>
         <Route path="onboarding/personal" element={<OnboardingPersonalPage />} />
         <Route path="onboarding/organization" element={<OnboardingOrganizationPage />} />

@@ -7,6 +7,7 @@
 
 import { DEMO_PERSONAS, SAMPLE_WORKSPACE_PERSONAS, type DemoPersona } from '@/data/demoPersonas';
 import { JAMB_PERSONAS } from '@/jamb/personas';
+import { IIV_PERSONAS } from '@/iiv/personas';
 
 /** Demo mode is on unless explicitly disabled at build time (VITE_DEMO_AUTH=off). */
 export const DEMO_AUTH_ENABLED = import.meta.env.VITE_DEMO_AUTH !== 'off';
@@ -127,7 +128,7 @@ export const DEMO_PERSONA_ACCOUNTS: Account[] = DEMO_PERSONAS.map(personaAccount
  * shared-activity behaviour); never in a demo or production build.
  */
 /** The JAMB demo console accounts (demo builds only). */
-export const JAMB_DEMO_ACCOUNTS: Account[] = JAMB_PERSONAS.map((p) => ({
+export const JAMB_DEMO_ACCOUNTS: Account[] = [...JAMB_PERSONAS, ...IIV_PERSONAS].map((p) => ({
   id: p.accountId, email: p.email, password: DEMO_ACCOUNT.password, emailVerified: true, firstName: p.firstName, lastName: p.lastName,
   onboarding: 'complete', createdAt: DEMO_ACCOUNT.createdAt, consoleRole: p.consoleRole,
 }));

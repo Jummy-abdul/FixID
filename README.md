@@ -928,3 +928,16 @@ Templates are rendered by one component (`src/components/credentials/CredentialC
 - **M1: Product foundation** (current). Layout, navigation, dashboard, all route destinations, component system, connected data model, persistence, simulated organization context.
 - M2: Guided "Add person & issue" journey (ID Switch resolution → link → minimal context → credential), issue additional credential, credential type editor.
 - Later: credential lifecycle actions, card design editor, verification activity builder, verifier simulator, exports.
+
+## JAMB Institutional Identity Verification
+
+A separate experience with its own accounts and data (`src/iiv/`, stored under `fixid.iiv.v1`); the JAMB, university clearance and NYSC consoles are unchanged.
+
+| Account | Email | Opens |
+| --- | --- | --- |
+| JAMB Administrator (Halima Abubakar) | `jamb.admin@jamb-demo.example` | `/admin`: dashboard, Institutions (add, invite, activate/deactivate, officers, activity), Verification Events (draft, publish, close), Verification Records (evidence), Identity Record Enrollment |
+| Institution Clearance Officer (Adebola Ogunyemi, University of Ibadan) | `clearance.officer@ui-demo.example` | `/institution`: dashboard, Verify Candidate (event → registration number → face or fingerprint → NIN and JAMB checks → result → submit), Verification History |
+
+Identity record enrollment is at `/admin/identity-records` (JAMB Administrator only): manual entry, photographs uploaded or chosen from the photo library, fingerprint reference (scan or upload), search, update and CSV batch import.
+
+Enrolled candidates for the 2025/2026 event at the University of Ibadan: `20250110421NE` Ngozi Amarachi Eze (Identity Verified), `20250110436MD` Musa Ibrahim Danladi and `20250110452HS` Hauwa Aliyu Sani (Identity Discrepancy: the person presenting matches the NIN record, not the JAMB record).
